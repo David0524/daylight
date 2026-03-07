@@ -1435,7 +1435,12 @@ const PAYWALL_SIGNALS = [
 async function fetchArticle(url) {
   const loadingSub = document.getElementById("loadingSub");
 
-  for (const method of FETCH_METHODS) {
+  // Reuters blocks most proxies — prepend Wayback as best option
+  const methods = url.includes("reuters.com")
+    ? [FETCH_METHODS[2], ...FETCH_METHODS.filter((_,i) => i !== 2)]
+    : FETCH_METHODS;
+
+  for (const method of methods) {
     loadingSub.textContent = `Trying ${method.name}…`;
     logMethod(method.name, "pending", "Connecting…");
 
@@ -1479,6 +1484,8 @@ async function startRead(rawUrl, addToHistory = true) {
   if (!url.startsWith("http")) url = "https://" + url;
   // Normalize known redirect subdomains
   url = url.replace(/^https?:\/\/edition\.cnn\.com/, "https://www.cnn.com")
+           .replace(/^https?:\/\/feeds\.reuters\.com/, "https://www.reuters.com")
+           .replace(/^https?:\/\/m\.reuters\.com/, "https://www.reuters.com")
            .replace(/^https?:\/\/m\./, "https://www.")
            .replace(/^https?:\/\/amp\./, "https://");
 
@@ -1512,17 +1519,32 @@ async function startRead(rawUrl, addToHistory = true) {
 
 // ── Input / button handlers ───────────────────────────────────────────────────
 
-shareBtn.addEventListener("click", () => {
+shareBtn.addEventListener("click", async () => {
   const url = state.article?.url || urlInput.value;
   if (!url) return;
+  const title = state.article?.headline || document.title || "Article";
+  const flash = (txt) => {
+    const orig = shareBtn.textContent;
+    shareBtn.textContent = txt;
+    setTimeout(() => { shareBtn.textContent = orig; }, 1800);
+  };
+  // Try Web Share API first (shows iOS share sheet)
   if (navigator.share) {
-    navigator.share({ title: state.article?.headline || "Article", url }).catch(() => {});
-  } else {
-    navigator.clipboard.writeText(url).then(() => {
-      const orig = shareBtn.textContent;
-      shareBtn.textContent = "✓";
-      setTimeout(() => { shareBtn.textContent = orig; }, 1500);
-    }).catch(() => {});
+    try {
+      await navigator.share({ title, url });
+      return;
+    } catch (e) {
+      if (e.name === "AbortError") return; // user cancelled — not an error
+      // fall through to clipboard
+    }
+  }
+  // Fallback: copy to clipboard
+  try {
+    await navigator.clipboard.writeText(url);
+    flash("✓ Copied");
+  } catch {
+    // Last resort: prompt
+    window.prompt("Copy this link:", url);
   }
 });
 
