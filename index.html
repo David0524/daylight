@@ -66,6 +66,10 @@ transition: background 0.3s;
 
 body.dim { background: var(–shell, #0D1821); background-color: #0D1821; }
 body.dark { background: var(–shell, #111); background-color: #111; }
+body.dim .phone { background: #15202B; }
+body.dark .phone { background: #1A1A1A; }
+body.dim .header, body.dim .status-bar, body.dim .bottom-nav { background: #15202B; border-color: #253341; }
+body.dark .header, body.dark .status-bar, body.dark .bottom-nav { background: #1A1A1A; border-color: #2E2E2E; }
 
 .phone {
 width: 390px;
@@ -379,6 +383,19 @@ color: #8A6020; line-height: 1.5;
 body.dark .warn-banner { background: #2A2410; border-color: #5A4010; color: #C9974A; }
 body.dim .warn-banner { background: #1A2A3A; border-color: #253341; color: #E2B96F; }
 
+/* Bottom nav */
+.bottom-nav {
+display: flex; align-items: center; justify-content: space-around;
+padding: 10px 16px; padding-bottom: max(10px, env(safe-area-inset-bottom, 10px));
+border-top: 1px solid var(–border); background: var(–bg);
+flex-shrink: 0; transition: background 0.3s, border-color 0.3s; gap: 4px;
+}
+.bottom-nav .icon-btn { flex: 1; display: flex; align-items: center; justify-content: center; padding: 8px 4px; font-size: 20px; border-radius: 10px; min-width: 0; }
+.bottom-nav .icon-btn:active { background: var(–border); }
+.bottom-nav-font { flex: 1; display: flex; align-items: center; justify-content: center; padding: 8px 4px; border-radius: 10px; background: var(–input-bg); color: var(–text); font-family: “DM Mono”, monospace; font-size: 12px; font-weight: 500; cursor: pointer; border: none; min-width: 0; }
+.bottom-nav-font:active { opacity: 0.7; }
+.bottom-nav-sep { width: 1px; height: 22px; background: var(–border); flex-shrink: 0; }
+
 /* Animations */
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
@@ -395,24 +412,13 @@ body.dim .warn-banner { background: #1A2A3A; border-color: #253341; color: #E2B9
 
   <div class="status-bar">
     <span class="status-time" id="clockEl"></span>
-    <div class="status-icons">
-      <button class="icon-btn" id="darkToggle" title="Toggle theme">☀️</button>
-    </div>
+    <span class="logo" id="logoBtn">Daylight</span>
+    <button class="icon-btn" id="shareBtn" title="Share article" style="display:none;font-size:17px">↗</button>
   </div>
 
-  <!-- Header -->
+  <!-- Header — url bar only -->
 
   <div class="header">
-    <div class="header-top">
-      <button class="icon-btn" id="backBtn" disabled title="Back" style="font-size:20px">‹</button>
-      <button class="icon-btn" id="fwdBtn" disabled title="Forward" style="font-size:20px">›</button>
-      <span class="logo">Daylight</span>
-      <button class="icon-btn" id="shareBtn" title="Share article" style="display:none;font-size:17px">↗</button>
-      <div class="font-btns" id="fontBtns" style="display:none">
-        <button class="font-btn" id="fontDn" style="font-size:12px">A−</button>
-        <button class="font-btn" id="fontUp" style="font-size:14px">A+</button>
-      </div>
-    </div>
     <div class="url-bar">
       <input class="url-input" id="urlInput" placeholder="Paste any article URL…" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
       <button class="read-btn" id="readBtn">READ</button>
@@ -476,6 +482,19 @@ body.dim .warn-banner { background: #1A2A3A; border-color: #253341; color: #E2B9
 ```
 
   </div>
+
+  <!-- Bottom nav -->
+
+  <div class="bottom-nav">
+    <button class="icon-btn" id="backBtn" disabled title="Back">‹</button>
+    <button class="icon-btn" id="fwdBtn" disabled title="Forward">›</button>
+    <div class="bottom-nav-sep"></div>
+    <button class="bottom-nav-font" id="fontDn">A−</button>
+    <button class="bottom-nav-font" id="fontUp">A+</button>
+    <div class="bottom-nav-sep"></div>
+    <button class="icon-btn" id="darkToggle" title="Toggle theme">☀️</button>
+  </div>
+
 </div>
 
 <script>
@@ -501,11 +520,12 @@ let state = {
 const phone       = document.getElementById("phone");
 const clockEl     = document.getElementById("clockEl");
 const darkToggle  = document.getElementById("darkToggle");
+const logoBtn     = document.getElementById("logoBtn");
 const backBtn     = document.getElementById("backBtn");
 const fwdBtn      = document.getElementById("fwdBtn");
 const urlInput    = document.getElementById("urlInput");
 const readBtn     = document.getElementById("readBtn");
-const fontBtns    = document.getElementById("fontBtns");
+const fontBtns    = null; // moved to bottom nav
 const shareBtn    = document.getElementById("shareBtn");
 const fontDn      = document.getElementById("fontDn");
 const fontUp      = document.getElementById("fontUp");
@@ -562,7 +582,7 @@ function applyFontSize() {
 function showView(name) {
   state.view = name;
   Object.entries(views).forEach(([k, el]) => el.style.display = k === name ? "block" : "none");
-  fontBtns.style.display = name === "reader" ? "flex" : "none";
+  // fontBtns: name === "reader" ? "flex" : "none";
   shareBtn.style.display = (name === "reader") ? "inline-flex" : "none";
   scrollArea.scrollTop = 0;
   progressFill.style.width = "0%";
@@ -1083,6 +1103,8 @@ function renderFeed(catMap) {
 }
 
 // Single delegated click listener attached once — never stacks on re-render
+if (logoBtn) logoBtn.addEventListener("click", () => { showView("idle"); scrollArea.scrollTop = 0; });
+
 document.getElementById("feedContent").addEventListener("click", e => {
   const card = e.target.closest("[data-idx]");
   if (!card) return;
