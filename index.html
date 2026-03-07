@@ -48,15 +48,24 @@ body.dark {
 –shell: #111;
 }
 
+html, body {
+height: 100%;
+background-color: #E0D5BE; /* fallback for –shell */
+}
+
 body {
 font-family: ‘Source Serif 4’, Georgia, serif;
-background: var(–shell);
+background: var(–shell, #E0D5BE);
 min-height: 100vh;
+min-height: 100dvh;
 display: flex;
 align-items: center;
 justify-content: center;
 transition: background 0.3s;
 }
+
+body.dim { background: var(–shell, #0D1821); background-color: #0D1821; }
+body.dark { background: var(–shell, #111); background-color: #111; }
 
 .phone {
 width: 390px;
@@ -65,21 +74,27 @@ border-radius: 44px;
 overflow: hidden;
 position: relative;
 box-shadow: 0 50px 100px rgba(0,0,0,0.3), 0 0 0 1px rgba(0,0,0,0.08), inset 0 0 0 1px rgba(255,255,255,0.1);
-background: var(–bg);
+background-color: #F5EFE0; /* fallback for –bg */
+background: var(–bg, #F5EFE0);
 display: flex;
 flex-direction: column;
 transition: background 0.3s;
 }
 
 @media (max-width: 768px) {
-body { align-items: flex-start; background: var(–bg); }
-.phone { width: 100vw; height: 100dvh; border-radius: 0; box-shadow: none; }
+html { background-color: #F5EFE0; }
+body { align-items: flex-start; background: var(–bg, #F5EFE0); background-color: #F5EFE0; }
+body.dim { background-color: #15202B; }
+body.dark { background-color: #1A1A1A; }
+.phone { width: 100vw; height: 100%; min-height: 100dvh; border-radius: 0; box-shadow: none; }
+.status-bar { padding-top: env(safe-area-inset-top, 14px); height: calc(44px + env(safe-area-inset-top, 0px)); }
+.scroll-area { padding-bottom: env(safe-area-inset-bottom, 16px); }
 }
-/* Installed PWA — full screen, respect safe areas for notch/Dynamic Island */
+/* Installed PWA — same safe area rules */
 @media (display-mode: standalone) {
 .phone { width: 100vw; height: 100dvh; border-radius: 0; box-shadow: none; }
 body { align-items: flex-start; background: var(–bg); }
-.status-bar { padding-top: env(safe-area-inset-top, 12px); height: calc(44px + env(safe-area-inset-top, 0px)); }
+.status-bar { padding-top: env(safe-area-inset-top, 14px); height: calc(44px + env(safe-area-inset-top, 0px)); }
 .scroll-area { padding-bottom: env(safe-area-inset-bottom, 16px); }
 }
 
@@ -1152,17 +1167,6 @@ async function loadFeed() {
       new Promise((_, rej) => setTimeout(() => rej(), 15000))
     ]))
   );
-
-  // DEBUG: show which sources succeeded/failed
-  const debugLines = LIVE_SOURCES.map((src, i) => {
-    const r = results[i];
-    const ok = r.status === "fulfilled" && r.value?.length;
-    return `${ok ? "✓" : "✗"} ${src.cat} (${r.status === "fulfilled" ? (r.value?.length || 0) + " items" : r.reason?.message || "failed"})`;
-  });
-  console.log("Feed sources:\n" + debugLines.join("\n"));
-  // Show in feed briefly
-  const debugEl = document.getElementById("feedContent");
-  if (debugEl) debugEl.innerHTML = `<div style="font-family:monospace;font-size:11px;padding:12px;color:#aaa;white-space:pre">${debugLines.join("\n")}</div>`;
 
   const catMap = {};
   LIVE_SOURCES.forEach((src, i) => {
