@@ -411,7 +411,6 @@ flex-shrink: 0; transition: background 0.3s, border-color 0.3s; gap: 4px;
   <!-- Status bar -->
 
   <div class="status-bar">
-    <span class="status-time" id="clockEl"></span>
     <span class="logo" id="logoBtn">Daylight</span>
     <button class="icon-btn" id="shareBtn" title="Share article" style="display:none;font-size:17px">↗</button>
   </div>
@@ -518,7 +517,6 @@ let state = {
 // ── DOM refs ─────────────────────────────────────────────────────────────────
 
 const phone       = document.getElementById("phone");
-const clockEl     = document.getElementById("clockEl");
 const darkToggle  = document.getElementById("darkToggle");
 const logoBtn     = document.getElementById("logoBtn");
 const backBtn     = document.getElementById("backBtn");
@@ -541,11 +539,6 @@ const views = {
 
 // ── Clock ────────────────────────────────────────────────────────────────────
 
-function updateClock() {
-  clockEl.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
-updateClock();
-setInterval(updateClock, 10000);
 
 // ── Progress bar ─────────────────────────────────────────────────────────────
 
