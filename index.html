@@ -78,6 +78,7 @@ body.dark .card-source, body.dark .card-meta, body.dark .feed-section,
 body.dark .url-input, body.dark .bottom-nav-font { color: #E8E4DC; }
 body.dim .icon-btn, body.dim .read-btn { color: #F7F9F9; }
 body.dark .icon-btn, body.dark .read-btn { color: #E8E4DC; }
+body.dim .read-btn, body.dark .read-btn { color: #1C1917 !important; }
 body.dim .card-hero, body.dim .card-mini { background: #1E2732; }
 body.dark .card-hero, body.dark .card-mini { background: #232320; }
 body.dim .url-input { background: #253341; }
@@ -185,7 +186,7 @@ color: var(–text); width: 100%; min-width: 0;
 .read-btn {
 background: linear-gradient(135deg, var(–gold), var(–gold2));
 border: none; border-radius: 9px; cursor: pointer;
-color: #fff; font-size: 11px; font-weight: 600;
+color: #1C1917; font-size: 11px; font-weight: 700;
 padding: 6px 11px; font-family: ‘DM Mono’, monospace;
 letter-spacing: 0.5px; white-space: nowrap; flex-shrink: 0;
 transition: opacity 0.2s, transform 0.15s;
@@ -790,6 +791,12 @@ const BLOCKED_DOMAINS = new Set([
   "oddshot.tv","plays.tv","outplayed.tv","highlights.ph",
   "bleacherreport.com",
   "bsky.app","bsky.social","staging.bsky.app",
+  // Streaming / highlight link farms
+  "streamin.link","streamin.me","streamin.to","stream.live","streameast.live",
+  "sportsurge.net","crackstreams.com","crackstreams.is","buffstream.io",
+  "sportsbay.tv","livetv.sx","bosscast.net","mystreams.live",
+  "highlightstore.me","dailymotion.com","rumble.com","bitchute.com",
+  "sportstream.live","streamhub.to","sportfire.tv","sport365.live",
 ]);
 
 // File extensions that are never articles
@@ -802,7 +809,9 @@ function isArticleUrl(url) {
   try {
     const u = new URL(url);
     const host = u.hostname.replace(/^www\./, "");
+    // Exact match OR subdomain match (e.g. l.threads.net, clips.twitch.tv)
     if (BLOCKED_DOMAINS.has(host)) return false;
+    if ([...BLOCKED_DOMAINS].some(d => host.endsWith("." + d))) return false;
     // Block by file extension
     const ext = u.pathname.split(".").pop().toLowerCase().split("?")[0];
     if (MEDIA_EXTENSIONS.has(ext)) return false;
@@ -1016,13 +1025,16 @@ const LIVE_SOURCES = [
         if (!j.contents) return [];
         const parser = new DOMParser();
         const xml = parser.parseFromString(j.contents, "text/xml");
-        return Array.from(xml.querySelectorAll("item")).slice(0, 2).map(item => {
+        const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000; // 30 days
+        return Array.from(xml.querySelectorAll("item")).slice(0, 5).map(item => {
           const title   = item.querySelector("title")?.textContent?.replace(/<!\[CDATA\[|\]\]>/g,"").trim() || "";
           const link    = item.querySelector("link")?.textContent?.trim() || "";
           const pubDate = item.querySelector("pubDate")?.textContent?.trim() || "";
           const enclosure = item.querySelector("enclosure");
           const image   = enclosure?.getAttribute("url") || "";
           if (!title || !link.startsWith("http")) return null;
+          const pub = pubDate ? new Date(pubDate) : null;
+          if (pub && pub.getTime() < cutoff) return null; // skip stale posts
           return {
             title, link, desc: "", image,
             pubDate: pubDate ? new Date(pubDate).toISOString() : "",
@@ -1674,13 +1686,23 @@ function renderReader(article) {
     `;
   }
 
+  const pill = article.metaOnly
+    ? `<div class="reader-meta-pill" style="background:var(--input-bg);color:var(--sub)">⚠ Preview only — full text unavailable</div>`
+    : article.openVersionNote
+    ? `<div class="reader-meta-pill" style="background:var(--input-bg);color:var(--sub)">↗ ${escHtml(article.openVersionNote)}</div>`
+    : article.viaRss && article.rssNote
+    ? `<div class="reader-meta-pill" style="background:var(--input-bg);color:var(--sub)">📡 ${escHtml(article.rssNote)}</div>`
+    : article.viaRss
+    ? `<div class="reader-meta-pill"><span style="color:var(--green)">✓</span> Via RSS feed</div>`
+    : `<div class="reader-meta-pill"><span style="color:var(--green)">✓</span> Extracted</div>`;
+
   html += `<div class="reader-body">
-    <div class="reader-meta-pill"><span style="color:var(--green)">✓</span> via Claude</div>
+    ${pill}
     <h1 class="reader-headline" style="font-size:${Math.round(state.fontSize * 1.5)}px">${escHtml(article.headline || "")}</h1>
     <div class="reader-meta">
       ${article.author ? `<span class="reader-author">${escHtml(article.author)}</span>` : ""}
       ${article.date   ? `<span class="reader-date">${formatDate(article.date)}</span>` : ""}
-      <span class="reader-readtime">${article.readTime} min read · ${(article.wordCount||0).toLocaleString()} words</span>
+      ${!article.metaOnly ? `<span class="reader-readtime">${article.readTime} min read · ${(article.wordCount||0).toLocaleString()} words</span>` : ""}
     </div>
   `;
 
@@ -1693,6 +1715,19 @@ function renderReader(article) {
       html += `<p class="reader-p" style="font-size:${state.fontSize}px">${escHtml(p.text)}</p>`;
     }
   });
+
+  if (article.metaOnly) {
+    html += `
+      <div style="margin:24px 0;padding:16px;background:var(--input-bg);border-radius:12px;text-align:center">
+        <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--sub);margin-bottom:10px">
+          This article is behind a paywall or bot protection.<br>Tap below to read on the original site.
+        </div>
+        <a href="${escHtml(article.url)}" target="_blank" rel="noreferrer"
+          style="display:inline-block;background:linear-gradient(135deg,var(--gold),var(--gold2));color:#1C1917;font-family:'DM Mono',monospace;font-size:12px;font-weight:700;padding:10px 20px;border-radius:9px;text-decoration:none">
+          ↗ Open in browser
+        </a>
+      </div>`;
+  }
 
   html += `
     <div class="reader-footer">
@@ -1729,12 +1764,12 @@ function extractArticle(html, url) {
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, "text/html");
 
-  // Strip noise — be conservative, only remove elements we're sure about
-  // DO NOT use [class*='subscribe'] — kills CNN article wrappers
   ["script","style","nav","header","footer","iframe","form","noscript",
    ".ad",".ads",".advertisement",".modal",".overlay",
    ".popup",".newsletter",".comments",
    "[id*='paywall']","[id='paywall']",
+   "[data-testid='paywall']","[class*='MeteredContent']","[class*='PaywallOverlay']",
+   "[id='cx-snippet-overlay']","[class*='snippet-promotion']",
   ].forEach(s => { try { doc.querySelectorAll(s).forEach(el => el.remove()); } catch {} });
 
   const meta = (n) =>
@@ -1746,18 +1781,18 @@ function extractArticle(html, url) {
   const date     = doc.querySelector("time")?.getAttribute("datetime") || doc.querySelector("time")?.textContent?.trim() || meta("article:published_time") || "";
   const heroImage = meta("og:image");
 
-  // Find best article container — ordered from most to least specific
-  // Includes CNN (.article__content), BBC (.ssrcss), Guardian (.dcr), WaPo (.wpds), NYT (.StoryBodyCompanionColumn)
   const ARTICLE_SELECTORS = [
-    ".article__content", ".article__body",            // CNN
-    ".article-body-text",                             // Reuters, AP
-    "[data-component='text-block']",                  // BBC
-    "[itemprop='articleBody']",                       // Schema.org (very reliable)
-    ".post-content", ".entry-content",                // WordPress
-    ".story-body__inner", ".story-body",              // BBC legacy
+    ".pw-post-body-paragraph", "article section",   // Medium
+    "[class*='article-body__content']",             // Reuters
+    ".article__content", ".article__body",          // CNN
+    ".article-body-text",                           // AP
+    "[data-component='text-block']",                // BBC
+    "[itemprop='articleBody']",                     // Schema.org
+    ".post-content", ".entry-content",              // WordPress
+    ".story-body__inner", ".story-body",            // BBC legacy
     ".article-body", ".article-content",
     ".ArticleBody", ".article-wrap",
-    ".l-article__body", ".l-container",              // various
+    ".l-article__body", ".l-container",
     "article", "[role='main']", "main",
   ];
 
@@ -1769,9 +1804,8 @@ function extractArticle(html, url) {
     } catch {}
   }
   if (!articleEl) {
-    // Last resort: find div/section with the most <p> tags
     let best = null, bestLen = 0;
-    doc.querySelectorAll("div,section").forEach(el => {
+    doc.querySelectorAll("div,section,article").forEach(el => {
       const n = el.querySelectorAll("p").length;
       if (n > bestLen) { bestLen = n; best = el; }
     });
@@ -1779,12 +1813,14 @@ function extractArticle(html, url) {
   }
 
   const paragraphs = [];
+  const seen = new Set();
   articleEl?.querySelectorAll("p,h2,h3,blockquote").forEach(el => {
     const tag  = el.tagName.toLowerCase();
     const text = el.textContent?.trim().replace(/\s+/g," ");
     if (!text || text.length < 25) return;
-    // Skip nav/footer/ad text that slipped through
-    if (el.closest("nav,footer,aside,[class*='related'],[class*='recommend'],[class*='more-content']")) return;
+    if (seen.has(text)) return;
+    seen.add(text);
+    if (el.closest("nav,footer,aside,[class*='related'],[class*='recommend'],[class*='more-content'],[class*='promo'],[class*='signup']")) return;
     paragraphs.push({ tag: tag === "h3" ? "h2" : tag, text });
   });
 
@@ -1792,116 +1828,434 @@ function extractArticle(html, url) {
   return { headline, author, date, heroImage, paragraphs, wordCount, readTime: Math.max(1, Math.round(wordCount/200)), url };
 }
 
+function toAmpUrl(url) {
+  try {
+    const u = new URL(url);
+    const h = u.hostname;
+    if (h.includes("reuters.com"))      return url.replace(/\/?(\?.*)?$/, "/amp$1");
+    if (h.includes("wsj.com"))          return url.replace("www.wsj.com", "amp.wsj.com");
+    if (h.includes("washingtonpost.com")) return url.replace(/\/?$/, "") + "?outputType=amp";
+    if (!u.pathname.endsWith("/amp") && !u.pathname.endsWith("/amp/"))
+      return url.replace(/\/?$/, "") + "/amp";
+    return null;
+  } catch { return null; }
+}
+
+// Strip Wayback Machine toolbar injection before parsing
+function stripWaybackToolbar(html) {
+  return html
+    .replace(/<!-- BEGIN WAYBACK TOOLBAR.*?END WAYBACK TOOLBAR -->/s, "")
+    .replace(/<!-- BEGIN WAYBACK EXCLUDE.*?END WAYBACK EXCLUDE -->/s, "")
+    .replace(/<style[^>]*>[\s\S]*?#wm-ipp[\s\S]*?<\/style>/g, "")
+    .replace(/<div[^>]*id=["']wm-ipp[\s\S]*?<\/div>\s*/g, "");
+}
+
+// Fetch og: meta only — works even on Cloudflare-protected sites via proxy
+// Used as a graceful fallback when full content can't be retrieved
+// Cloudflare-wall domains — only Jina can get their meta tags
+const CF_WALL_DOMAINS = new Set(["nytimes.com","wsj.com","barrons.com","thetimes.co.uk","bloomberg.com"]);
+
+async function fetchMetaOnly(url) {
+  const host = (() => { try { return new URL(url).hostname.replace(/^www\./,""); } catch { return ""; } })();
+  const isCfWall = CF_WALL_DOMAINS.has(host) || [...CF_WALL_DOMAINS].some(d => host.endsWith("."+d));
+
+  // For Cloudflare-protected sites, Jina is the only way to get real meta
+  if (isCfWall) {
+    try {
+      const r = await Promise.race([
+        fetch(`https://r.jina.ai/${url}`, { headers: { "Accept": "text/plain", "X-Return-Format": "markdown" } }),
+        new Promise((_,rej) => setTimeout(rej, 12000))
+      ]);
+      if (r.ok) {
+        const text = await r.text();
+        if (!text.includes("error 401") && !text.includes("Unauthorized") && text.length > 200) {
+          const parsed = parseJinaMarkdown(text, url);
+          if (parsed.headline) return {
+            headline: parsed.headline, desc: parsed.paragraphs[0]?.text || "",
+            image: parsed.heroImage, author: parsed.author, date: parsed.date,
+          };
+        }
+        // Jina failed too — at least parse what it returned for the title
+        const titleMatch = text.match(/^Title:\s*(.+)/im);
+        if (titleMatch) {
+          let t = titleMatch[1].trim().replace(/\s*\|\s*by .+$/i,"").replace(/\s*[-–—]\s*.{2,30}$/,"").trim();
+          if (t && t.length > 5 && !t.includes("nytimes.com") && !t.includes("wsj.com"))
+            return { headline: t, desc: "", image: "", author: "", date: "" };
+        }
+      }
+    } catch {}
+    return null; // Can't get meta for hard-blocked sites
+  }
+
+  // Standard proxy approach for non-CF sites
+  for (const proxyFn of [
+    u => `https://corsproxy.io/?${encodeURIComponent(u)}`,
+    u => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,
+  ]) {
+    try {
+      const r = await Promise.race([
+        fetch(proxyFn(url)),
+        new Promise((_,rej) => setTimeout(rej, 8000))
+      ]);
+      if (!r.ok) continue;
+      let html;
+      if (proxyFn(url).includes("allorigins")) {
+        const j = await r.json(); html = j.contents || "";
+      } else { html = await r.text(); }
+      if (!html) continue;
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      const m = n => doc.querySelector(`meta[property='${n}']`)?.content || doc.querySelector(`meta[name='${n}']`)?.content || "";
+      const headline = m("og:title") || doc.querySelector("h1")?.textContent?.trim() || doc.title || "";
+      const desc     = m("og:description") || m("description") || "";
+      const image    = m("og:image") || "";
+      const author   = m("author") || m("article:author") || "";
+      const date     = doc.querySelector("time")?.getAttribute("datetime") || m("article:published_time") || "";
+      // Reject Cloudflare error pages masquerading as content
+      if (headline && !headline.match(/^(nytimes\.com|wsj\.com|bloomberg\.com|just a moment)/i))
+        return { headline, desc, image, author, date };
+    } catch {}
+  }
+  return null;
+}
+
 const FETCH_METHODS = [
+  {
+    // Jina Reader: real browser rendering, returns clean markdown. Best for most sites.
+    name: "Jina",
+    fetch: async (url) => {
+      const r = await fetch(`https://r.jina.ai/${url}`, {
+        headers: { "Accept": "text/plain", "X-Return-Format": "markdown" }
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const t = await r.text();
+      if (t.includes("error 401") || t.includes("CAPTCHA") || t.includes("Unauthorized"))
+        throw new Error("Jina: site requires auth");
+      if (t.length < 500) throw new Error("Too short");
+      return { type: "markdown", text: t };
+    }
+  },
+  {
+    // Jina via corsproxy — fallback if direct Jina hits CORS
+    name: "Jina+proxy",
+    fetch: async (url) => {
+      const jinaUrl = `https://r.jina.ai/${url}`;
+      const r = await fetch(`https://corsproxy.io/?${encodeURIComponent(jinaUrl)}`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const t = await r.text();
+      if (t.includes("error 401") || t.includes("CAPTCHA") || t.includes("Unauthorized"))
+        throw new Error("Jina: site requires auth");
+      if (t.length < 500) throw new Error("Too short");
+      return { type: "markdown", text: t };
+    }
+  },
+  {
+    name: "corsproxy.io",
+    fetch: async (url) => {
+      const r = await fetch(`https://corsproxy.io/?${encodeURIComponent(url)}`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const t = await r.text();
+      if (t.length < 800) throw new Error("Too short");
+      return { type: "html", text: t };
+    }
+  },
   {
     name: "AllOrigins",
     fetch: async (url) => {
       const r = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}&timestamp=${Date.now()}`);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const j = await r.json();
-      if (!j.contents || j.contents.length < 500) throw new Error("Empty response");
-      return j.contents;
+      if (!j.contents || j.contents.length < 800) throw new Error("Too short");
+      return { type: "html", text: j.contents };
     }
   },
   {
-    name: "CORS Proxy",
+    name: "AMP",
     fetch: async (url) => {
-      // corsproxy.io correct format is just ?URL (no key=)
-      const r = await fetch(`https://corsproxy.io/?${encodeURIComponent(url)}`);
+      const ampUrl = toAmpUrl(url);
+      if (!ampUrl || ampUrl === url + "/amp") throw new Error("No known AMP URL");
+      const r = await fetch(`https://corsproxy.io/?${encodeURIComponent(ampUrl)}`);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const t = await r.text();
-      if (t.length < 500) throw new Error("Empty response");
-      return t;
+      if (t.length < 800) throw new Error("AMP too short");
+      return { type: "html", text: t };
     }
   },
   {
-    name: "Wayback Machine",
+    name: "Wayback",
     fetch: async (url) => {
-      const j = await fetch(`https://archive.org/wayback/available?url=${encodeURIComponent(url)}`).then(r=>r.json());
-      const snap = j?.archived_snapshots?.closest?.url;
-      if (!snap) throw new Error("No snapshot available");
-      const r2 = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(snap)}`).then(r=>r.json());
-      if (!r2.contents || r2.contents.length < 500) throw new Error("Snapshot empty");
-      return r2.contents;
-    }
-  },
-  {
-    name: "codetabs",
-    fetch: async (url) => {
-      const r = await fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`);
+      const year = new Date().getFullYear();
+      let snapUrl;
+      try {
+        const cdx = await fetch(
+          `https://web.archive.org/cdx/search/cdx?url=${encodeURIComponent(url)}&output=json&limit=3&fl=timestamp&filter=statuscode:200&from=${year-2}&to=${year}&fastLatest=true`
+        ).then(r => r.json());
+        const ts = cdx?.[1]?.[0];
+        if (ts) snapUrl = `https://web.archive.org/web/${ts}id_/${url}`;
+      } catch {}
+      if (!snapUrl) {
+        const av = await fetch(`https://archive.org/wayback/available?url=${encodeURIComponent(url)}`).then(r=>r.json()).catch(()=>({}));
+        snapUrl = av?.archived_snapshots?.closest?.url?.replace("/http","id_/http");
+      }
+      if (!snapUrl) throw new Error("No snapshot");
+      const r = await fetch(`https://corsproxy.io/?${encodeURIComponent(snapUrl)}`);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const t = await r.text();
-      if (t.length < 500) throw new Error("Empty response");
-      return t;
+      const raw = stripWaybackToolbar(await r.text());
+      if (raw.length < 800) throw new Error("Snapshot too short");
+      return { type: "html", text: raw };
     }
   },
   {
-    name: "thingproxy",
+    name: "Archive.ph",
     fetch: async (url) => {
-      const r = await fetch(`https://thingproxy.freeboard.io/fetch/${url}`);
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const t = await r.text();
-      if (t.length < 500) throw new Error("Empty response");
-      return t;
+      const r1 = await fetch(`https://corsproxy.io/?${encodeURIComponent("https://archive.ph/newest/" + url)}`);
+      if (!r1.ok) throw new Error(`HTTP ${r1.status}`);
+      const html1 = await r1.text();
+      const snapMatch = html1.match(/https:\/\/archive\.ph\/[A-Za-z0-9]{4,}/);
+      if (!snapMatch) throw new Error("No snapshot URL");
+      const r2 = await fetch(`https://corsproxy.io/?${encodeURIComponent(snapMatch[0])}`);
+      if (!r2.ok) throw new Error(`HTTP ${r2.status}`);
+      const t = await r2.text();
+      if (t.length < 800) throw new Error("Snapshot empty");
+      return { type: "html", text: t };
     }
   },
 ];
 
-// Only block on signals that appear when content is actually gated behind a wall.
-// "create a free account", "sign in to read", "become a member" are footer/nav noise
-// on open-access sites like CNN, AP, BBC — do NOT include them.
+// Parse Jina markdown into article paragraphs
+function parseJinaMarkdown(text, url) {
+  const lines = text.split("\n");
+  const paragraphs = [];
+  const seen = new Set();
+  let headline = "", author = "", date = "", heroImage = "";
+
+  // Extract metadata from Jina header block
+  for (const line of lines.slice(0, 20)) {
+    const m = line.match(/^Title:\s*(.+)/i);
+    if (m) {
+      let t = m[1].trim();
+      // Strip trailing " | Site Name", " - Site Name", " · Site Name" patterns
+      t = t.replace(/\s*[|\-–—·]\s*(by .+|.{2,30})\s*$/i, "");
+      // Strip Medium-style " | by Author | Month, Year | Medium"
+      t = t.replace(/\s*\|\s*by .+$/i, "");
+      headline = t.trim();
+    }
+    const a = line.match(/^Author:\s*(.+)/i);      if (a) author = a[1].trim();
+    const d = line.match(/^Published Time:\s*(.+)/i); if (d) date = d[1].trim();
+    const img = line.match(/^Image:\s*(https?:\/\/\S+)/i); if (img) heroImage = img[1];
+  }
+
+  // Find where markdown content starts (after the header block)
+  let contentStart = 0;
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].match(/^#{1,2}\s/) && i > 3) { contentStart = i; break; }
+    if (lines[i].trim() === "Markdown Content:") { contentStart = i + 1; break; }
+  }
+
+  // Parse markdown into paragraphs
+  for (const line of lines.slice(contentStart)) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    // ── Strip line-level noise before any other processing ──
+    // Empty or image-only links: [](url) or [![...](img)](url)
+    if (/^\[!\[.*?\]\(.*?\)\]\(.*?\)$/.test(trimmed)) continue;
+    if (/^\[\]\(.*?\)$/.test(trimmed)) continue;
+    // Standalone images: ![alt](url) — skip entirely
+    if (/^!\[.*?\]\(.*?\)$/.test(trimmed)) continue;
+    // Dividers
+    if (/^[-*_]{3,}$/.test(trimmed)) continue;
+    // UI chrome patterns
+    if (/^(Skip to|Jump to|Back to|Continue reading|Read more|Sign in|Log in|Subscribe|Newsletter|Follow|Share|Listen|Watch|View|Press enter|Click to)/i.test(trimmed)) continue;
+    if (/^(Copyright|©|All rights reserved|Terms|Privacy|Advertise|About us)/i.test(trimmed)) continue;
+    // Medium-specific clutter
+    if (/^(Clap|Bookmark|Responses|More from|Written by|Published in)/i.test(trimmed)) continue;
+    // Short lines that are just nav/button labels
+    if (trimmed.length < 30 && !/^#{1,3}\s/.test(trimmed) && !trimmed.startsWith(">")) continue;
+
+    let tag = "p";
+    let text = trimmed;
+
+    if (trimmed.startsWith("# ")) {
+      if (!headline) headline = trimmed.slice(2).trim();
+      continue; // don't render h1 as body paragraph
+    }
+    else if (trimmed.startsWith("## ")) { tag = "h2"; text = trimmed.slice(3).trim(); }
+    else if (trimmed.startsWith("### ")) { tag = "h2"; text = trimmed.slice(4).trim(); }
+    else if (trimmed.startsWith("> ")) { tag = "blockquote"; text = trimmed.slice(2).trim(); }
+
+    // Strip markdown images embedded in text: ![alt](url) → alt (if alt is meaningful)
+    text = text.replace(/!\[([^\]]*)\]\([^)]+\)/g, (_, alt) => alt.length > 3 ? alt : "").trim();
+    // Strip markdown links: [text](url) → text
+    text = text.replace(/\[([^\]]*)\]\([^)]+\)/g, "$1").trim();
+    // Strip bare URLs left over
+    text = text.replace(/https?:\/\/\S+/g, "").trim();
+    // Strip bold/italic markers
+    text = text.replace(/\*\*([^*]+)\*\*/g, "$1").replace(/\*([^*]+)\*/g, "$1").replace(/__([^_]+)__/g, "$1");
+    // Collapse whitespace
+    text = text.replace(/\s+/g, " ").trim();
+
+    if (text.length < 25 || seen.has(text)) continue;
+    seen.add(text);
+    paragraphs.push({ tag, text });
+  }
+
+  const wordCount = paragraphs.reduce((n,p) => n + p.text.split(/\s+/).length, 0);
+  return { headline, author, date, heroImage, paragraphs, wordCount,
+           readTime: Math.max(1, Math.round(wordCount / 200)) };
+}
+
 const PAYWALL_SIGNALS = [
   "subscribe to continue reading",
   "subscribe to read the full",
   "this article is for subscribers",
-  "subscriber-only content",
   "you've used all your free articles",
   "you have reached your article limit",
-  "articles remaining this month",
   "to continue, please subscribe",
-  "purchase a subscription",
+  // Bot/Cloudflare walls
+  "please make sure your browser supports javascript",
+  "checking if the site connection is secure",
+  "please enable js and disable any ad blocker",
+  "just a moment",
 ];
 
-async function fetchArticle(url) {
+// Domains where Jina works — send it first, skip slow fallbacks
+const JINA_WORKS = new Set([
+  "bloomberg.com","ft.com","reuters.com","washingtonpost.com",
+  "economist.com","theatlantic.com","newyorker.com","wired.com",
+  "arstechnica.com","theguardian.com","bbc.com","bbc.co.uk",
+]);
+
+// Domains where Jina is known to fail — skip it entirely
+const JINA_BLOCKED = new Set([
+  "nytimes.com","wsj.com","barrons.com","thetimes.co.uk",
+]);
+
+// For NYT/WSJ: search HN for same story on an open outlet, then Jina that
+async function findOpenVersion(url, titleHint) {
+  try {
+    const searchText = titleHint || headlineFromUrl(url);
+    if (!searchText || searchText.length < 8) return null;
+    const query = encodeURIComponent(searchText.split(" ").slice(0,7).join(" "));
+    const hn = await Promise.race([
+      fetch(`https://hn.algolia.com/api/v1/search?query=${query}&tags=story&hitsPerPage=15`).then(r=>r.json()),
+      new Promise((_,rej)=>setTimeout(rej,6000))
+    ]);
+    const OPEN = new Set([
+      "apnews.com","reuters.com","theguardian.com","bbc.com","bbc.co.uk",
+      "npr.org","axios.com","theatlantic.com","politico.com","arstechnica.com",
+      "wired.com","techcrunch.com","theverge.com","nbcnews.com","abcnews.go.com",
+      "cbsnews.com","propublica.org","thehill.com","vox.com","time.com",
+    ]);
+    for (const hit of (hn?.hits || [])) {
+      if (!hit.url) continue;
+      try {
+        const h = new URL(hit.url).hostname.replace(/^www\./,"");
+        if (OPEN.has(h)) return { openUrl: hit.url, source: h };
+      } catch {}
+    }
+    return null;
+  } catch { return null; }
+}
+
+function headlineFromUrl(url) {
+  try {
+    const slug = new URL(url).pathname.split("/").filter(Boolean).pop() || "";
+    return slug.replace(/-[a-f0-9]{8,}$/,"").replace(/-\d{8,}$/,"").replace(/-/g," ").trim();
+  } catch { return ""; }
+}
+
+function methodsForUrl(url) {
+  try {
+    const host = new URL(url).hostname.replace(/^www\./,"");
+    const base = JINA_WORKS.has(host) || [...JINA_WORKS].some(d => host.endsWith(d))
+      ? reorder(["Jina","Jina+proxy","corsproxy.io","AllOrigins","Wayback","Archive.ph"])
+      : JINA_BLOCKED.has(host) || [...JINA_BLOCKED].some(d => host.endsWith(d))
+      ? reorder(["Wayback","Archive.ph","AMP"])  // Jina won't help, try archives
+      : FETCH_METHODS; // default: try everything
+    return base;
+  } catch {}
+  return FETCH_METHODS;
+}
+
+function reorder(names) {
+  const priority = names.map(n => FETCH_METHODS.find(m => m.name === n)).filter(Boolean);
+  const rest = FETCH_METHODS.filter(m => !names.includes(m.name));
+  return [...priority, ...rest];
+}
+
+
+async function fetchArticle(url, _isRetry = false) {
   const loadingSub = document.getElementById("loadingSub");
+  const methods = methodsForUrl(url);
 
-  // Reuters blocks most proxies — prepend Wayback as best option
-  const methods = url.includes("reuters.com")
-    ? [FETCH_METHODS[2], ...FETCH_METHODS.filter((_,i) => i !== 2)]
-    : FETCH_METHODS;
-
+  // ── Direct / Jina fetch ───────────────────────────────────────────────────
   for (const method of methods) {
     loadingSub.textContent = `Trying ${method.name}…`;
     logMethod(method.name, "pending", "Connecting…");
-
     try {
-      const html = await Promise.race([
+      const result = await Promise.race([
         method.fetch(url),
-        new Promise((_,rej) => setTimeout(() => rej(new Error("Timeout")), 12000))
+        new Promise((_,rej) => setTimeout(() => rej(new Error("Timeout")), 15000))
       ]);
 
-      const lower = html.toLowerCase();
-      const article = extractArticle(html, url);
-
-      // Only block on paywall signal if we also got little/no content
-      // Many open sites have "subscribe" text in footers/promos — not a real wall
-      const paywallHit = PAYWALL_SIGNALS.find(s => lower.includes(s));
-      if (paywallHit && article.paragraphs.length < 3) {
-        logMethod(method.name, "fail", `Paywall: "${paywallHit}"`);
-        continue;
+      let article;
+      if (result.type === "markdown") {
+        // Jina returned markdown — parse it directly
+        article = parseJinaMarkdown(result.text, url);
+        article.url = url;
+        // Check for Jina error signals embedded in markdown
+        const lower = result.text.toLowerCase();
+        if (PAYWALL_SIGNALS.some(s => lower.includes(s))) {
+          logMethod(method.name, "fail", "Bot wall in Jina response"); continue;
+        }
+      } else {
+        // HTML — run through extractor
+        const lower = result.text.toLowerCase();
+        if (PAYWALL_SIGNALS.some(s => lower.includes(s))) {
+          logMethod(method.name, "fail", "Bot wall / paywall"); continue;
+        }
+        article = extractArticle(result.text, url);
       }
 
-      if (article.paragraphs.length < 2) {
-        logMethod(method.name, "fail", "Too little content extracted");
-        continue;
+      if (!article || article.paragraphs.length < 2) {
+        logMethod(method.name, "fail", "Too little content"); continue;
       }
-
-      logMethod(method.name, "ok", `${article.paragraphs.length} paragraphs extracted`);
+      logMethod(method.name, "ok", `${article.paragraphs.length} paragraphs`);
       return article;
-
     } catch(e) {
       logMethod(method.name, "fail", e.message || "Network error");
     }
+  }
+
+  // ── Open version search (NYT/WSJ/hard-blocked sites) ─────────────────────
+  // Don't recurse more than once
+  if (!_isRetry) {
+    loadingSub.textContent = "Searching for open version…";
+    logMethod("Open version", "pending", "Searching HN…");
+    const openVersion = await findOpenVersion(url);
+    if (openVersion) {
+      logMethod("Open version", "ok", `Found on ${openVersion.source}`);
+      loadingSub.textContent = `Reading ${openVersion.source}…`;
+      const openArticle = await fetchArticle(openVersion.openUrl, true);
+      if (openArticle) {
+        openArticle.openVersionNote = `Originally from ${new URL(url).hostname} · Open version on ${openVersion.source}`;
+        return openArticle;
+      }
+    }
+    logMethod("Open version", "fail", "No open version found on HN");
+  }
+
+  // ── Meta preview fallback ─────────────────────────────────────────────────
+  loadingSub.textContent = "Fetching preview…";
+  const meta = await fetchMetaOnly(url);
+  if (meta) {
+    logMethod("Meta preview", "ok", "Headline + description only");
+    return {
+      headline: meta.headline, author: meta.author, date: meta.date,
+      heroImage: meta.image,
+      paragraphs: meta.desc ? [{ tag: "p", text: meta.desc }] : [],
+      wordCount: 0, readTime: 0, url, metaOnly: true,
+    };
   }
   return null;
 }
