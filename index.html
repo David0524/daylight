@@ -48,15 +48,42 @@ body.dark {
 –shell: #111;
 }
 
+html, body {
+height: 100%;
+background-color: #E0D5BE; /* fallback for –shell */
+}
+
 body {
 font-family: ‘Source Serif 4’, Georgia, serif;
-background: var(–shell);
+background: var(–shell, #E0D5BE);
 min-height: 100vh;
+min-height: 100dvh;
 display: flex;
 align-items: center;
 justify-content: center;
 transition: background 0.3s;
 }
+
+body.dim { background: var(–shell, #0D1821); background-color: #0D1821; }
+body.dark { background: var(–shell, #111); background-color: #111; }
+body.dim .phone { background: #15202B; color: #F7F9F9; }
+body.dark .phone { background: #1A1A1A; color: #E8E4DC; }
+body.dim .header, body.dim .status-bar, body.dim .bottom-nav { background: #15202B; border-color: #253341; }
+body.dark .header, body.dark .status-bar, body.dark .bottom-nav { background: #1A1A1A; border-color: #2E2E2E; }
+body.dim .logo, body.dim .card-hero-title, body.dim .card-mini-title,
+body.dim .card-source, body.dim .card-meta, body.dim .feed-section,
+body.dim .url-input, body.dim .bottom-nav-font { color: #F7F9F9; }
+body.dark .logo, body.dark .card-hero-title, body.dark .card-mini-title,
+body.dark .card-source, body.dark .card-meta, body.dark .feed-section,
+body.dark .url-input, body.dark .bottom-nav-font { color: #E8E4DC; }
+body.dim .icon-btn, body.dim .read-btn { color: #F7F9F9; }
+body.dark .icon-btn, body.dark .read-btn { color: #E8E4DC; }
+body.dim .card-hero, body.dim .card-mini { background: #1E2732; }
+body.dark .card-hero, body.dark .card-mini { background: #232320; }
+body.dim .url-input { background: #253341; }
+body.dark .url-input { background: #2A2A27; }
+body.dim .bottom-nav-font { background: #253341; }
+body.dark .bottom-nav-font { background: #2A2A27; }
 
 .phone {
 width: 390px;
@@ -65,21 +92,27 @@ border-radius: 44px;
 overflow: hidden;
 position: relative;
 box-shadow: 0 50px 100px rgba(0,0,0,0.3), 0 0 0 1px rgba(0,0,0,0.08), inset 0 0 0 1px rgba(255,255,255,0.1);
-background: var(–bg);
+background-color: #F5EFE0; /* fallback for –bg */
+background: var(–bg, #F5EFE0);
 display: flex;
 flex-direction: column;
 transition: background 0.3s;
 }
 
 @media (max-width: 768px) {
-body { align-items: flex-start; background: var(–bg); }
-.phone { width: 100vw; height: 100dvh; border-radius: 0; box-shadow: none; }
+html { background-color: #F5EFE0; }
+body { align-items: flex-start; background: var(–bg, #F5EFE0); background-color: #F5EFE0; }
+body.dim { background-color: #15202B; }
+body.dark { background-color: #1A1A1A; }
+.phone { width: 100vw; height: 100%; min-height: 100dvh; border-radius: 0; box-shadow: none; }
+.status-bar { padding-top: env(safe-area-inset-top, 14px); height: calc(44px + env(safe-area-inset-top, 0px)); }
+.scroll-area { padding-bottom: env(safe-area-inset-bottom, 16px); }
 }
-/* Installed PWA — full screen, respect safe areas for notch/Dynamic Island */
+/* Installed PWA — same safe area rules */
 @media (display-mode: standalone) {
 .phone { width: 100vw; height: 100dvh; border-radius: 0; box-shadow: none; }
 body { align-items: flex-start; background: var(–bg); }
-.status-bar { padding-top: env(safe-area-inset-top, 12px); height: calc(44px + env(safe-area-inset-top, 0px)); }
+.status-bar { padding-top: env(safe-area-inset-top, 14px); height: calc(44px + env(safe-area-inset-top, 0px)); }
 .scroll-area { padding-bottom: env(safe-area-inset-bottom, 16px); }
 }
 
@@ -364,6 +397,19 @@ color: #8A6020; line-height: 1.5;
 body.dark .warn-banner { background: #2A2410; border-color: #5A4010; color: #C9974A; }
 body.dim .warn-banner { background: #1A2A3A; border-color: #253341; color: #E2B96F; }
 
+/* Bottom nav */
+.bottom-nav {
+display: flex; align-items: center; justify-content: space-around;
+padding: 10px 16px; padding-bottom: max(10px, env(safe-area-inset-bottom, 10px));
+border-top: 1px solid var(–border); background: var(–bg);
+flex-shrink: 0; transition: background 0.3s, border-color 0.3s; gap: 4px;
+}
+.bottom-nav .icon-btn { flex: 1; display: flex; align-items: center; justify-content: center; padding: 8px 4px; font-size: 20px; border-radius: 10px; min-width: 0; }
+.bottom-nav .icon-btn:active { background: var(–border); }
+.bottom-nav-font { flex: 1; display: flex; align-items: center; justify-content: center; padding: 8px 4px; border-radius: 10px; background: var(–input-bg); color: var(–text); font-family: “DM Mono”, monospace; font-size: 12px; font-weight: 500; cursor: pointer; border: none; min-width: 0; }
+.bottom-nav-font:active { opacity: 0.7; }
+.bottom-nav-sep { width: 1px; height: 22px; background: var(–border); flex-shrink: 0; }
+
 /* Animations */
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
@@ -378,37 +424,28 @@ transition: background 0.3s, border-color 0.3s;
 }
 .tab-btn {
 flex: 1; background: none; border: none; cursor: pointer;
-padding: 10px 4px 12px;
+padding: 8px 4px 10px;
 font-family: ‘DM Mono’, monospace; font-size: 10px; letter-spacing: 0.6px;
 color: var(–sub); transition: color 0.2s;
-display: flex; flex-direction: column; align-items: center; gap: 4px;
+display: flex; flex-direction: column; align-items: center; gap: 3px;
 }
 .tab-btn.active { color: var(–gold); }
-.tab-btn .tab-icon { font-size: 18px; line-height: 1; }
+.tab-btn .tab-icon { font-size: 16px; line-height: 1; }
 
 /* ── Newspaper tab ── */
 .papers-wrap { padding-bottom: 20px; animation: fadeUp 0.4s ease; }
-.paper-swipe-hint {
-font-family: ‘DM Mono’, monospace; font-size: 10px; color: var(–sub);
-text-align: center; padding: 10px 0 0; letter-spacing: 0.8px;
-text-transform: uppercase;
-}
-/* Horizontal paper selector */
 .paper-tabs {
 display: flex; gap: 0; overflow-x: auto; scrollbar-width: none;
-padding: 12px 16px 0; border-bottom: 1px solid var(–border);
-flex-shrink: 0;
+padding: 12px 16px 0; border-bottom: 1px solid var(–border); flex-shrink: 0;
 }
 .paper-tabs::-webkit-scrollbar { display: none; }
 .paper-tab {
 flex-shrink: 0; background: none; border: none; border-bottom: 2px solid transparent;
 cursor: pointer; padding: 8px 14px 10px;
 font-family: ‘DM Mono’, monospace; font-size: 11px; letter-spacing: 0.5px;
-color: var(–sub); transition: color 0.2s, border-color 0.2s;
-white-space: nowrap;
+color: var(–sub); transition: color 0.2s, border-color 0.2s; white-space: nowrap;
 }
 .paper-tab.active { color: var(–gold); border-bottom-color: var(–gold); }
-/* Paper article list */
 .paper-content { animation: fadeUp 0.3s ease; }
 .paper-article {
 display: flex; gap: 12px; padding: 14px 16px;
@@ -417,9 +454,8 @@ cursor: pointer; transition: background 0.15s; align-items: flex-start;
 }
 .paper-article:hover { background: var(–input-bg); }
 .paper-article-num {
-font-family: ‘Playfair Display’, serif; font-size: 28px; font-weight: 700;
-color: var(–border); line-height: 1; flex-shrink: 0; width: 30px;
-margin-top: 2px;
+font-family: ‘Playfair Display’, serif; font-size: 26px; font-weight: 700;
+color: var(–border); line-height: 1; flex-shrink: 0; width: 30px; margin-top: 2px;
 }
 .paper-article-body { flex: 1; min-width: 0; }
 .paper-article-title {
@@ -432,20 +468,10 @@ display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overf
 width: 64px; height: 64px; border-radius: 8px; object-fit: cover;
 flex-shrink: 0; background: var(–input-bg);
 }
+.paper-loading { padding: 30px 20px; display: flex; flex-direction: column; gap: 24px; }
 .paper-skeleton-line { height: 12px; border-radius: 4px; margin-bottom: 8px; }
-.paper-skeleton-line.short { width: 55%; }
-.paper-loading {
-padding: 30px 20px; display: flex; flex-direction: column; gap: 24px;
-}
-.paper-load-more {
-display: block; width: calc(100% - 32px); margin: 14px 16px;
-background: none; border: 1px solid var(–border); border-radius: 10px;
-padding: 12px; font-family: ‘DM Mono’, monospace; font-size: 11px;
-color: var(–sub); cursor: pointer; transition: border-color 0.2s, color 0.2s;
-}
-.paper-load-more:hover { border-color: var(–gold); color: var(–gold); }
 
-/* ── Vertical card list for categories (longer scroll) ── */
+/* ── Vertical card list ── */
 .card-list-item {
 display: flex; gap: 12px; padding: 12px 16px;
 border-bottom: 1px solid var(–border);
@@ -466,7 +492,7 @@ flex-shrink: 0; background: var(–input-bg);
 .feed-sentinel-spinner { width: 20px; height: 20px; border: 2px solid var(–border); border-top-color: var(–gold); border-radius: 50%; animation: spin 0.7s linear infinite; opacity: 0; transition: opacity 0.3s; }
 .feed-sentinel-spinner.visible { opacity: 1; }
 
-/* ── AI category badge ── */
+/* ── AI badge ── */
 .ai-badge {
 display: inline-block; font-family: ‘DM Mono’, monospace; font-size: 9px;
 background: linear-gradient(135deg, #8B5CF6, #C084FC);
@@ -484,25 +510,13 @@ vertical-align: middle; margin-left: 6px;
   <!-- Status bar -->
 
   <div class="status-bar">
-    <span class="status-time" id="clockEl"></span>
-    <div class="status-icons">
-      <button class="icon-btn" id="darkToggle" title="Toggle theme">☀️</button>
-    </div>
+    <span class="logo" id="logoBtn">Daylight</span>
+    <button class="icon-btn" id="shareBtn" title="Share article" style="display:none;font-size:17px">↗</button>
   </div>
 
-  <!-- Header -->
+  <!-- Header — url bar only -->
 
   <div class="header">
-    <div class="header-top">
-      <button class="icon-btn" id="backBtn" disabled title="Back" style="font-size:20px">‹</button>
-      <button class="icon-btn" id="fwdBtn" disabled title="Forward" style="font-size:20px">›</button>
-      <span class="logo">Daylight</span>
-      <button class="icon-btn" id="shareBtn" title="Share article" style="display:none;font-size:17px">↗</button>
-      <div class="font-btns" id="fontBtns" style="display:none">
-        <button class="font-btn" id="fontDn" style="font-size:12px">A−</button>
-        <button class="font-btn" id="fontUp" style="font-size:14px">A+</button>
-      </div>
-    </div>
     <div class="url-bar">
       <input class="url-input" id="urlInput" placeholder="Paste any article URL…" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
       <button class="read-btn" id="readBtn">READ</button>
@@ -575,9 +589,14 @@ vertical-align: middle; margin-left: 6px;
 
   </div>
 
-  <!-- Tab bar (hidden in reader) -->
+  <!-- Bottom nav (combined: controls + tab bar) -->
 
-  <div class="tab-bar" id="tabBar">
+  <div class="bottom-nav" id="bottomNav">
+    <button class="icon-btn" id="homeBtn" style="display:none" title="Home">⌂</button>
+    <button class="bottom-nav-font" id="fontDn" style="display:none">A−</button>
+    <button class="bottom-nav-font" id="fontUp" style="display:none">A+</button>
+    <button class="icon-btn" id="darkToggle" title="Toggle theme">☀️</button>
+    <div class="bottom-nav-sep" id="tabSep"></div>
     <button class="tab-btn active" id="tabFeed" onclick="switchTab('feed')">
       <span class="tab-icon">◈</span>
       <span>FEED</span>
@@ -587,6 +606,7 @@ vertical-align: middle; margin-left: 6px;
       <span>PAPERS</span>
     </button>
   </div>
+
 </div>
 
 <script>
@@ -611,13 +631,12 @@ let state = {
 // ── DOM refs ─────────────────────────────────────────────────────────────────
 
 const phone       = document.getElementById("phone");
-const clockEl     = document.getElementById("clockEl");
 const darkToggle  = document.getElementById("darkToggle");
-const backBtn     = document.getElementById("backBtn");
-const fwdBtn      = document.getElementById("fwdBtn");
+const logoBtn     = document.getElementById("logoBtn");
+const homeBtn     = document.getElementById("homeBtn");
 const urlInput    = document.getElementById("urlInput");
 const readBtn     = document.getElementById("readBtn");
-const fontBtns    = document.getElementById("fontBtns");
+const fontBtns    = null; // moved to bottom nav
 const shareBtn    = document.getElementById("shareBtn");
 const fontDn      = document.getElementById("fontDn");
 const fontUp      = document.getElementById("fontUp");
@@ -634,11 +653,6 @@ const views = {
 
 // ── Clock ────────────────────────────────────────────────────────────────────
 
-function updateClock() {
-  clockEl.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
-updateClock();
-setInterval(updateClock, 10000);
 
 // ── Progress bar ─────────────────────────────────────────────────────────────
 
@@ -679,12 +693,21 @@ function showView(name) {
     const el = document.getElementById("view" + k.charAt(0).toUpperCase() + k.slice(1));
     if (el) el.style.display = k === name ? "block" : "none";
   });
-  fontBtns.style.display = name === "reader" ? "flex" : "none";
   shareBtn.style.display = (name === "reader") ? "inline-flex" : "none";
-  document.getElementById("tabBar").style.display = (name === "reader") ? "none" : "flex";
+  const notIdle = name !== "idle";
+  homeBtn.style.display  = notIdle ? "flex" : "none";
+  fontDn.style.display   = (name === "reader") ? "flex" : "none";
+  fontUp.style.display   = (name === "reader") ? "flex" : "none";
+  // Hide tab buttons in reader to give more space
+  const tabSep = document.getElementById("tabSep");
+  const tabFeedEl = document.getElementById("tabFeed");
+  const tabPapersEl = document.getElementById("tabPapers");
+  const inReader = name === "reader";
+  if (tabSep) tabSep.style.display = inReader ? "none" : "";
+  if (tabFeedEl) tabFeedEl.style.display = inReader ? "none" : "";
+  if (tabPapersEl) tabPapersEl.style.display = inReader ? "none" : "";
   scrollArea.scrollTop = 0;
   progressFill.style.width = "0%";
-  updateNavBtns();
 }
 
 // ── Tab switching ─────────────────────────────────────────────────────────────
@@ -703,32 +726,20 @@ function switchTab(tab) {
   }
 }
 
-function updateNavBtns() {
-  backBtn.disabled = state.histIdx <= 0;
-  fwdBtn.disabled  = state.histIdx >= state.history.length - 1;
-}
-
 // ── History ───────────────────────────────────────────────────────────────────
 
 function pushHistory(url) {
   state.history = state.history.slice(0, state.histIdx + 1);
   state.history.push(url);
   state.histIdx = state.history.length - 1;
-  updateNavBtns();
 }
 
-backBtn.addEventListener("click", () => {
-  if (state.histIdx <= 0) return;
-  state.histIdx--;
-  urlInput.value = state.history[state.histIdx];
-  startRead(state.history[state.histIdx], false);
-});
+// ── Home button ──────────────────────────────────────────────────────────────────
 
-fwdBtn.addEventListener("click", () => {
-  if (state.histIdx >= state.history.length - 1) return;
-  state.histIdx++;
-  urlInput.value = state.history[state.histIdx];
-  startRead(state.history[state.histIdx], false);
+homeBtn.addEventListener("click", () => {
+  switchTab(activeTab === "papers" ? "papers" : "feed");
+  urlInput.value = "";
+  scrollArea.scrollTop = 0;
 });
 
 // ── Reset ─────────────────────────────────────────────────────────────────────
@@ -742,7 +753,7 @@ document.getElementById("resetBtn").addEventListener("click", () => {
 // ── Logo click → home ─────────────────────────────────────────────────────────
 
 document.querySelector(".logo").addEventListener("click", () => {
-  switchTab("feed");
+  showView("idle");
   urlInput.value = "";
 });
 
@@ -817,6 +828,24 @@ function redditImage(post) {
   return "";
 }
 
+// Fetch Reddit JSON — tries direct first, falls back to corsproxy
+async function redditFetch(path) {
+  const direct = `https://www.reddit.com${path}`;
+  const proxied = `https://corsproxy.io/?${encodeURIComponent(direct)}`;
+  for (const url of [direct, proxied]) {
+    try {
+      const r = await Promise.race([
+        fetch(url, { headers: { "Accept": "application/json" } }),
+        new Promise((_,rej) => setTimeout(rej, 8000))
+      ]);
+      if (!r.ok) continue;
+      const j = await r.json();
+      if (j?.data?.children) return j;
+    } catch {}
+  }
+  return null;
+}
+
 // Sources that return CORS-friendly JSON natively — no proxy needed
 const LIVE_SOURCES = [
   // Hacker News top stories
@@ -866,20 +895,17 @@ const LIVE_SOURCES = [
     fetch: async () => {
       const subs = ["artificial","MachineLearning","LocalLLaMA","ChatGPT","singularity"];
       const results = await Promise.allSettled(subs.map(sub =>
-        fetch(`https://www.reddit.com/r/${sub}/top.json?limit=12&t=day`).then(r => r.json())
+        redditFetch(`/r/${sub}/top.json?limit=12&t=day`)
       ));
-      const items = results.flatMap((r, i) => {
-        if (r.status !== "fulfilled") return [];
+      const items = results.flatMap(r => {
+        if (r.status !== "fulfilled" || !r.value) return [];
         return (r.value?.data?.children || []).map(c => c.data)
           .filter(p => p.url && !p.url.includes("reddit.com") && isArticleUrl(p.url))
           .slice(0, 4).map(p => ({
-            title:   p.title,
-            link:    p.url,
-            desc:    "",
-            image:   redditImage(p),
-            pubDate: new Date(p.created_utc * 1000).toISOString(),
-            age:     timeAgo(new Date(p.created_utc * 1000).toISOString()),
-            source:  sourceDomain(p.url),
+            title: p.title, link: p.url, desc: "", image: redditImage(p),
+            pubDate: new Date(p.created_utc*1000).toISOString(),
+            age: timeAgo(new Date(p.created_utc*1000).toISOString()),
+            source: sourceDomain(p.url),
           }));
       });
       const seen = new Set();
@@ -889,7 +915,7 @@ const LIVE_SOURCES = [
   {
     cat: "World",
     fetch: async () => {
-      const d = await fetch("https://www.reddit.com/r/worldnews/top.json?limit=20&t=day").then(r => r.json());
+      const d = await redditFetch("/r/worldnews/top.json?limit=20&t=day");
       return (d?.data?.children || []).map(c => c.data)
         .filter(p => p.url && !p.url.includes("reddit.com") && isArticleUrl(p.url))
         .slice(0, 12).map(p => ({
@@ -906,10 +932,10 @@ const LIVE_SOURCES = [
   {
     cat: "Technology",
     fetch: async () => {
-      const d = await fetch("https://www.reddit.com/r/technology/top.json?limit=20&t=day").then(r => r.json());
+      const d = await redditFetch("/r/technology/top.json?limit=20&t=day");
       return (d?.data?.children || []).map(c => c.data)
         .filter(p => p.url && !p.url.includes("reddit.com") && isArticleUrl(p.url))
-        .slice(0, 10).map(p => ({
+        .slice(0, 5).map(p => ({
           title:   p.title,
           link:    p.url,
           desc:    "",
@@ -923,7 +949,7 @@ const LIVE_SOURCES = [
   {
     cat: "Politics",
     fetch: async () => {
-      const d = await fetch("https://www.reddit.com/r/politics/top.json?limit=20&t=day").then(r => r.json());
+      const d = await redditFetch("/r/politics/top.json?limit=20&t=day");
       return (d?.data?.children || []).map(c => c.data)
         .filter(p => p.url && !p.url.includes("reddit.com") && isArticleUrl(p.url))
         .slice(0, 12).map(p => ({
@@ -940,7 +966,7 @@ const LIVE_SOURCES = [
   {
     cat: "Business",
     fetch: async () => {
-      const d = await fetch("https://www.reddit.com/r/business/top.json?limit=20&t=day").then(r => r.json());
+      const d = await redditFetch("/r/business/top.json?limit=20&t=day");
       return (d?.data?.children || []).map(c => c.data)
         .filter(p => p.url && !p.url.includes("reddit.com") && isArticleUrl(p.url))
         .slice(0, 12).map(p => ({
@@ -957,7 +983,7 @@ const LIVE_SOURCES = [
   {
     cat: "Science",
     fetch: async () => {
-      const d = await fetch("https://www.reddit.com/r/science/top.json?limit=20&t=day").then(r => r.json());
+      const d = await redditFetch("/r/science/top.json?limit=20&t=day");
       return (d?.data?.children || []).map(c => c.data)
         .filter(p => p.url && !p.url.includes("reddit.com") && isArticleUrl(p.url))
         .slice(0, 12).map(p => ({
@@ -979,8 +1005,8 @@ const LIVE_SOURCES = [
         "noahpinion","persuasion","slowboring","mattstoller","leeramseyfriedman",
         "byrnehobart","astralcodexten","simonowens","platformer","thediff"
       ];
-      // Pick 4 random pubs each load for variety
-      const pick = pubs.sort(() => 0.5 - Math.random()).slice(0, 4);
+      // Pick 3 random pubs each load for variety
+      const pick = pubs.sort(() => 0.5 - Math.random()).slice(0, 3);
       const results = await Promise.allSettled(pick.map(async slug => {
         const rssUrl = `https://${slug}.substack.com/feed`;
         const r = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(rssUrl)}`);
@@ -989,7 +1015,7 @@ const LIVE_SOURCES = [
         if (!j.contents) return [];
         const parser = new DOMParser();
         const xml = parser.parseFromString(j.contents, "text/xml");
-        return Array.from(xml.querySelectorAll("item")).slice(0, 3).map(item => {
+        return Array.from(xml.querySelectorAll("item")).slice(0, 2).map(item => {
           const title   = item.querySelector("title")?.textContent?.replace(/<!\[CDATA\[|\]\]>/g,"").trim() || "";
           const link    = item.querySelector("link")?.textContent?.trim() || "";
           const pubDate = item.querySelector("pubDate")?.textContent?.trim() || "";
@@ -1004,7 +1030,7 @@ const LIVE_SOURCES = [
           };
         }).filter(Boolean);
       }));
-      return results.flatMap(r => r.status === "fulfilled" ? r.value : []).slice(0, 10);
+      return results.flatMap(r => r.status === "fulfilled" ? r.value : []).slice(0, 6);
     }
   },
   // Medium top stories via RSS + allorigins proxy
@@ -1020,11 +1046,12 @@ const LIVE_SOURCES = [
       if (!j.contents) throw new Error("No contents");
       const parser = new DOMParser();
       const xml = parser.parseFromString(j.contents, "text/xml");
-      const items = Array.from(xml.querySelectorAll("item")).slice(0, 12);
+      const items = Array.from(xml.querySelectorAll("item")).slice(0, 8);
       return items.map(item => {
         const title   = item.querySelector("title")?.textContent?.replace(/<!\[CDATA\[|\]\]>/g,"").trim() || "";
         const link    = item.querySelector("link")?.textContent?.trim() || item.querySelector("guid")?.textContent?.trim() || "";
         const pubDate = item.querySelector("pubDate")?.textContent?.trim() || "";
+        // Medium encodes image in content:encoded or media:thumbnail
         const content = item.querySelector("encoded")?.textContent || "";
         const imgMatch = content.match(/<img[^>]+src=["']([^"']+)["']/i);
         const image = imgMatch?.[1] || "";
@@ -1036,26 +1063,26 @@ const LIVE_SOURCES = [
           age:     pubDate ? timeAgo(new Date(pubDate).toISOString()) : "",
           source:  "medium.com",
         };
-      }).filter(Boolean).slice(0, 8);
+      }).filter(Boolean).slice(0, 6);
     }
   },
-  // Finance — Reddit finance subs
+  // Finance — Reddit finance subs, same proven pattern as other categories
   {
     cat: "Finance",
     fetch: async () => {
       const subs = [
-        { sub: "economics",     limit: 15 },
-        { sub: "investing",     limit: 15 },
-        { sub: "financialnews", limit: 15 },
+        { sub: "economics",     limit: 10 },
+        { sub: "investing",     limit: 10 },
+        { sub: "financialnews", limit: 10 },
       ];
       const results = await Promise.allSettled(subs.map(({ sub, limit }) =>
-        fetch(`https://www.reddit.com/r/${sub}/top.json?limit=${limit}&t=week`).then(r => r.json())
+        redditFetch(`/r/${sub}/top.json?limit=${limit}&t=week`)
       ));
       const items = results.flatMap(r => {
         if (r.status !== "fulfilled") return [];
         return (r.value?.data?.children || []).map(c => c.data)
           .filter(p => p.url && !p.url.includes("reddit.com") && isArticleUrl(p.url))
-          .slice(0, 6).map(p => ({
+          .slice(0, 4).map(p => ({
             title:   p.title,
             link:    p.url,
             desc:    "",
@@ -1066,10 +1093,10 @@ const LIVE_SOURCES = [
           }));
       });
       const seen = new Set();
-      return items.filter(i => { if (seen.has(i.link)) return false; seen.add(i.link); return true; }).slice(0, 12);
+      return items.filter(i => { if (seen.has(i.link)) return false; seen.add(i.link); return true; }).slice(0, 8);
     }
   },
-  // Sports
+  // Sports — Reddit sports subs, real article titles fetched from og:title
   {
     cat: "Sports",
     fetch: async () => {
@@ -1080,13 +1107,13 @@ const LIVE_SOURCES = [
         { sub: "soccer",  limit: 10 },
       ];
       const results = await Promise.allSettled(subs.map(({ sub, limit }) =>
-        fetch(`https://www.reddit.com/r/${sub}/top.json?limit=${limit}&t=day`).then(r => r.json())
+        redditFetch(`/r/${sub}/top.json?limit=${limit}&t=day`)
       ));
       const raw = results.flatMap(r => {
         if (r.status !== "fulfilled") return [];
         return (r.value?.data?.children || []).map(c => c.data)
           .filter(p => p.url && !p.url.includes("reddit.com") && isArticleUrl(p.url))
-          .slice(0, 4).map(p => ({
+          .slice(0, 3).map(p => ({
             redditTitle: p.title,
             title:   p.title,
             link:    p.url,
@@ -1098,10 +1125,12 @@ const LIVE_SOURCES = [
           }));
       });
       const seen = new Set();
-      const items = raw.filter(i => { if (seen.has(i.link)) return false; seen.add(i.link); return true; }).slice(0, 12);
+      const items = raw.filter(i => { if (seen.has(i.link)) return false; seen.add(i.link); return true; }).slice(0, 8);
 
+      // Fetch real article titles via two proxy methods — parallel, 4s timeout each
       await Promise.allSettled(items.map(async item => {
         try {
+          // Try corsproxy first (returns raw HTML), fall back to allorigins
           let html = null;
           for (const proxyUrl of [
             `https://corsproxy.io/?${encodeURIComponent(item.link)}`,
@@ -1137,8 +1166,8 @@ const LIVE_SOURCES = [
 const ARTICLE_REGISTRY = [];
 
 // ── Per-category infinite scroll state ────────────────────────────────────────
-const CAT_PAGE = {}; // cat -> current page index (each page = 6 items)
-const CAT_ITEMS = {}; // cat -> full item array
+const CAT_PAGE = {};
+const CAT_ITEMS = {};
 
 function renderFeed(catMap) {
   const wrap = document.getElementById("feedContent");
@@ -1150,7 +1179,6 @@ function renderFeed(catMap) {
     return;
   }
 
-  // Store full item arrays per category for infinite scroll
   allCats.forEach(cat => {
     CAT_ITEMS[cat] = catMap[cat];
     CAT_PAGE[cat] = 0;
@@ -1181,7 +1209,6 @@ function renderFeed(catMap) {
     if (!items?.length) return;
 
     if (isFirst) {
-      // Hero card for very first item
       const hero = items[0];
       const heroIdx = ARTICLE_REGISTRY.length;
       ARTICLE_REGISTRY.push(hero);
@@ -1200,14 +1227,11 @@ function renderFeed(catMap) {
       isFirst = false;
     }
 
-    // Section header
     const isAI = cat === "AI";
     html += `<div class="feed-section">${escHtml(cat)}${isAI ? '<span class="ai-badge">BETA</span>' : ""}</div>`;
 
-    // First page of items as vertical list
     const PAGE_SIZE = 6;
-    const firstPage = items.slice(0, PAGE_SIZE);
-    firstPage.forEach(item => {
+    items.slice(0, PAGE_SIZE).forEach(item => {
       const idx = ARTICLE_REGISTRY.length;
       ARTICLE_REGISTRY.push(item);
       const fb = articleImageUrl(item.title, cat);
@@ -1225,7 +1249,6 @@ function renderFeed(catMap) {
 
     CAT_PAGE[cat] = 1;
 
-    // Sentinel for this category (used by IntersectionObserver)
     if (items.length > PAGE_SIZE) {
       html += `<div class="feed-sentinel" data-cat="${escHtml(cat)}" id="sentinel-${escHtml(cat)}">
         <div class="feed-sentinel-spinner" id="spinner-${escHtml(cat)}"></div>
@@ -1233,12 +1256,9 @@ function renderFeed(catMap) {
     }
   });
 
-  // Global end sentinel for triggering next batch
   html += `<div style="height:20px"></div>`;
-
   wrap.innerHTML = html;
 
-  // Set up IntersectionObserver for each category sentinel
   allCats.forEach(cat => {
     const sentinel = document.getElementById(`sentinel-${cat}`);
     if (!sentinel) return;
@@ -1258,29 +1278,19 @@ function loadMoreCategory(cat, sentinel, observer) {
   const PAGE_SIZE = 6;
   const page = CAT_PAGE[cat] || 1;
   const start = page * PAGE_SIZE;
-  if (start >= items.length) {
-    observer.unobserve(sentinel);
-    sentinel.remove();
-    return;
-  }
+  if (start >= items.length) { observer.unobserve(sentinel); sentinel.remove(); return; }
 
   const spinner = document.getElementById(`spinner-${cat}`);
   if (spinner) spinner.classList.add("visible");
 
-  const CAT_SEED_BASE = {
-    World: 10, Technology: 60, Finance: 100, Sports: 140,
-    Politics: 180, Business: 220, Science: 260, Ideas: 300, AI: 340, Default: 380,
-  };
+  const CAT_SEED_BASE = { World:10,Technology:60,Finance:100,Sports:140,Politics:180,Business:220,Science:260,Ideas:300,AI:340,Default:380 };
   const base = CAT_SEED_BASE[cat] ?? CAT_SEED_BASE.Default;
-
-  const slice = items.slice(start, start + PAGE_SIZE);
   const feedContent = document.getElementById("feedContent");
 
-  slice.forEach(item => {
+  items.slice(start, start + PAGE_SIZE).forEach(item => {
     const idx = ARTICLE_REGISTRY.length;
     ARTICLE_REGISTRY.push(item);
-    const seed = base + idx;
-    const fb = `https://picsum.photos/seed/${seed}/600/400`;
+    const fb = `https://picsum.photos/seed/${base + idx}/600/400`;
     const el = document.createElement("div");
     el.className = "card-list-item";
     el.dataset.idx = idx;
@@ -1298,14 +1308,12 @@ function loadMoreCategory(cat, sentinel, observer) {
 
   CAT_PAGE[cat] = page + 1;
   if (spinner) spinner.classList.remove("visible");
-
-  if ((page + 1) * PAGE_SIZE >= items.length) {
-    observer.unobserve(sentinel);
-    sentinel.remove();
-  }
+  if ((page + 1) * PAGE_SIZE >= items.length) { observer.unobserve(sentinel); sentinel.remove(); }
 }
 
 // Single delegated click listener attached once — never stacks on re-render
+if (logoBtn) logoBtn.addEventListener("click", () => { switchTab("feed"); scrollArea.scrollTop = 0; });
+
 document.getElementById("feedContent").addEventListener("click", e => {
   const card = e.target.closest("[data-idx]");
   if (!card) return;
@@ -1335,7 +1343,6 @@ document.getElementById("feedContent").addEventListener("click", e => {
     if (!pulling) return;
     const dy = e.touches[0].clientY - startY;
     if (dy > 10) {
-      const pct = Math.min(dy / threshold, 1);
       indicator.style.height = Math.min(dy * 0.5, 48) + "px";
       indicator.classList.add("visible");
       label.textContent = dy >= threshold ? "Release to refresh" : "Pull to refresh";
@@ -1386,181 +1393,94 @@ async function fetchOgImage(url) {
 // ── Newspaper sources ─────────────────────────────────────────────────────────
 
 const NEWSPAPERS = [
-  {
-    id: "ap",
-    name: "AP News",
-    emoji: "🗞",
+  { id:"ap", name:"AP News", emoji:"🗞",
     fetch: async (after) => {
-      // AP News via Reddit r/news which frequently links to AP
-      const d = await fetch(`https://www.reddit.com/r/news/top.json?limit=25&t=day`).then(r=>r.json());
+      const d = await redditFetch("/r/news/top.json?limit=30&t=day");
       return (d?.data?.children||[]).map(c=>c.data)
-        .filter(p=>p.url && sourceDomain(p.url).includes("ap") && isArticleUrl(p.url))
-        .concat(
-          (d?.data?.children||[]).map(c=>c.data)
-            .filter(p=>p.url && isArticleUrl(p.url) && !sourceDomain(p.url).includes("reddit"))
-        )
-        .slice(after, after+10).map(p=>({
-          title: p.title, link: p.url, desc: "",
-          image: redditImage(p),
-          pubDate: new Date(p.created_utc*1000).toISOString(),
-          age: timeAgo(new Date(p.created_utc*1000).toISOString()),
-          source: sourceDomain(p.url),
-        }));
+        .filter(p=>p.url && isArticleUrl(p.url) && !sourceDomain(p.url).includes("reddit"))
+        .slice(after, after+10).map(p=>({ title:p.title, link:p.url, desc:"", image:redditImage(p),
+          pubDate:new Date(p.created_utc*1000).toISOString(), age:timeAgo(new Date(p.created_utc*1000).toISOString()), source:sourceDomain(p.url) }));
     }
   },
-  {
-    id: "bbc",
-    name: "BBC",
-    emoji: "🇬🇧",
+  { id:"bbc", name:"BBC", emoji:"🇬🇧",
     fetch: async (after) => {
-      const rssUrl = "https://feeds.bbci.co.uk/news/world/rss.xml";
-      const r = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(rssUrl)}`);
-      const j = await r.json();
-      const parser = new DOMParser();
-      const xml = parser.parseFromString(j.contents, "text/xml");
+      const r = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent("https://feeds.bbci.co.uk/news/world/rss.xml")}`);
+      const j = await r.json(); const xml = new DOMParser().parseFromString(j.contents,"text/xml");
       return Array.from(xml.querySelectorAll("item")).slice(after, after+10).map(item => {
         const title = item.querySelector("title")?.textContent?.replace(/<!\[CDATA\[|\]\]>/g,"").trim()||"";
         const link  = item.querySelector("link")?.textContent?.trim()||"";
         const pubDate = item.querySelector("pubDate")?.textContent?.trim()||"";
-        const thumb = item.querySelector("thumbnail")?.getAttribute("url")||
-                      item.querySelector("[url]")?.getAttribute("url")||"";
+        const thumb = item.querySelector("thumbnail")?.getAttribute("url")||"";
         if (!title||!link) return null;
-        return { title, link, desc:"", image:thumb,
-          pubDate: pubDate?new Date(pubDate).toISOString():"",
-          age: pubDate?timeAgo(new Date(pubDate).toISOString()):"",
-          source:"bbc.co.uk" };
+        return { title, link, desc:"", image:thumb, pubDate:pubDate?new Date(pubDate).toISOString():"", age:pubDate?timeAgo(new Date(pubDate).toISOString()):"", source:"bbc.co.uk" };
       }).filter(Boolean);
     }
   },
-  {
-    id: "guardian",
-    name: "The Guardian",
-    emoji: "🏛",
+  { id:"guardian", name:"The Guardian", emoji:"🏛",
     fetch: async (after) => {
-      const rssUrl = "https://www.theguardian.com/world/rss";
-      const r = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(rssUrl)}`);
-      const j = await r.json();
-      const parser = new DOMParser();
-      const xml = parser.parseFromString(j.contents, "text/xml");
+      const r = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent("https://www.theguardian.com/world/rss")}`);
+      const j = await r.json(); const xml = new DOMParser().parseFromString(j.contents,"text/xml");
       return Array.from(xml.querySelectorAll("item")).slice(after, after+10).map(item => {
         const title = item.querySelector("title")?.textContent?.replace(/<!\[CDATA\[|\]\]>/g,"").trim()||"";
         const link  = item.querySelector("link")?.textContent?.trim()||"";
         const pubDate = item.querySelector("pubDate")?.textContent?.trim()||"";
-        const desc = item.querySelector("description")?.textContent?.replace(/<[^>]+>/g,"").replace(/<!\[CDATA\[|\]\]>/g,"").trim().slice(0,100)||"";
         if (!title||!link) return null;
-        return { title, link, desc, image:"",
-          pubDate: pubDate?new Date(pubDate).toISOString():"",
-          age: pubDate?timeAgo(new Date(pubDate).toISOString()):"",
-          source:"theguardian.com" };
+        return { title, link, desc:"", image:"", pubDate:pubDate?new Date(pubDate).toISOString():"", age:pubDate?timeAgo(new Date(pubDate).toISOString()):"", source:"theguardian.com" };
       }).filter(Boolean);
     }
   },
-  {
-    id: "ars",
-    name: "Ars Technica",
-    emoji: "⚗️",
+  { id:"ars", name:"Ars Technica", emoji:"⚗️",
     fetch: async (after) => {
-      const rssUrl = "https://feeds.arstechnica.com/arstechnica/index";
-      const r = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(rssUrl)}`);
-      const j = await r.json();
-      const parser = new DOMParser();
-      const xml = parser.parseFromString(j.contents, "text/xml");
+      const r = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent("https://feeds.arstechnica.com/arstechnica/index")}`);
+      const j = await r.json(); const xml = new DOMParser().parseFromString(j.contents,"text/xml");
       return Array.from(xml.querySelectorAll("item")).slice(after, after+10).map(item => {
         const title = item.querySelector("title")?.textContent?.replace(/<!\[CDATA\[|\]\]>/g,"").trim()||"";
         const link  = item.querySelector("link")?.textContent?.trim()||"";
         const pubDate = item.querySelector("pubDate")?.textContent?.trim()||"";
         const content = item.querySelector("encoded")?.textContent||"";
-        const imgMatch = content.match(/<img[^>]+src=["']([^"']+)["']/i);
-        const image = imgMatch?.[1]||"";
+        const image = content.match(/<img[^>]+src=["']([^"']+)["']/i)?.[1]||"";
         if (!title||!link) return null;
-        return { title, link, desc:"", image,
-          pubDate: pubDate?new Date(pubDate).toISOString():"",
-          age: pubDate?timeAgo(new Date(pubDate).toISOString()):"",
-          source:"arstechnica.com" };
+        return { title, link, desc:"", image, pubDate:pubDate?new Date(pubDate).toISOString():"", age:pubDate?timeAgo(new Date(pubDate).toISOString()):"", source:"arstechnica.com" };
       }).filter(Boolean);
     }
   },
-  {
-    id: "verge",
-    name: "The Verge",
-    emoji: "◭",
+  { id:"verge", name:"The Verge", emoji:"◭",
     fetch: async (after) => {
-      const rssUrl = "https://www.theverge.com/rss/index.xml";
-      const r = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(rssUrl)}`);
-      const j = await r.json();
-      const parser = new DOMParser();
-      const xml = parser.parseFromString(j.contents, "text/xml");
+      const r = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent("https://www.theverge.com/rss/index.xml")}`);
+      const j = await r.json(); const xml = new DOMParser().parseFromString(j.contents,"text/xml");
       return Array.from(xml.querySelectorAll("entry,item")).slice(after, after+10).map(item => {
         const title = item.querySelector("title")?.textContent?.trim()||"";
         const link  = item.querySelector("link")?.getAttribute("href")||item.querySelector("link")?.textContent?.trim()||"";
         const pubDate = item.querySelector("updated,published,pubDate")?.textContent?.trim()||"";
         if (!title||!link) return null;
-        return { title, link, desc:"", image:"",
-          pubDate: pubDate?new Date(pubDate).toISOString():"",
-          age: pubDate?timeAgo(new Date(pubDate).toISOString()):"",
-          source:"theverge.com" };
+        return { title, link, desc:"", image:"", pubDate:pubDate?new Date(pubDate).toISOString():"", age:pubDate?timeAgo(new Date(pubDate).toISOString()):"", source:"theverge.com" };
       }).filter(Boolean);
     }
   },
-  {
-    id: "npr",
-    name: "NPR",
-    emoji: "📻",
+  { id:"npr", name:"NPR", emoji:"📻",
     fetch: async (after) => {
-      const rssUrl = "https://feeds.npr.org/1001/rss.xml";
-      const r = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(rssUrl)}`);
-      const j = await r.json();
-      const parser = new DOMParser();
-      const xml = parser.parseFromString(j.contents, "text/xml");
+      const r = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent("https://feeds.npr.org/1001/rss.xml")}`);
+      const j = await r.json(); const xml = new DOMParser().parseFromString(j.contents,"text/xml");
       return Array.from(xml.querySelectorAll("item")).slice(after, after+10).map(item => {
         const title = item.querySelector("title")?.textContent?.replace(/<!\[CDATA\[|\]\]>/g,"").trim()||"";
         const link  = item.querySelector("link")?.textContent?.trim()||"";
         const pubDate = item.querySelector("pubDate")?.textContent?.trim()||"";
         const thumb = item.querySelector("thumbnail,[medium='image']")?.getAttribute("url")||"";
         if (!title||!link) return null;
-        return { title, link, desc:"", image:thumb,
-          pubDate: pubDate?new Date(pubDate).toISOString():"",
-          age: pubDate?timeAgo(new Date(pubDate).toISOString()):"",
-          source:"npr.org" };
+        return { title, link, desc:"", image:thumb, pubDate:pubDate?new Date(pubDate).toISOString():"", age:pubDate?timeAgo(new Date(pubDate).toISOString()):"", source:"npr.org" };
       }).filter(Boolean);
     }
   },
-  {
-    id: "reuters",
-    name: "Reuters",
-    emoji: "📡",
+  { id:"wired", name:"Wired", emoji:"⚡",
     fetch: async (after) => {
-      const d = await fetch(`https://www.reddit.com/r/worldnews/top.json?limit=30&t=day`).then(r=>r.json());
-      return (d?.data?.children||[]).map(c=>c.data)
-        .filter(p=>p.url && sourceDomain(p.url).includes("reuters") && isArticleUrl(p.url))
-        .slice(after, after+10).map(p=>({
-          title: p.title, link: p.url, desc:"",
-          image: redditImage(p),
-          pubDate: new Date(p.created_utc*1000).toISOString(),
-          age: timeAgo(new Date(p.created_utc*1000).toISOString()),
-          source:"reuters.com",
-        }));
-    }
-  },
-  {
-    id: "wired",
-    name: "Wired",
-    emoji: "⚡",
-    fetch: async (after) => {
-      const rssUrl = "https://www.wired.com/feed/rss";
-      const r = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(rssUrl)}`);
-      const j = await r.json();
-      const parser = new DOMParser();
-      const xml = parser.parseFromString(j.contents, "text/xml");
+      const r = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent("https://www.wired.com/feed/rss")}`);
+      const j = await r.json(); const xml = new DOMParser().parseFromString(j.contents,"text/xml");
       return Array.from(xml.querySelectorAll("item")).slice(after, after+10).map(item => {
         const title = item.querySelector("title")?.textContent?.replace(/<!\[CDATA\[|\]\]>/g,"").trim()||"";
         const link  = item.querySelector("link")?.textContent?.trim()||"";
         const pubDate = item.querySelector("pubDate")?.textContent?.trim()||"";
         if (!title||!link) return null;
-        return { title, link, desc:"", image:"",
-          pubDate: pubDate?new Date(pubDate).toISOString():"",
-          age: pubDate?timeAgo(new Date(pubDate).toISOString()):"",
-          source:"wired.com" };
+        return { title, link, desc:"", image:"", pubDate:pubDate?new Date(pubDate).toISOString():"", age:pubDate?timeAgo(new Date(pubDate).toISOString()):"", source:"wired.com" };
       }).filter(Boolean);
     }
   },
@@ -1568,76 +1488,53 @@ const NEWSPAPERS = [
 
 // ── Papers tab ────────────────────────────────────────────────────────────────
 
-const PAPER_STATE = {}; // id -> { items, page, loading, observer }
+const PAPER_STATE = {};
 
 async function initPapers() {
   state.papersLoaded = true;
-
-  // Render tab strip
   const tabsEl = document.getElementById("paperTabs");
   tabsEl.innerHTML = NEWSPAPERS.map((p, i) =>
     `<button class="paper-tab${i===0?" active":""}" onclick="selectPaper('${p.id}')">${p.emoji} ${p.name}</button>`
   ).join("");
-
-  // Load first paper
   selectPaper(NEWSPAPERS[0].id);
 }
 
 function selectPaper(id) {
   document.querySelectorAll(".paper-tab").forEach(btn => {
-    btn.classList.toggle("active", btn.textContent.trim().includes(NEWSPAPERS.find(p=>p.id===id)?.name||""));
+    const paper = NEWSPAPERS.find(p => p.id === id);
+    btn.classList.toggle("active", btn.textContent.trim().includes(paper?.name||"___"));
   });
-
+  if (!PAPER_STATE[id]) PAPER_STATE[id] = { items:[], page:0, loading:false, exhausted:false };
+  const ps = PAPER_STATE[id];
   const content = document.getElementById("paperContent");
 
-  if (!PAPER_STATE[id]) {
-    PAPER_STATE[id] = { items: [], page: 0, loading: false, exhausted: false };
-  }
-
-  const ps = PAPER_STATE[id];
-
-  // Show skeleton while loading first page
   if (ps.items.length === 0 && !ps.loading) {
-    content.innerHTML = `<div class="paper-loading">
-      ${Array(6).fill(0).map(() => `
-        <div style="display:flex;gap:12px;padding:0 16px">
-          <div style="flex:1">
-            <div class="skeleton paper-skeleton-line" style="width:30%;margin-bottom:6px"></div>
-            <div class="skeleton paper-skeleton-line"></div>
-            <div class="skeleton paper-skeleton-line short"></div>
-          </div>
-          <div class="skeleton" style="width:64px;height:64px;border-radius:8px;flex-shrink:0"></div>
+    content.innerHTML = `<div class="paper-loading">${Array(6).fill(0).map(()=>`
+      <div style="display:flex;gap:12px;padding:0 16px">
+        <div style="flex:1">
+          <div class="skeleton paper-skeleton-line" style="width:30%;margin-bottom:6px"></div>
+          <div class="skeleton paper-skeleton-line"></div>
+          <div class="skeleton paper-skeleton-line" style="width:60%"></div>
         </div>
-      `).join("")}
-    </div>`;
-
+        <div class="skeleton" style="width:64px;height:64px;border-radius:8px;flex-shrink:0"></div>
+      </div>`).join("")}</div>`;
     ps.loading = true;
-    const paper = NEWSPAPERS.find(p => p.id === id);
-    paper.fetch(0).then(items => {
-      ps.items = items;
-      ps.page = 1;
-      ps.loading = false;
-      renderPaperContent(id);
-      setupPaperInfiniteScroll(id);
-    }).catch(() => {
-      ps.loading = false;
-      content.innerHTML = `<div class="feed-empty">Couldn't load ${paper.name} right now.</div>`;
-    });
+    NEWSPAPERS.find(p=>p.id===id).fetch(0).then(items => {
+      ps.items = items; ps.page = 1; ps.loading = false;
+      renderPaperContent(id); setupPaperInfiniteScroll(id);
+    }).catch(() => { ps.loading = false; content.innerHTML = `<div class="feed-empty">Couldn't load right now.</div>`; });
   } else {
-    renderPaperContent(id);
-    setupPaperInfiniteScroll(id);
+    renderPaperContent(id); setupPaperInfiniteScroll(id);
   }
 }
 
 function renderPaperContent(id) {
   const ps = PAPER_STATE[id];
   const content = document.getElementById("paperContent");
-
   let html = `<div class="paper-content" id="paper-list-${id}">`;
   ps.items.forEach((item, i) => {
     const idx = ARTICLE_REGISTRY.length;
     ARTICLE_REGISTRY.push(item);
-    const fb = `https://picsum.photos/seed/${400 + idx}/300/300`;
     html += `
       <div class="paper-article" data-idx="${idx}" style="cursor:pointer">
         <div class="paper-article-num">${String(i+1).padStart(2,"0")}</div>
@@ -1645,28 +1542,17 @@ function renderPaperContent(id) {
           <div class="paper-article-title">${escHtml(item.title)}</div>
           <div class="paper-article-meta">${escHtml(item.source)} · ${escHtml(item.age)}</div>
         </div>
-        ${item.image ? `<img class="paper-article-thumb" src="${escHtml(item.image)}" alt="" onerror="this.style.display='none'">` : ""}
-      </div>
-    `;
+        ${item.image?`<img class="paper-article-thumb" src="${escHtml(item.image)}" alt="" onerror="this.style.display='none'">`:""}
+      </div>`;
   });
-
-  if (!ps.exhausted) {
-    html += `<div class="feed-sentinel" id="paper-sentinel-${id}">
-      <div class="feed-sentinel-spinner" id="paper-spinner-${id}"></div>
-    </div>`;
-  }
-
+  if (!ps.exhausted) html += `<div class="feed-sentinel" id="paper-sentinel-${id}"><div class="feed-sentinel-spinner" id="paper-spinner-${id}"></div></div>`;
   html += `</div>`;
   content.innerHTML = html;
-
-  // Click handler
   content.querySelectorAll(".paper-article").forEach(el => {
     el.addEventListener("click", () => {
-      const idx = parseInt(el.dataset.idx, 10);
-      const item = ARTICLE_REGISTRY[idx];
+      const item = ARTICLE_REGISTRY[parseInt(el.dataset.idx,10)];
       if (!item) return;
-      urlInput.value = item.link;
-      startRead(item.link);
+      urlInput.value = item.link; startRead(item.link);
     });
   });
 }
@@ -1674,19 +1560,12 @@ function renderPaperContent(id) {
 function setupPaperInfiniteScroll(id) {
   const ps = PAPER_STATE[id];
   if (ps.exhausted) return;
-
   const sentinel = document.getElementById(`paper-sentinel-${id}`);
   if (!sentinel) return;
-
-  // Disconnect old observer
   if (ps.observer) ps.observer.disconnect();
-
   ps.observer = new IntersectionObserver(entries => {
-    entries.forEach(entry => {
-      if (!entry.isIntersecting || ps.loading) return;
-      loadMorePaper(id);
-    });
-  }, { rootMargin: "200px" });
+    entries.forEach(e => { if (e.isIntersecting && !ps.loading) loadMorePaper(id); });
+  }, { rootMargin:"200px" });
   ps.observer.observe(sentinel);
 }
 
@@ -1694,18 +1573,12 @@ async function loadMorePaper(id) {
   const ps = PAPER_STATE[id];
   if (ps.loading || ps.exhausted) return;
   ps.loading = true;
-
   const spinner = document.getElementById(`paper-spinner-${id}`);
   if (spinner) spinner.classList.add("visible");
-
-  const paper = NEWSPAPERS.find(p => p.id === id);
   try {
-    const newItems = await paper.fetch(ps.page * 10);
-    if (!newItems || newItems.length === 0) {
-      ps.exhausted = true;
-      const sentinel = document.getElementById(`paper-sentinel-${id}`);
-      if (sentinel) sentinel.remove();
-    } else {
+    const newItems = await NEWSPAPERS.find(p=>p.id===id).fetch(ps.page*10);
+    if (!newItems?.length) { ps.exhausted = true; document.getElementById(`paper-sentinel-${id}`)?.remove(); }
+    else {
       const list = document.getElementById(`paper-list-${id}`);
       const sentinel = document.getElementById(`paper-sentinel-${id}`);
       const startNum = ps.items.length;
@@ -1713,75 +1586,53 @@ async function loadMorePaper(id) {
         const idx = ARTICLE_REGISTRY.length;
         ARTICLE_REGISTRY.push(item);
         const el = document.createElement("div");
-        el.className = "paper-article";
-        el.dataset.idx = idx;
-        el.style.cursor = "pointer";
+        el.className = "paper-article"; el.dataset.idx = idx; el.style.cursor = "pointer";
         el.innerHTML = `
           <div class="paper-article-num">${String(startNum+i+1).padStart(2,"0")}</div>
           <div class="paper-article-body">
             <div class="paper-article-title">${escHtml(item.title)}</div>
             <div class="paper-article-meta">${escHtml(item.source)} · ${escHtml(item.age)}</div>
           </div>
-          ${item.image ? `<img class="paper-article-thumb" src="${escHtml(item.image)}" alt="" onerror="this.style.display='none'">` : ""}
-        `;
-        el.addEventListener("click", () => {
-          const it = ARTICLE_REGISTRY[idx];
-          if (!it) return;
-          urlInput.value = it.link;
-          startRead(it.link);
-        });
-        if (sentinel) list.insertBefore(el, sentinel);
-        else list.appendChild(el);
+          ${item.image?`<img class="paper-article-thumb" src="${escHtml(item.image)}" alt="" onerror="this.style.display='none'">`:""}`;
+        el.addEventListener("click", () => { const it=ARTICLE_REGISTRY[idx]; if(it){urlInput.value=it.link;startRead(it.link);} });
+        if (sentinel) list.insertBefore(el, sentinel); else list.appendChild(el);
         ps.items.push(item);
       });
       ps.page++;
     }
-  } catch(e) {
-    ps.exhausted = true;
-  }
-
+  } catch { ps.exhausted = true; }
   ps.loading = false;
-  const spinner2 = document.getElementById(`paper-spinner-${id}`);
-  if (spinner2) spinner2.classList.remove("visible");
+  if (spinner) spinner.classList.remove("visible");
 }
-
 
 async function loadFeed() {
   const catMap = {};
   let firstRender = false;
 
-  // Kick off all sources in parallel, render each category as soon as it arrives
   const promises = LIVE_SOURCES.map(src =>
     Promise.race([
       src.fetch(),
-      new Promise((_, rej) => setTimeout(() => rej(new Error("Timeout")), 15000))
+      new Promise((_,rej) => setTimeout(() => rej(new Error("Timeout")), 15000))
     ]).then(items => {
       if (!items?.length) return;
       if (!catMap[src.cat]) catMap[src.cat] = [];
       const existing = new Set(catMap[src.cat].map(x => x.link));
       items.forEach(item => { if (!existing.has(item.link)) catMap[src.cat].push(item); });
       catMap[src.cat].sort((a,b) => { try { return new Date(b.pubDate)-new Date(a.pubDate); } catch { return 0; } });
-      // Progressive render — show content ASAP, re-render as more arrives
-      if (state.view === "idle") {
-        if (!firstRender) firstRender = true;
-        renderFeed(catMap);
-      }
+      if (state.view === "idle") { firstRender = true; renderFeed(catMap); }
     }).catch(() => {})
   );
 
   await Promise.allSettled(promises);
 
-  // Final render
   if (Object.keys(catMap).length > 0 && state.view === "idle") renderFeed(catMap);
   else if (!firstRender) {
     document.getElementById("feedContent").innerHTML =
       `<div class="feed-empty">Couldn't load feeds right now.<br>Paste any URL above to start reading.</div>`;
   }
 
-  // After render, enrich missing images in background
   const allItems = Object.values(catMap).flat();
-  const missing = allItems.filter(item => !item.image);
-  missing.forEach(async (item, i) => {
+  allItems.filter(i => !i.image).forEach(async (item, i) => {
     await new Promise(r => setTimeout(r, i * 120));
     const img = await fetchOgImage(item.link);
     if (!img) return;
@@ -2012,7 +1863,12 @@ const PAYWALL_SIGNALS = [
 async function fetchArticle(url) {
   const loadingSub = document.getElementById("loadingSub");
 
-  for (const method of FETCH_METHODS) {
+  // Reuters blocks most proxies — prepend Wayback as best option
+  const methods = url.includes("reuters.com")
+    ? [FETCH_METHODS[2], ...FETCH_METHODS.filter((_,i) => i !== 2)]
+    : FETCH_METHODS;
+
+  for (const method of methods) {
     loadingSub.textContent = `Trying ${method.name}…`;
     logMethod(method.name, "pending", "Connecting…");
 
@@ -2056,6 +1912,8 @@ async function startRead(rawUrl, addToHistory = true) {
   if (!url.startsWith("http")) url = "https://" + url;
   // Normalize known redirect subdomains
   url = url.replace(/^https?:\/\/edition\.cnn\.com/, "https://www.cnn.com")
+           .replace(/^https?:\/\/feeds\.reuters\.com/, "https://www.reuters.com")
+           .replace(/^https?:\/\/m\.reuters\.com/, "https://www.reuters.com")
            .replace(/^https?:\/\/m\./, "https://www.")
            .replace(/^https?:\/\/amp\./, "https://");
 
@@ -2089,18 +1947,40 @@ async function startRead(rawUrl, addToHistory = true) {
 
 // ── Input / button handlers ───────────────────────────────────────────────────
 
-shareBtn.addEventListener("click", () => {
+shareBtn.addEventListener("click", async () => {
   const url = state.article?.url || urlInput.value;
   if (!url) return;
+  const title = state.article?.headline || document.title || "Article";
+  const flash = (txt) => {
+    const orig = shareBtn.textContent;
+    shareBtn.textContent = txt;
+    setTimeout(() => { shareBtn.textContent = orig; }, 1800);
+  };
+  // Try Web Share API first (shows iOS share sheet)
   if (navigator.share) {
-    navigator.share({ title: state.article?.headline || "Article", url }).catch(() => {});
-  } else {
-    navigator.clipboard.writeText(url).then(() => {
-      const orig = shareBtn.textContent;
-      shareBtn.textContent = "✓";
-      setTimeout(() => { shareBtn.textContent = orig; }, 1500);
-    }).catch(() => {});
+    try {
+      await navigator.share({ title, url });
+      return;
+    } catch (e) {
+      if (e.name === "AbortError") return; // user cancelled — not an error
+      // fall through to clipboard
+    }
   }
+  // Fallback: copy to clipboard
+  try {
+    await navigator.clipboard.writeText(url);
+    flash("✓ Copied");
+  } catch {
+    // Last resort: prompt
+    window.prompt("Copy this link:", url);
+  }
+});
+
+// Logo click returns to home
+document.querySelector(".logo").style.cursor = "pointer";
+document.querySelector(".logo").addEventListener("click", () => {
+  showView("idle");
+  urlInput.value = "";
 });
 
 readBtn.addEventListener("click", () => startRead(urlInput.value));
