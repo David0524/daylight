@@ -1,5 +1,4 @@
 <!DOCTYPE html>
-
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -16,511 +15,720 @@
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-:root {
-–bg: #F5EFE0;
-–text: #1C1917;
-–sub: #78716C;
-–border: #DDD0B8;
-–card: #FBF6EC;
-–input-bg: #EDE3CC;
-–gold: #C9974A;
-–gold2: #E2B96F;
-–shell: #E0D5BE;
-–red: #C0504A;
-–green: #5A9A6A;
-}
-/* Light — clean bright white, clearly distinct from warm Day parchment */
-body.light {
-–bg: #FFFFFF;
-–text: #111111;
-–sub: #555555;
-–border: #E0E0E0;
-–card: #F8F8F8;
-–input-bg: #EFEFEF;
-–gold: #C9974A;
-–gold2: #E2B96F;
-–shell: #E4E4E4;
-–red: #C0504A;
-–green: #5A9A6A;
-}
-body.dim {
-–bg: #1C2B3A;
-–text: #F7F9F9;
-–sub: #8B98A5;
-–border: #2A3D50;
-–card: #223040;
-–input-bg: #2A3D50;
-–shell: #111E2A;
-}
-body.dark {
-–bg: #1A1A1A;
-–text: #E8E4DC;
-–sub: #A09890;
-–border: #2E2E2E;
-–card: #232320;
-–input-bg: #2A2A27;
-–shell: #111;
-}
+  :root {
+    --bg: #F5EFE0;
+    --text: #1C1917;
+    --sub: #78716C;
+    --border: #DDD0B8;
+    --card: #FBF6EC;
+    --input-bg: #EDE3CC;
+    --gold: #C9974A;
+    --gold2: #E2B96F;
+    --shell: #E0D5BE;
+    --red: #C0504A;
+    --green: #5A9A6A;
+  }
+  /* Light — clean bright white, clearly distinct from warm Day parchment */
+  body.light {
+    --bg: #FFFFFF;
+    --text: #111111;
+    --sub: #555555;
+    --border: #E0E0E0;
+    --card: #F8F8F8;
+    --input-bg: #EFEFEF;
+    --gold: #C9974A;
+    --gold2: #E2B96F;
+    --shell: #E4E4E4;
+    --red: #C0504A;
+    --green: #5A9A6A;
+  }
+  body.dim {
+    --bg: #1C2B3A;
+    --text: #F7F9F9;
+    --sub: #8B98A5;
+    --border: #2A3D50;
+    --card: #223040;
+    --input-bg: #2A3D50;
+    --shell: #111E2A;
+  }
+  body.dark {
+    --bg: #1A1A1A;
+    --text: #E8E4DC;
+    --sub: #A09890;
+    --border: #2E2E2E;
+    --card: #232320;
+    --input-bg: #2A2A27;
+    --shell: #111;
+  }
 
-html, body {
-height: 100%;
-background-color: #E0D5BE; /* fallback for –shell */
-}
+  html, body {
+    height: 100%;
+    background-color: #E0D5BE; /* fallback for --shell */
+  }
 
-body {
-font-family: ‘Source Serif 4’, Georgia, serif;
-background: var(–shell, #E0D5BE);
-min-height: 100vh;
-min-height: 100dvh;
-display: flex;
-align-items: center;
-justify-content: center;
-transition: background 0.3s;
-}
+  body {
+    font-family: 'Source Serif 4', Georgia, serif;
+    background: var(--shell, #E0D5BE);
+    min-height: 100vh;
+    min-height: 100dvh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.3s;
+  }
 
-body.light { background: var(–shell, #E4E4E4); background-color: #E4E4E4; }
-body.dim { background: var(–shell, #0D1821); background-color: #111E2A; }
-body.dark { background: var(–shell, #111); background-color: #111; }
-body.dim .phone { background: #15202B; color: #F7F9F9; }
-body.dark .phone { background: #1A1A1A; color: #E8E4DC; }
-body.dim .header, body.dim .status-bar, body.dim .bottom-nav { background: #15202B; border-color: #253341; }
-body.dark .header, body.dark .status-bar, body.dark .bottom-nav { background: #1A1A1A; border-color: #2E2E2E; }
-body.dim .logo, body.dim .card-hero-title, body.dim .card-mini-title,
-body.dim .card-source, body.dim .card-meta, body.dim .feed-section,
-body.dim .url-input, body.dim .bottom-nav-font { color: #F7F9F9; }
-body.dark .logo, body.dark .card-hero-title, body.dark .card-mini-title,
-body.dark .card-source, body.dark .card-meta, body.dark .feed-section,
-body.dark .url-input, body.dark .bottom-nav-font { color: #E8E4DC; }
-body.dim .icon-btn, body.dim .read-btn { color: #F7F9F9; }
-body.dark .icon-btn, body.dark .read-btn { color: #E8E4DC; }
-body.dim .read-btn, body.dark .read-btn { color: #1C1917 !important; }
-body.dim .card-hero, body.dim .card-mini { background: #1E2732; }
-body.dark .card-hero, body.dark .card-mini { background: #232320; }
-body.dim .url-input { background: #253341; }
-body.dark .url-input { background: #2A2A27; }
-body.dim .bottom-nav-font { background: #253341; }
-body.dark .bottom-nav-font { background: #2A2A27; }
+  body.light { background: var(--shell, #E4E4E4); background-color: #E4E4E4; }
+  body.dim { background: var(--shell, #0D1821); background-color: #111E2A; }
+  body.dark { background: var(--shell, #111); background-color: #111; }
+  body.dim .phone { background: #15202B; color: #F7F9F9; }
+  body.dark .phone { background: #1A1A1A; color: #E8E4DC; }
+  body.dim .header, body.dim .status-bar, body.dim .bottom-nav { background: #15202B; border-color: #253341; }
+  body.dark .header, body.dark .status-bar, body.dark .bottom-nav { background: #1A1A1A; border-color: #2E2E2E; }
+  body.dim .logo, body.dim .card-hero-title, body.dim .card-mini-title,
+  body.dim .card-source, body.dim .card-meta, body.dim .feed-section,
+  body.dim .url-input, body.dim .bottom-nav-font { color: #F7F9F9; }
+  body.dark .logo, body.dark .card-hero-title, body.dark .card-mini-title,
+  body.dark .card-source, body.dark .card-meta, body.dark .feed-section,
+  body.dark .url-input, body.dark .bottom-nav-font { color: #E8E4DC; }
+  body.dim .icon-btn, body.dim .read-btn { color: #F7F9F9; }
+  body.dark .icon-btn, body.dark .read-btn { color: #E8E4DC; }
+  body.dim .read-btn, body.dark .read-btn { color: #1C1917 !important; }
+  body.dim .card-hero, body.dim .card-mini { background: #1E2732; }
+  body.dark .card-hero, body.dark .card-mini { background: #232320; }
+  body.dim .url-input { background: #253341; }
+  body.dark .url-input { background: #2A2A27; }
+  body.dim .bottom-nav-font { background: #253341; }
+  body.dark .bottom-nav-font { background: #2A2A27; }
 
-.phone {
-width: 390px;
-height: 844px;
-border-radius: 44px;
-overflow: hidden;
-position: relative;
-box-shadow: 0 50px 100px rgba(0,0,0,0.3), 0 0 0 1px rgba(0,0,0,0.08), inset 0 0 0 1px rgba(255,255,255,0.1);
-background-color: #F5EFE0; /* fallback for –bg */
-background: var(–bg, #F5EFE0);
-display: flex;
-flex-direction: column;
-transition: background 0.3s;
-}
+  .phone {
+    width: 390px;
+    height: 844px;
+    border-radius: 44px;
+    overflow: hidden;
+    position: relative;
+    box-shadow: 0 50px 100px rgba(0,0,0,0.3), 0 0 0 1px rgba(0,0,0,0.08), inset 0 0 0 1px rgba(255,255,255,0.1);
+    background-color: #F5EFE0; /* fallback for --bg */
+    background: var(--bg, #F5EFE0);
+    display: flex;
+    flex-direction: column;
+    transition: background 0.3s;
+  }
 
-body.light .phone { background: #FFFFFF; background-color: #FFFFFF; }
+  body.light .phone { background: #FFFFFF; background-color: #FFFFFF; }
 
-@media (max-width: 768px) {
-html { background-color: #F5EFE0; }
-body { align-items: flex-start; background: var(–bg, #F5EFE0); background-color: #F5EFE0; }
-body.light { background: #FFFFFF; background-color: #FFFFFF; }
-body.light html { background-color: #FFFFFF; }
-body.dim { background-color: #111E2A; }
-body.dark { background-color: #1A1A1A; }
-.phone { width: 100vw; height: 100%; min-height: 100dvh; border-radius: 0; box-shadow: none; }
-.status-bar { padding-top: env(safe-area-inset-top, 14px); height: calc(44px + env(safe-area-inset-top, 0px)); }
-.scroll-area { padding-bottom: env(safe-area-inset-bottom, 16px); }
-}
-/* Installed PWA — same safe area rules */
-@media (display-mode: standalone) {
-.phone { width: 100vw; height: 100dvh; border-radius: 0; box-shadow: none; }
-body { align-items: flex-start; background: var(–bg); }
-.status-bar { padding-top: env(safe-area-inset-top, 14px); height: calc(44px + env(safe-area-inset-top, 0px)); }
-.scroll-area { padding-bottom: env(safe-area-inset-bottom, 16px); }
-}
+  @media (max-width: 768px) {
+    html { background-color: #F5EFE0; }
+    body { align-items: flex-start; background: var(--bg, #F5EFE0); background-color: #F5EFE0; }
+    body.light { background: #FFFFFF; background-color: #FFFFFF; }
+    body.light html { background-color: #FFFFFF; }
+    body.dim { background-color: #111E2A; }
+    body.dark { background-color: #1A1A1A; }
+    .phone { width: 100vw; height: 100%; min-height: 100dvh; border-radius: 0; box-shadow: none; }
+    .status-bar { padding-top: env(safe-area-inset-top, 14px); height: calc(44px + env(safe-area-inset-top, 0px)); }
+    .scroll-area { padding-bottom: env(safe-area-inset-bottom, 16px); }
+  }
+  /* Installed PWA — same safe area rules */
+  @media (display-mode: standalone) {
+    .phone { width: 100vw; height: 100dvh; border-radius: 0; box-shadow: none; }
+    body { align-items: flex-start; background: var(--bg); }
+    .status-bar { padding-top: env(safe-area-inset-top, 14px); height: calc(44px + env(safe-area-inset-top, 0px)); }
+    .scroll-area { padding-bottom: env(safe-area-inset-bottom, 16px); }
+  }
 
-/* Progress bar */
-.progress-track { position: absolute; top: 0; left: 0; right: 0; height: 3px; background: var(–border); z-index: 20; }
-.progress-fill { height: 100%; background: linear-gradient(90deg, var(–gold), var(–gold2)); width: 0%; transition: width 0.1s linear; }
+  /* Progress bar */
+  .progress-track { position: absolute; top: 0; left: 0; right: 0; height: 3px; background: var(--border); z-index: 20; }
+  .progress-fill { height: 100%; background: linear-gradient(90deg, var(--gold), var(--gold2)); width: 0%; transition: width 0.1s linear; }
 
-/* Status bar */
-.status-bar {
-padding: 14px 26px 0;
-display: flex;
-justify-content: space-between;
-align-items: center;
-flex-shrink: 0;
-}
-.status-time { font-family: ‘DM Mono’, monospace; font-size: 12px; color: var(–sub); }
-.status-icons { display: flex; gap: 10px; align-items: center; }
+  /* Status bar */
+  .status-bar {
+    padding: 14px 26px 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-shrink: 0;
+  }
+  .status-time { font-family: 'DM Mono', monospace; font-size: 12px; color: var(--sub); }
+  .status-icons { display: flex; gap: 10px; align-items: center; }
 
-/* Header */
-.header {
-padding: 10px 20px 14px;
-flex-shrink: 0;
-border-bottom: 1px solid var(–border);
-transition: border-color 0.3s;
-}
-.header-top {
-display: flex;
-align-items: center;
-gap: 8px;
-margin-bottom: 10px;
-}
-.logo {
-font-family: ‘Playfair Display’, Georgia, serif;
-font-size: 21px;
-font-weight: 700;
-color: var(–text);
-letter-spacing: -0.3px;
-flex: 1;
-cursor: pointer;
-user-select: none;
-transition: opacity 0.15s;
-}
-.logo:hover { opacity: 0.7; }
-.icon-btn {
-background: none; border: none; cursor: pointer;
-color: var(–sub); font-size: 18px; padding: 0 3px;
-line-height: 1; transition: color 0.2s; border-radius: 6px;
-}
-.icon-btn:hover { color: var(–text); }
-.icon-btn:disabled { opacity: 0.25; cursor: default; }
+  /* Header */
+  .header {
+    padding: 10px 20px 14px;
+    flex-shrink: 0;
+    border-bottom: 1px solid var(--border);
+    transition: border-color 0.3s;
+  }
+  .header-top {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .logo {
+    font-family: 'Playfair Display', Georgia, serif;
+    font-size: 21px;
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: -0.3px;
+    flex: 1;
+    cursor: pointer;
+    user-select: none;
+    transition: opacity 0.15s;
+  }
+  .logo:hover { opacity: 0.7; }
+  .icon-btn {
+    background: none; border: none; cursor: pointer;
+    color: var(--sub); font-size: 18px; padding: 0 3px;
+    line-height: 1; transition: color 0.2s; border-radius: 6px;
+  }
+  .icon-btn:hover { color: var(--text); }
+  .icon-btn:disabled { opacity: 0.25; cursor: default; }
 
-/* URL bar */
-.url-bar {
-display: flex;
-align-items: center;
-gap: 8px;
-background: var(–input-bg);
-border-radius: 13px;
-padding: 10px 13px;
-border: 1px solid var(–border);
-transition: border-color 0.2s, background 0.3s;
-}
-.url-bar:focus-within { border-color: var(–gold); }
-.url-input {
-background: transparent; border: none; outline: none;
-font-family: ‘DM Mono’, monospace; font-size: 12px;
-color: var(–text); width: 100%; min-width: 0;
-}
-.url-input::placeholder { color: var(–sub); }
-.read-btn {
-background: linear-gradient(135deg, var(–gold), var(–gold2));
-border: none; border-radius: 9px; cursor: pointer;
-color: #1C1917; font-size: 11px; font-weight: 700;
-padding: 6px 11px; font-family: ‘DM Mono’, monospace;
-letter-spacing: 0.5px; white-space: nowrap; flex-shrink: 0;
-transition: opacity 0.2s, transform 0.15s;
-}
-.read-btn:hover { transform: scale(1.03); }
-.read-btn:disabled { opacity: 0.35; cursor: default; transform: none; }
+  /* URL bar */
+  .url-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--input-bg);
+    border-radius: 13px;
+    padding: 10px 13px;
+    border: 1px solid var(--border);
+    transition: border-color 0.2s, background 0.3s;
+  }
+  .url-bar:focus-within { border-color: var(--gold); }
+  .url-input {
+    background: transparent; border: none; outline: none;
+    font-family: 'DM Mono', monospace; font-size: 12px;
+    color: var(--text); width: 100%; min-width: 0;
+  }
+  .url-input::placeholder { color: var(--sub); }
+  .read-btn {
+    background: linear-gradient(135deg, var(--gold), var(--gold2));
+    border: none; border-radius: 9px; cursor: pointer;
+    color: #1C1917; font-size: 11px; font-weight: 700;
+    padding: 6px 11px; font-family: 'DM Mono', monospace;
+    letter-spacing: 0.5px; white-space: nowrap; flex-shrink: 0;
+    transition: opacity 0.2s, transform 0.15s;
+  }
+  .read-btn:hover { transform: scale(1.03); }
+  .read-btn:disabled { opacity: 0.35; cursor: default; transform: none; }
 
-/* Scroll area */
-.scroll-area {
-flex: 1; overflow-y: auto; overflow-x: hidden;
--webkit-overflow-scrolling: touch;
-scroll-behavior: smooth;
-}
-.scroll-area::-webkit-scrollbar { display: none; }
+  /* Scroll area */
+  .scroll-area {
+    flex: 1; overflow-y: auto; overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    scroll-behavior: smooth;
+  }
+  .scroll-area::-webkit-scrollbar { display: none; }
 
-/* Pull to refresh */
-.ptr-indicator {
-display: flex; align-items: center; justify-content: center; gap: 8px;
-height: 0; overflow: hidden; transition: height 0.2s ease;
-font-family: ‘DM Mono’, monospace; font-size: 11px; color: var(–sub);
-}
-.ptr-indicator.visible { height: 48px; }
-.ptr-spinner { width: 16px; height: 16px; border: 2px solid var(–border); border-top-color: var(–gold); border-radius: 50%; }
-.ptr-spinner.spinning { animation: spin 0.7s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
+  /* Pull to refresh */
+  .ptr-indicator {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    height: 0; overflow: hidden; transition: height 0.2s ease;
+    font-family: 'DM Mono', monospace; font-size: 11px; color: var(--sub);
+  }
+  .ptr-indicator.visible { height: 48px; }
+  .ptr-spinner { width: 16px; height: 16px; border: 2px solid var(--border); border-top-color: var(--gold); border-radius: 50%; }
+  .ptr-spinner.spinning { animation: spin 0.7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
 
-/* Feed */
-.feed-wrap { padding: 0 0 60px; animation: fadeUp 0.4s ease; }
-.feed-date-header {
-padding: 20px 20px 6px;
-font-family: ‘DM Mono’, monospace; font-size: 10px;
-color: var(–sub); letter-spacing: 1.2px; text-transform: uppercase;
-}
-/* Hero card */
-.card-hero {
-margin: 0 16px 4px;
-border-radius: 16px; overflow: hidden;
-background: var(–card); border: 1px solid var(–border);
-cursor: pointer; transition: transform 0.18s, box-shadow 0.18s;
-}
-.card-hero:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.1); }
-.card-hero-img { width: 100%; height: 180px; object-fit: cover; display: block; background: var(–input-bg); }
-.card-hero-body { padding: 14px 16px 16px; }
-.card-source { font-family: ‘DM Mono’, monospace; font-size: 10px; color: var(–gold); letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px; }
-.card-hero-title {
-font-family: ‘Playfair Display’, Georgia, serif;
-font-size: 18px; font-weight: 700; line-height: 1.25;
-color: var(–text); margin-bottom: 8px;
-}
-.card-hero-desc { font-size: 13px; color: var(–sub); line-height: 1.6; margin-bottom: 10px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.card-meta { font-family: ‘DM Mono’, monospace; font-size: 10px; color: var(–sub); }
-/* Section label */
-.feed-section {
-padding: 16px 20px 8px;
-font-family: ‘Playfair Display’, Georgia, serif;
-font-size: 15px; font-weight: 600; color: var(–text);
-display: flex; align-items: center; gap: 10px;
-}
-.feed-section::after { content: ‘’; flex: 1; height: 1px; background: var(–border); }
-/* Standard card */
-.card-std {
-display: flex; gap: 12px; padding: 12px 16px;
-border-bottom: 1px solid var(–border);
-cursor: pointer; transition: background 0.15s;
-align-items: flex-start;
-}
-.card-std:hover { background: var(–input-bg); }
-.card-std-thumb { width: 72px; height: 72px; border-radius: 10px; object-fit: cover; flex-shrink: 0; background: var(–input-bg); }
-.card-std-body { flex: 1; min-width: 0; }
-.card-std-source { font-family: ‘DM Mono’, monospace; font-size: 10px; color: var(–gold); text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 4px; }
-.card-std-title { font-family: ‘Playfair Display’, Georgia, serif; font-size: 14px; font-weight: 600; line-height: 1.3; color: var(–text); margin-bottom: 5px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
-.card-std-meta { font-family: ‘DM Mono’, monospace; font-size: 10px; color: var(–sub); }
-/* Horizontal scroll strip */
-.card-strip { padding: 0 16px 4px; display: flex; gap: 10px; overflow-x: auto; scrollbar-width: none; }
-.card-strip::-webkit-scrollbar { display: none; }
-.card-mini {
-flex-shrink: 0; width: 140px; border-radius: 12px; overflow: hidden;
-background: var(–card); border: 1px solid var(–border);
-cursor: pointer; transition: transform 0.15s;
-}
-.card-mini:hover { transform: scale(1.02); }
-.card-mini-img { width: 100%; height: 80px; object-fit: cover; background: var(–input-bg); }
-.card-mini-body { padding: 8px 10px 10px; }
-.card-mini-source { font-family: ‘DM Mono’, monospace; font-size: 9px; color: var(–gold); text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 3px; }
-.card-mini-title { font-family: ‘Playfair Display’, Georgia, serif; font-size: 12px; font-weight: 600; line-height: 1.3; color: var(–text); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
-/* Loading feed skeleton */
-.skeleton { background: linear-gradient(90deg, var(–border) 25%, var(–input-bg) 50%, var(–border) 75%); background-size: 200% 100%; animation: shimmer 1.4s ease-in-out infinite; border-radius: 6px; }
-@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
-.skel-hero { margin: 12px 16px; border-radius: 16px; overflow: hidden; }
-.skel-img { height: 180px; }
-.skel-line { height: 14px; margin: 10px 16px 6px; }
-.skel-line.short { width: 60%; }
-.feed-empty { padding: 40px 20px; text-align: center; font-family: ‘DM Mono’, monospace; font-size: 12px; color: var(–sub); line-height: 1.8; }
+  /* Feed */
+  .feed-wrap { padding: 0 0 60px; animation: fadeUp 0.4s ease; }
+  .feed-date-header {
+    padding: 20px 20px 6px;
+    font-family: 'DM Mono', monospace; font-size: 10px;
+    color: var(--sub); letter-spacing: 1.2px; text-transform: uppercase;
+  }
+  /* Hero card */
+  .card-hero {
+    margin: 0 16px 4px;
+    border-radius: 16px; overflow: hidden;
+    background: var(--card); border: 1px solid var(--border);
+    cursor: pointer; transition: transform 0.18s, box-shadow 0.18s;
+  }
+  .card-hero:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.1); }
+  .card-hero-img { width: 100%; height: 180px; object-fit: cover; display: block; background: var(--input-bg); }
+  .card-hero-body { padding: 14px 16px 16px; }
+  .card-source { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--gold); letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px; }
+  .card-hero-title {
+    font-family: 'Playfair Display', Georgia, serif;
+    font-size: 18px; font-weight: 700; line-height: 1.25;
+    color: var(--text); margin-bottom: 8px;
+  }
+  .card-hero-desc { font-size: 13px; color: var(--sub); line-height: 1.6; margin-bottom: 10px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .card-meta { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--sub); }
+  /* Section label */
+  .feed-section {
+    padding: 16px 20px 8px;
+    font-family: 'Playfair Display', Georgia, serif;
+    font-size: 15px; font-weight: 600; color: var(--text);
+    display: flex; align-items: center; gap: 10px;
+  }
+  .feed-section::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+  /* Standard card */
+  .card-std {
+    display: flex; gap: 12px; padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer; transition: background 0.15s;
+    align-items: flex-start;
+  }
+  .card-std:hover { background: var(--input-bg); }
+  .card-std-thumb { width: 72px; height: 72px; border-radius: 10px; object-fit: cover; flex-shrink: 0; background: var(--input-bg); }
+  .card-std-body { flex: 1; min-width: 0; }
+  .card-std-source { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--gold); text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 4px; }
+  .card-std-title { font-family: 'Playfair Display', Georgia, serif; font-size: 14px; font-weight: 600; line-height: 1.3; color: var(--text); margin-bottom: 5px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .card-std-meta { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--sub); }
+  /* Horizontal scroll strip */
+  .card-strip { padding: 0 16px 4px; display: flex; gap: 10px; overflow-x: auto; scrollbar-width: none; }
+  .card-strip::-webkit-scrollbar { display: none; }
+  .card-mini {
+    flex-shrink: 0; width: 140px; border-radius: 12px; overflow: hidden;
+    background: var(--card); border: 1px solid var(--border);
+    cursor: pointer; transition: transform 0.15s;
+  }
+  .card-mini:hover { transform: scale(1.02); }
+  .card-mini-img { width: 100%; height: 80px; object-fit: cover; background: var(--input-bg); }
+  .card-mini-body { padding: 8px 10px 10px; }
+  .card-mini-source { font-family: 'DM Mono', monospace; font-size: 9px; color: var(--gold); text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 3px; }
+  .card-mini-title { font-family: 'Playfair Display', Georgia, serif; font-size: 12px; font-weight: 600; line-height: 1.3; color: var(--text); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  /* Loading feed skeleton */
+  .skeleton { background: linear-gradient(90deg, var(--border) 25%, var(--input-bg) 50%, var(--border) 75%); background-size: 200% 100%; animation: shimmer 1.4s ease-in-out infinite; border-radius: 6px; }
+  @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+  .skel-hero { margin: 12px 16px; border-radius: 16px; overflow: hidden; }
+  .skel-img { height: 180px; }
+  .skel-line { height: 14px; margin: 10px 16px 6px; }
+  .skel-line.short { width: 60%; }
+  .feed-empty { padding: 40px 20px; text-align: center; font-family: 'DM Mono', monospace; font-size: 12px; color: var(--sub); line-height: 1.8; }
 
-/* Loading */
-.loading-wrap { padding: 64px 26px; text-align: center; animation: fadeUp 0.3s ease; }
-.spinner {
-width: 38px; height: 38px;
-border: 2px solid var(–border);
-border-top-color: var(–gold);
-border-radius: 50%;
-margin: 0 auto 26px;
-animation: spin 0.7s linear infinite;
-}
-.loading-title { font-family: ‘Playfair Display’, Georgia, serif; font-size: 17px; color: var(–text); margin-bottom: 6px; }
-.loading-sub { font-family: ‘DM Mono’, monospace; font-size: 11px; color: var(–sub); }
-.method-log { margin-top: 22px; text-align: left; }
-.method-row {
-display: flex; gap: 10px; padding: 7px 0;
-border-bottom: 1px solid var(–border);
-font-family: ‘DM Mono’, monospace; font-size: 11px;
-align-items: baseline;
-}
-.method-name { color: var(–text); flex-shrink: 0; min-width: 90px; }
-.method-reason { color: var(–sub); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.method-dot {
-width: 7px; height: 7px; border-radius: 50%;
-flex-shrink: 0; margin-top: 2px;
-background: var(–gold); animation: pulse 1.2s ease-in-out infinite;
-}
+  /* Loading */
+  .loading-wrap { padding: 64px 26px; text-align: center; animation: fadeUp 0.3s ease; }
+  .spinner {
+    width: 38px; height: 38px;
+    border: 2px solid var(--border);
+    border-top-color: var(--gold);
+    border-radius: 50%;
+    margin: 0 auto 26px;
+    animation: spin 0.7s linear infinite;
+  }
+  .loading-title { font-family: 'Playfair Display', Georgia, serif; font-size: 17px; color: var(--text); margin-bottom: 6px; }
+  .loading-sub { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--sub); }
+  .method-log { margin-top: 22px; text-align: left; }
+  .method-row {
+    display: flex; gap: 10px; padding: 7px 0;
+    border-bottom: 1px solid var(--border);
+    font-family: 'DM Mono', monospace; font-size: 11px;
+    align-items: baseline;
+  }
+  .method-name { color: var(--text); flex-shrink: 0; min-width: 90px; }
+  .method-reason { color: var(--sub); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .method-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    flex-shrink: 0; margin-top: 2px;
+    background: var(--gold); animation: pulse 1.2s ease-in-out infinite;
+  }
 
-/* Error */
-.error-wrap { padding: 40px 22px; animation: fadeUp 0.4s ease; }
-.error-icon { font-size: 34px; text-align: center; margin-bottom: 14px; }
-.error-title { font-family: ‘Playfair Display’, Georgia, serif; font-size: 20px; font-weight: 700; text-align: center; color: var(–text); margin-bottom: 8px; }
-.error-sub { color: var(–sub); font-size: 13px; text-align: center; line-height: 1.6; margin-bottom: 24px; }
-.error-log { background: var(–input-bg); border-radius: 14px; padding: 16px; margin-bottom: 20px; border: 1px solid var(–border); }
-.error-log-title { font-family: ‘DM Mono’, monospace; font-size: 10px; color: var(–sub); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; }
-.error-row { display: grid; grid-template-columns: 14px 1fr; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(–border); }
-.error-row:last-child { border-bottom: none; padding-bottom: 0; }
-.error-method { font-family: ‘DM Mono’, monospace; font-size: 11px; color: var(–text); font-weight: 500; }
-.error-reason { font-family: ‘DM Mono’, monospace; font-size: 10px; color: var(–sub); margin-top: 2px; }
-.reset-btn {
-width: 100%; background: linear-gradient(135deg, var(–gold), var(–gold2));
-border: none; border-radius: 13px; padding: 14px;
-color: #fff; font-size: 13px; font-weight: 600; cursor: pointer;
-font-family: ‘DM Mono’, monospace; letter-spacing: 0.5px;
-transition: transform 0.15s;
-}
-.reset-btn:hover { transform: scale(1.01); }
+  /* Error */
+  .error-wrap { padding: 40px 22px; animation: fadeUp 0.4s ease; }
+  .error-icon { font-size: 34px; text-align: center; margin-bottom: 14px; }
+  .error-title { font-family: 'Playfair Display', Georgia, serif; font-size: 20px; font-weight: 700; text-align: center; color: var(--text); margin-bottom: 8px; }
+  .error-sub { color: var(--sub); font-size: 13px; text-align: center; line-height: 1.6; margin-bottom: 24px; }
+  .error-log { background: var(--input-bg); border-radius: 14px; padding: 16px; margin-bottom: 20px; border: 1px solid var(--border); }
+  .error-log-title { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--sub); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; }
+  .error-row { display: grid; grid-template-columns: 14px 1fr; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+  .error-row:last-child { border-bottom: none; padding-bottom: 0; }
+  .error-method { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--text); font-weight: 500; }
+  .error-reason { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--sub); margin-top: 2px; }
+  .reset-btn {
+    width: 100%; background: linear-gradient(135deg, var(--gold), var(--gold2));
+    border: none; border-radius: 13px; padding: 14px;
+    color: #fff; font-size: 13px; font-weight: 600; cursor: pointer;
+    font-family: 'DM Mono', monospace; letter-spacing: 0.5px;
+    transition: transform 0.15s;
+  }
+  .reset-btn:hover { transform: scale(1.01); }
 
-/* Reader */
-.reader-wrap { animation: fadeUp 0.5s ease; padding-bottom: 50px; }
-.hero-img { width: 100%; height: 210px; object-fit: cover; display: block; }
-.hero-fade {
-height: 70px; margin-top: -70px; position: relative;
-background: linear-gradient(transparent, var(–bg));
-}
-.reader-body { padding: 24px 24px 0; }
-.reader-meta-pill {
-display: inline-flex; align-items: center; gap: 6px;
-padding: 3px 10px; border-radius: 20px;
-background: var(–input-bg); border: 1px solid var(–border);
-font-family: ‘DM Mono’, monospace; font-size: 10px; color: var(–sub);
-margin-bottom: 16px;
-}
-.reader-headline {
-font-family: ‘Playfair Display’, Georgia, serif;
-font-weight: 700; line-height: 1.2; letter-spacing: -0.3px;
-color: var(–text); margin-bottom: 16px;
-}
-.reader-meta {
-display: flex; flex-wrap: wrap; gap: 6px 14px;
-padding-bottom: 18px; border-bottom: 1px solid var(–border);
-margin-bottom: 22px;
-}
-.reader-author { font-size: 13px; color: var(–gold); font-style: italic; }
-.reader-date { font-family: ‘DM Mono’, monospace; font-size: 11px; color: var(–sub); }
-.reader-readtime { font-family: ‘DM Mono’, monospace; font-size: 11px; color: var(–sub); }
-.reader-p { line-height: 1.85; color: var(–text); margin-bottom: 20px; }
-.reader-h2 {
-font-family: ‘Playfair Display’, Georgia, serif;
-font-weight: 600; line-height: 1.3; color: var(–text);
-margin-top: 30px; margin-bottom: 12px;
-}
-.reader-blockquote {
-border-left: 3px solid var(–gold); padding-left: 16px;
-margin: 22px 0; font-style: italic; color: var(–sub); line-height: 1.75;
-}
-.reader-footer {
-margin-top: 36px; padding-top: 18px;
-border-top: 1px solid var(–border);
-}
-.source-link {
-font-family: ‘DM Mono’, monospace; font-size: 11px;
-color: var(–gold); text-decoration: none;
-display: flex; align-items: center; gap: 6px;
-}
-.source-link:hover { text-decoration: underline; }
+  /* Reader */
+  .reader-wrap { animation: fadeUp 0.5s ease; padding-bottom: 50px; }
+  .hero-img { width: 100%; height: 210px; object-fit: cover; display: block; }
+  .hero-fade {
+    height: 70px; margin-top: -70px; position: relative;
+    background: linear-gradient(transparent, var(--bg));
+  }
+  .reader-body { padding: 24px 24px 0; }
+  .reader-meta-pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 3px 10px; border-radius: 20px;
+    background: var(--input-bg); border: 1px solid var(--border);
+    font-family: 'DM Mono', monospace; font-size: 10px; color: var(--sub);
+    margin-bottom: 16px;
+  }
+  .reader-headline {
+    font-family: 'Playfair Display', Georgia, serif;
+    font-weight: 700; line-height: 1.2; letter-spacing: -0.3px;
+    color: var(--text); margin-bottom: 16px;
+  }
+  .reader-meta {
+    display: flex; flex-wrap: wrap; gap: 6px 14px;
+    padding-bottom: 18px; border-bottom: 1px solid var(--border);
+    margin-bottom: 22px;
+  }
+  .reader-author { font-size: 13px; color: var(--gold); font-style: italic; }
+  .reader-date { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--sub); }
+  .reader-readtime { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--sub); }
+  .reader-p { line-height: 1.85; color: var(--text); margin-bottom: 20px; }
+  .reader-h2 {
+    font-family: 'Playfair Display', Georgia, serif;
+    font-weight: 600; line-height: 1.3; color: var(--text);
+    margin-top: 30px; margin-bottom: 12px;
+  }
+  .reader-blockquote {
+    border-left: 3px solid var(--gold); padding-left: 16px;
+    margin: 22px 0; font-style: italic; color: var(--sub); line-height: 1.75;
+  }
+  .reader-footer {
+    margin-top: 36px; padding-top: 18px;
+    border-top: 1px solid var(--border);
+  }
+  .source-link {
+    font-family: 'DM Mono', monospace; font-size: 11px;
+    color: var(--gold); text-decoration: none;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .source-link:hover { text-decoration: underline; }
 
-/* Font controls */
-.font-btns { display: flex; gap: 6px; }
-.font-btn {
-background: none; border: 1px solid var(–border);
-border-radius: 7px; cursor: pointer; color: var(–text);
-padding: 3px 8px; font-family: ‘DM Mono’, monospace;
-transition: border-color 0.15s;
-}
-.font-btn:hover { border-color: var(–gold); }
+  /* Font controls */
+  .font-btns { display: flex; gap: 6px; }
+  .font-btn {
+    background: none; border: 1px solid var(--border);
+    border-radius: 7px; cursor: pointer; color: var(--text);
+    padding: 3px 8px; font-family: 'DM Mono', monospace;
+    transition: border-color 0.15s;
+  }
+  .font-btn:hover { border-color: var(--gold); }
 
-/* Warn banner */
-.warn-banner {
-background: #FFF8E6; border: 1px solid #E2B96F;
-border-radius: 10px; padding: 10px 14px;
-margin: 0 22px 16px;
-font-family: ‘DM Mono’, monospace; font-size: 11px;
-color: #8A6020; line-height: 1.5;
-}
-body.dark .warn-banner { background: #2A2410; border-color: #5A4010; color: #C9974A; }
-body.dim .warn-banner { background: #1A2A3A; border-color: #253341; color: #E2B96F; }
+  /* Warn banner */
+  .warn-banner {
+    background: #FFF8E6; border: 1px solid #E2B96F;
+    border-radius: 10px; padding: 10px 14px;
+    margin: 0 22px 16px;
+    font-family: 'DM Mono', monospace; font-size: 11px;
+    color: #8A6020; line-height: 1.5;
+  }
+  body.dark .warn-banner { background: #2A2410; border-color: #5A4010; color: #C9974A; }
+  body.dim .warn-banner { background: #1A2A3A; border-color: #253341; color: #E2B96F; }
 
-/* Bottom nav */
-.bottom-nav {
-display: flex; align-items: center; justify-content: space-around;
-padding: 10px 16px; padding-bottom: max(10px, env(safe-area-inset-bottom, 10px));
-border-top: 1px solid var(–border); background: var(–bg);
-flex-shrink: 0; transition: background 0.3s, border-color 0.3s; gap: 4px;
-}
-.bottom-nav .icon-btn { flex: 1; display: flex; align-items: center; justify-content: center; padding: 8px 4px; font-size: 20px; border-radius: 10px; min-width: 0; }
-.bottom-nav .icon-btn:active { background: var(–border); }
-.bottom-nav-font { flex: 1; display: flex; align-items: center; justify-content: center; padding: 8px 4px; border-radius: 10px; background: var(–input-bg); color: var(–text); font-family: “DM Mono”, monospace; font-size: 12px; font-weight: 500; cursor: pointer; border: none; min-width: 0; }
-.bottom-nav-font:active { opacity: 0.7; }
-.bottom-nav-sep { width: 1px; height: 22px; background: var(–border); flex-shrink: 0; }
+  /* Bottom nav */
+  .bottom-nav {
+    display: flex; align-items: center; justify-content: space-around;
+    padding: 10px 16px; padding-bottom: max(10px, env(safe-area-inset-bottom, 10px));
+    border-top: 1px solid var(--border); background: var(--bg);
+    flex-shrink: 0; transition: background 0.3s, border-color 0.3s; gap: 4px;
+  }
+  .bottom-nav .icon-btn { flex: 1; display: flex; align-items: center; justify-content: center; padding: 8px 4px; font-size: 20px; border-radius: 10px; min-width: 0; }
+  .bottom-nav .icon-btn:active { background: var(--border); }
+  .bottom-nav-font { flex: 1; display: flex; align-items: center; justify-content: center; padding: 8px 4px; border-radius: 10px; background: var(--input-bg); color: var(--text); font-family: "DM Mono", monospace; font-size: 12px; font-weight: 500; cursor: pointer; border: none; min-width: 0; }
+  .bottom-nav-font:active { opacity: 0.7; }
+  .bottom-nav-sep { width: 1px; height: 22px; background: var(--border); flex-shrink: 0; }
 
-/* Animations */
-@keyframes spin { to { transform: rotate(360deg); } }
-@keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+  /* Animations */
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
 
-/* ── Tab bar ── */
-.tab-bar {
-display: flex; flex-shrink: 0;
-border-top: 1px solid var(–border);
-background: var(–bg);
-transition: background 0.3s, border-color 0.3s;
-}
-.tab-btn {
-flex: 1; background: none; border: none; cursor: pointer;
-padding: 8px 4px 10px;
-font-family: ‘DM Mono’, monospace; font-size: 10px; letter-spacing: 0.6px;
-color: var(–sub); transition: color 0.2s;
-display: flex; flex-direction: column; align-items: center; gap: 3px;
-}
-.tab-btn.active { color: var(–gold); }
-.tab-btn .tab-icon { font-size: 16px; line-height: 1; }
+  /* ── Tab bar ── */
+  .tab-bar {
+    display: flex; flex-shrink: 0;
+    border-top: 1px solid var(--border);
+    background: var(--bg);
+    transition: background 0.3s, border-color 0.3s;
+  }
+  .tab-btn {
+    flex: 1; background: none; border: none; cursor: pointer;
+    padding: 8px 4px 10px;
+    font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 0.6px;
+    color: var(--sub); transition: color 0.2s;
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+  }
+  .tab-btn.active { color: var(--gold); }
+  .tab-btn .tab-icon { font-size: 16px; line-height: 1; }
 
-/* ── Newspaper tab ── */
-.papers-wrap { padding-bottom: 20px; animation: fadeUp 0.4s ease; }
-.paper-tabs {
-display: flex; gap: 0; overflow-x: auto; scrollbar-width: none;
-padding: 12px 16px 0; border-bottom: 1px solid var(–border); flex-shrink: 0;
-}
-.paper-tabs::-webkit-scrollbar { display: none; }
-.paper-tab {
-flex-shrink: 0; background: none; border: none; border-bottom: 2px solid transparent;
-cursor: pointer; padding: 8px 14px 10px;
-font-family: ‘DM Mono’, monospace; font-size: 11px; letter-spacing: 0.5px;
-color: var(–sub); transition: color 0.2s, border-color 0.2s; white-space: nowrap;
-}
-.paper-tab.active { color: var(–gold); border-bottom-color: var(–gold); }
-.paper-content { animation: fadeUp 0.3s ease; }
-.paper-article {
-display: flex; gap: 12px; padding: 14px 16px;
-border-bottom: 1px solid var(–border);
-cursor: pointer; transition: background 0.15s; align-items: flex-start;
-}
-.paper-article:hover { background: var(–input-bg); }
-.paper-article-num {
-font-family: ‘Playfair Display’, serif; font-size: 26px; font-weight: 700;
-color: var(–border); line-height: 1; flex-shrink: 0; width: 30px; margin-top: 2px;
-}
-.paper-article-body { flex: 1; min-width: 0; }
-.paper-article-title {
-font-family: ‘Playfair Display’, serif; font-size: 15px; font-weight: 600;
-line-height: 1.3; color: var(–text); margin-bottom: 5px;
-display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
-}
-.paper-article-meta { font-family: ‘DM Mono’, monospace; font-size: 10px; color: var(–sub); }
-.paper-article-thumb {
-width: 64px; height: 64px; border-radius: 8px; object-fit: cover;
-flex-shrink: 0; background: var(–input-bg);
-}
-.paper-loading { padding: 30px 20px; display: flex; flex-direction: column; gap: 24px; }
-.paper-skeleton-line { height: 12px; border-radius: 4px; margin-bottom: 8px; }
+  /* ── Newspaper tab ── */
+  .papers-wrap { padding-bottom: 20px; animation: fadeUp 0.4s ease; }
+  .paper-tabs {
+    display: flex; gap: 0; overflow-x: auto; scrollbar-width: none;
+    padding: 12px 16px 0; border-bottom: 1px solid var(--border); flex-shrink: 0;
+  }
+  .paper-tabs::-webkit-scrollbar { display: none; }
+  .paper-tab {
+    flex-shrink: 0; background: none; border: none; border-bottom: 2px solid transparent;
+    cursor: pointer; padding: 8px 14px 10px;
+    font-family: 'DM Mono', monospace; font-size: 11px; letter-spacing: 0.5px;
+    color: var(--sub); transition: color 0.2s, border-color 0.2s; white-space: nowrap;
+  }
+  .paper-tab.active { color: var(--gold); border-bottom-color: var(--gold); }
+  .paper-content { animation: fadeUp 0.3s ease; }
+  .paper-article {
+    display: flex; gap: 12px; padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer; transition: background 0.15s; align-items: flex-start;
+  }
+  .paper-article:hover { background: var(--input-bg); }
+  .paper-article-num {
+    font-family: 'Playfair Display', serif; font-size: 26px; font-weight: 700;
+    color: var(--border); line-height: 1; flex-shrink: 0; width: 30px; margin-top: 2px;
+  }
+  .paper-article-body { flex: 1; min-width: 0; }
+  .paper-article-title {
+    font-family: 'Playfair Display', serif; font-size: 15px; font-weight: 600;
+    line-height: 1.3; color: var(--text); margin-bottom: 5px;
+    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .paper-article-meta { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--sub); }
+  .paper-article-thumb {
+    width: 64px; height: 64px; border-radius: 8px; object-fit: cover;
+    flex-shrink: 0; background: var(--input-bg);
+  }
+  .paper-loading { padding: 30px 20px; display: flex; flex-direction: column; gap: 24px; }
+  .paper-skeleton-line { height: 12px; border-radius: 4px; margin-bottom: 8px; }
 
-/* ── Vertical card list ── */
-.card-list-item {
-display: flex; gap: 12px; padding: 12px 16px;
-border-bottom: 1px solid var(–border);
-cursor: pointer; transition: background 0.15s; align-items: flex-start;
-}
-.card-list-item:hover { background: var(–input-bg); }
-.card-list-thumb {
-width: 72px; height: 72px; border-radius: 10px; object-fit: cover;
-flex-shrink: 0; background: var(–input-bg);
-}
-.card-list-body { flex: 1; min-width: 0; }
-.card-list-source { font-family: ‘DM Mono’, monospace; font-size: 10px; color: var(–gold); text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 4px; }
-.card-list-title { font-family: ‘Playfair Display’, serif; font-size: 14px; font-weight: 600; line-height: 1.3; color: var(–text); margin-bottom: 4px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
-.card-list-meta { font-family: ‘DM Mono’, monospace; font-size: 10px; color: var(–sub); }
+  /* ── Vertical card list ── */
+  .card-list-item {
+    display: flex; gap: 12px; padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer; transition: background 0.15s; align-items: flex-start;
+  }
+  .card-list-item:hover { background: var(--input-bg); }
+  .card-list-thumb {
+    width: 72px; height: 72px; border-radius: 10px; object-fit: cover;
+    flex-shrink: 0; background: var(--input-bg);
+  }
+  .card-list-body { flex: 1; min-width: 0; }
 
-/* ── Infinite scroll sentinel ── */
-.feed-sentinel { height: 40px; display: flex; align-items: center; justify-content: center; }
-.feed-sentinel-spinner { width: 20px; height: 20px; border: 2px solid var(–border); border-top-color: var(–gold); border-radius: 50%; animation: spin 0.7s linear infinite; opacity: 0; transition: opacity 0.3s; }
-.feed-sentinel-spinner.visible { opacity: 1; }
+  /* ── Market trackers ── */
+  .market-row { display:flex; gap:8px; padding:12px 16px 4px; }
+  .market-tile { flex:1; background:var(--card); border:1px solid var(--border); border-radius:12px;
+    padding:10px 10px 8px; display:flex; flex-direction:column; gap:3px; min-width:0; }
+  .market-tile-name { font-family:'DM Mono',monospace; font-size:9px; letter-spacing:0.06em;
+    text-transform:uppercase; color:var(--sub); }
+  .market-tile-price { font-family:'DM Mono',monospace; font-size:13px; font-weight:500; color:var(--text);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .market-tile-change { font-family:'DM Mono',monospace; font-size:10px; font-weight:500; }
+  .market-up { color:#5A9A6A; }
+  .market-down { color:#C0504A; }
+  .market-tile.loading .market-tile-price { color:var(--sub); }
 
-/* ── AI badge ── */
-.ai-badge {
-display: inline-block; font-family: ‘DM Mono’, monospace; font-size: 9px;
-background: linear-gradient(135deg, #8B5CF6, #C084FC);
-color: #fff; padding: 2px 6px; border-radius: 4px; letter-spacing: 0.5px;
-vertical-align: middle; margin-left: 6px;
-}
+  /* ── Search bar ── */
+  .search-bar { display:flex; gap:8px; padding:12px 16px 4px; }
+  .search-input { flex:1; background:var(--input-bg); border:1px solid var(--border); border-radius:10px;
+    padding:9px 14px; font-family:'Source Serif 4',serif; font-size:14px; color:var(--text);
+    outline:none; transition:border-color 0.2s; }
+  .search-input:focus { border-color:var(--gold); }
+  .search-input::placeholder { color:var(--sub); opacity:0.6; }
+  .search-results { padding:0 16px 16px; }
+  .search-empty { text-align:center; padding:40px 20px; color:var(--sub); font-size:13px; font-family:'DM Mono',monospace; }
+
+  /* ── History / Saved panels ── */
+  .panel-wrap { padding:16px; }
+  .panel-section { margin-bottom:24px; }
+  .panel-heading { font-family:'DM Mono',monospace; font-size:10px; letter-spacing:0.08em;
+    text-transform:uppercase; color:var(--sub); margin-bottom:10px; display:flex; justify-content:space-between; align-items:center; }
+  .panel-clear { font-size:10px; color:var(--sub); opacity:0.5; cursor:pointer; background:none; border:none; padding:0; }
+  .panel-clear:hover { opacity:1; }
+  .panel-item { display:flex; align-items:flex-start; gap:10px; padding:10px 0;
+    border-bottom:1px solid var(--border); cursor:pointer; }
+  .panel-item:last-child { border-bottom:none; }
+  .panel-item:hover .panel-item-title { color:var(--gold); }
+  .panel-item-favicon { width:16px; height:16px; border-radius:3px; flex-shrink:0; margin-top:2px; opacity:0.7; }
+  .panel-item-body { flex:1; min-width:0; }
+  .panel-item-title { font-family:'Playfair Display',serif; font-size:13px; font-weight:600;
+    line-height:1.3; color:var(--text); margin-bottom:3px;
+    overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+  .panel-item-meta { font-family:'DM Mono',monospace; font-size:10px; color:var(--sub); }
+  .panel-item-save { background:none; border:none; font-size:14px; cursor:pointer; opacity:0.4; flex-shrink:0; padding:0 2px; }
+  .panel-item-save:hover { opacity:1; }
+  .panel-empty { text-align:center; padding:24px 0; color:var(--sub); font-size:12px; font-family:'DM Mono',monospace; opacity:0.6; }
+
+  /* ── Save button in reader ── */
+  .save-btn { background:none; border:1px solid var(--border); border-radius:8px;
+    padding:8px 14px; font-family:'DM Mono',monospace; font-size:11px; color:var(--sub);
+    cursor:pointer; display:inline-flex; align-items:center; gap:6px; transition:all 0.15s; }
+  .save-btn:hover { border-color:var(--gold); color:var(--gold); }
+  .save-btn.saved { border-color:var(--gold); color:var(--gold); }
+
+  /* ── Font popup ── */
+  .font-popup { position:absolute; bottom:calc(100% + 6px); left:50%; transform:translateX(-50%);
+    background:var(--card); border:1px solid var(--border); border-radius:12px;
+    padding:6px; display:flex; flex-direction:column; gap:4px; z-index:100;
+    box-shadow:0 4px 20px rgba(0,0,0,0.15); min-width:120px; }
+  .font-popup-opt { padding:8px 14px; border-radius:8px; border:none; background:none;
+    color:var(--text); cursor:pointer; text-align:left; font-size:13px; white-space:nowrap; }
+  .font-popup-opt:hover { background:var(--input-bg); }
+  .font-popup-opt.active { color:var(--gold); background:var(--input-bg); }
+  .font-popup-opt:nth-child(1) { font-family:'Playfair Display',serif; }
+  .font-popup-opt:nth-child(2) { font-family:'Source Serif 4',serif; }
+  .font-popup-opt:nth-child(3) { font-family:'DM Mono',monospace; font-size:11px; }
+  .card-list-source { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--gold); text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 4px; }
+  .card-list-title { font-family: 'Playfair Display', serif; font-size: 14px; font-weight: 600; line-height: 1.3; color: var(--text); margin-bottom: 4px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .card-list-meta { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--sub); }
+
+  /* ── Infinite scroll sentinel ── */
+  .feed-sentinel { height: 40px; display: flex; align-items: center; justify-content: center; }
+  .feed-sentinel-spinner { width: 20px; height: 20px; border: 2px solid var(--border); border-top-color: var(--gold); border-radius: 50%; animation: spin 0.7s linear infinite; opacity: 0; transition: opacity 0.3s; }
+  .feed-sentinel-spinner.visible { opacity: 1; }
+
+  /* ── AI badge ── */
+  .ai-badge {
+    display: inline-block; font-family: 'DM Mono', monospace; font-size: 9px;
+    background: linear-gradient(135deg, #8B5CF6, #C084FC);
+    color: #fff; padding: 2px 6px; border-radius: 4px; letter-spacing: 0.5px;
+    vertical-align: middle; margin-left: 6px;
+  }
+
+  /* ── Deep tab ── */
+  .deep-wrap {
+    padding: 0 0 60px;
+    animation: fadeUp 0.4s ease;
+  }
+  .deep-hero {
+    padding: 24px 20px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .deep-hero-label {
+    font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: 1.4px;
+    text-transform: uppercase; color: var(--gold); margin-bottom: 8px;
+  }
+  .deep-hero-title {
+    font-family: 'Playfair Display', Georgia, serif;
+    font-size: 22px; font-weight: 700; line-height: 1.2;
+    color: var(--text); margin-bottom: 6px;
+  }
+  .deep-hero-sub {
+    font-family: 'Source Serif 4', serif; font-size: 13px;
+    color: var(--sub); line-height: 1.55;
+  }
+  .deep-section-header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 22px 20px 10px;
+  }
+  .deep-section-label {
+    font-family: 'Playfair Display', serif; font-size: 16px;
+    font-weight: 600; color: var(--text); white-space: nowrap;
+  }
+  .deep-section-line {
+    flex: 1; height: 1px; background: var(--border);
+  }
+  .deep-card {
+    margin: 0 16px 12px;
+    border-radius: 16px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    overflow: hidden;
+    cursor: pointer;
+    transition: transform 0.18s, box-shadow 0.18s;
+    display: flex;
+    flex-direction: column;
+  }
+  .deep-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.10); }
+  .deep-card:active { transform: scale(0.98); }
+  .deep-card-accent {
+    height: 3px;
+    background: linear-gradient(90deg, var(--gold), var(--gold2));
+  }
+  .deep-card-body {
+    padding: 14px 16px 16px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .deep-card-pub {
+    font-family: 'DM Mono', monospace; font-size: 9px;
+    text-transform: uppercase; letter-spacing: 0.9px;
+    color: var(--gold);
+  }
+  .deep-card-title {
+    font-family: 'Playfair Display', Georgia, serif;
+    font-size: 16px; font-weight: 700; line-height: 1.3;
+    color: var(--text);
+  }
+  .deep-card-desc {
+    font-family: 'Source Serif 4', serif; font-size: 13px;
+    color: var(--sub); line-height: 1.55;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .deep-card-meta {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-top: 4px;
+  }
+  .deep-card-readtime {
+    font-family: 'DM Mono', monospace; font-size: 10px;
+    color: var(--sub);
+    display: flex; align-items: center; gap: 4px;
+  }
+  .deep-card-readtime::before {
+    content: '';
+    display: inline-block; width: 12px; height: 12px;
+    border: 1.5px solid var(--sub); border-radius: 50%;
+    border-top-color: var(--gold);
+    vertical-align: middle;
+  }
+  .deep-card-arrow {
+    font-size: 14px; color: var(--border);
+    transition: color 0.15s, transform 0.15s;
+  }
+  .deep-card:hover .deep-card-arrow { color: var(--gold); transform: translateX(2px); }
+
+  /* Featured (large) card variant */
+  .deep-card-featured {
+    margin: 0 16px 12px;
+    border-radius: 16px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    overflow: hidden;
+    cursor: pointer;
+    transition: transform 0.18s, box-shadow 0.18s;
+  }
+  .deep-card-featured:hover { transform: translateY(-2px); box-shadow: 0 8px 28px rgba(0,0,0,0.12); }
+  .deep-card-featured:active { transform: scale(0.98); }
+  .deep-card-featured-banner {
+    background: linear-gradient(135deg, var(--gold) 0%, var(--gold2) 100%);
+    padding: 14px 16px 12px;
+    position: relative; overflow: hidden;
+  }
+  .deep-card-featured-banner::after {
+    content: '◉';
+    position: absolute; right: 14px; top: 50%; transform: translateY(-50%);
+    font-size: 40px; color: rgba(255,255,255,0.15); line-height: 1;
+  }
+  .deep-card-featured-label {
+    font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: 1.2px;
+    text-transform: uppercase; color: rgba(28,25,23,0.65); margin-bottom: 4px;
+  }
+  .deep-card-featured-pub {
+    font-family: 'DM Mono', monospace; font-size: 11px;
+    font-weight: 500; color: #1C1917;
+  }
+  .deep-card-featured-body { padding: 14px 16px 16px; }
+  .deep-card-featured-title {
+    font-family: 'Playfair Display', Georgia, serif;
+    font-size: 18px; font-weight: 700; line-height: 1.25; color: var(--text);
+    margin-bottom: 8px;
+  }
+  .deep-card-featured-desc {
+    font-family: 'Source Serif 4', serif; font-size: 13px;
+    color: var(--sub); line-height: 1.6; margin-bottom: 10px;
+  }
+  .deep-card-featured-meta {
+    display: flex; align-items: center; gap: 6px;
+    font-family: 'DM Mono', monospace; font-size: 10px; color: var(--sub);
+  }
+  body.dim .deep-card-featured-banner { background: linear-gradient(135deg, #1E3A5F 0%, #2A4E73 100%); }
+  body.dim .deep-card-featured-pub { color: #E2B96F; }
+  body.dim .deep-card-featured-label { color: rgba(231,219,200,0.5); }
+  body.dark .deep-card-featured-banner { background: linear-gradient(135deg, #2A2410 0%, #3A3218 100%); }
+  body.dark .deep-card-featured-pub { color: #E2B96F; }
+  body.dark .deep-card-featured-label { color: rgba(200,190,175,0.5); }
 </style>
-
 </head>
 <body>
 
@@ -528,14 +736,16 @@ vertical-align: middle; margin-left: 6px;
   <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
 
   <!-- Status bar -->
-
   <div class="status-bar">
     <span class="logo" id="logoBtn">Daylight</span>
-    <button class="icon-btn" id="shareBtn" title="Share article" style="display:none;font-size:17px">↗</button>
+    <div id="readerActions" style="display:none;align-items:center;gap:2px">
+      <button class="icon-btn" id="copyBtn" title="Copy headline + link" style="font-size:15px">⎘</button>
+      <button class="icon-btn" id="shareBtn" title="Share article" style="font-size:17px">↗</button>
+      <button class="icon-btn" id="bookmarkBtn" title="Save article" style="font-size:16px">✧</button>
+    </div>
   </div>
 
   <!-- Header — url bar only -->
-
   <div class="header">
     <div class="url-bar">
       <input class="url-input" id="urlInput" placeholder="Paste any article URL…" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
@@ -544,7 +754,6 @@ vertical-align: middle; margin-left: 6px;
   </div>
 
   <!-- Content -->
-
   <div class="scroll-area" id="scrollArea">
     <div id="viewIdle">
       <div class="feed-wrap" id="feedWrap">
@@ -567,62 +776,105 @@ vertical-align: middle; margin-left: 6px;
       </div>
     </div>
 
-```
-<div id="viewLoading" style="display:none">
-  <div class="loading-wrap">
-    <div class="spinner"></div>
-    <div class="loading-title">Fetching article…</div>
-    <div class="loading-sub" id="loadingSub">Initializing</div>
-    <div class="method-log" id="methodLog"></div>
-  </div>
-</div>
-
-<div id="viewError" style="display:none">
-  <div class="error-wrap">
-    <div class="error-icon">🚧</div>
-    <div class="error-title">Couldn't extract content</div>
-    <div class="error-sub">All fetch methods failed. The site may block proxies or require a subscription.</div>
-    <div id="errorOpenLink" style="margin:12px 0 4px;display:none">
-      <a id="errorDirectLink" href="#" target="_blank" rel="noreferrer"
-        style="font-family:'DM Mono',monospace;font-size:11px;color:var(--gold);word-break:break-all;text-decoration:none">
-        ↗ Open article directly
-      </a>
+    <div id="viewLoading" style="display:none">
+      <div class="loading-wrap">
+        <div class="spinner"></div>
+        <div class="loading-title">Fetching article…</div>
+        <div class="loading-sub" id="loadingSub">Initializing</div>
+        <div class="method-log" id="methodLog"></div>
+      </div>
     </div>
-    <div class="error-log">
-      <div class="error-log-title">Method Log</div>
-      <div id="errorLog"></div>
+
+    <div id="viewError" style="display:none">
+      <div class="error-wrap">
+        <div class="error-icon">🚧</div>
+        <div class="error-title">Couldn't extract content</div>
+        <div class="error-sub">All fetch methods failed. The site may block proxies or require a subscription.</div>
+        <div id="errorOpenLink" style="margin:12px 0 4px;display:none">
+          <a id="errorDirectLink" href="#" target="_blank" rel="noreferrer"
+            style="font-family:'DM Mono',monospace;font-size:11px;color:var(--gold);word-break:break-all;text-decoration:none">
+            ↗ Open article directly
+          </a>
+        </div>
+        <div class="error-log">
+          <div class="error-log-title">Method Log</div>
+          <div id="errorLog"></div>
+        </div>
+        <button class="reset-btn" id="resetBtn">← Back to Daylight</button>
+      </div>
     </div>
-    <button class="reset-btn" id="resetBtn">← Back to Daylight</button>
-  </div>
-</div>
 
-<div id="viewReader" style="display:none"></div>
+    <div id="viewReader" style="display:none"></div>
 
-<!-- Papers tab content -->
-<div id="viewPapers" style="display:none">
-  <div class="papers-wrap">
-    <div class="paper-tabs" id="paperTabs"></div>
-    <div id="paperContent"></div>
-  </div>
-</div>
-```
+    <!-- Papers tab content -->
+    <div id="viewPapers" style="display:none">
+      <div class="papers-wrap">
+        <div class="paper-tabs" id="paperTabs"></div>
+        <div id="paperContent"></div>
+      </div>
+    </div>
 
+    <!-- Search view -->
+    <div id="viewSearch" style="display:none">
+      <div class="search-bar">
+        <input class="search-input" id="searchInput" placeholder="Search news…" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+      </div>
+      <div class="search-results" id="searchResults">
+        <div class="search-empty">Type to search headlines</div>
+      </div>
+    </div>
+
+
+    <!-- Deep view -->
+    <div id="viewDeep" style="display:none">
+      <div id="deepContent"></div>
+    </div>
+    <!-- History + Saved panel -->
+    <div id="viewPanel" style="display:none">
+      <div class="panel-wrap">
+        <div class="panel-section" id="savedSection">
+          <div class="panel-heading">
+            <span>Saved</span>
+            <button class="panel-clear" onclick="clearSaved()">Clear</button>
+          </div>
+          <div id="savedList"><div class="panel-empty">Nothing saved yet</div></div>
+        </div>
+        <div class="panel-section" id="historySection">
+          <div class="panel-heading">
+            <span>Recently Read</span>
+            <button class="panel-clear" onclick="clearHistory()">Clear</button>
+          </div>
+          <div id="historyList"><div class="panel-empty">No history yet</div></div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- Bottom nav (combined: controls + tab bar) -->
-
   <div class="bottom-nav" id="bottomNav">
     <button class="icon-btn" id="homeBtn" style="display:none" title="Home">⌂</button>
     <button class="bottom-nav-font" id="fontDn" style="display:none">A−</button>
     <button class="bottom-nav-font" id="fontUp" style="display:none">A+</button>
+    <button class="bottom-nav-font" id="fontPickerBtn" style="display:none;font-family:'DM Mono',monospace;font-size:11px" title="Change font">Aa</button>
     <div class="bottom-nav-sep" id="tabSep"></div>
-    <button class="tab-btn active" id="tabFeed" onclick="switchTab('feed')">
-      <span class="tab-icon">◈</span>
-      <span>FEED</span>
+    <button class="tab-btn" id="tabDeep" onclick="switchTab('deep')">
+      <span class="tab-icon">◉</span>
+      <span>DEEP</span>
     </button>
     <button class="tab-btn" id="tabPapers" onclick="switchTab('papers')">
       <span class="tab-icon">❋</span>
       <span>PAPERS</span>
+    </button>
+    <button class="tab-btn active" id="tabFeed" onclick="switchTab('feed')">
+      <span class="tab-icon" style="font-size:22px">◈</span>
+    </button>
+    <button class="tab-btn" id="tabSearch" onclick="switchTab('search')">
+      <span class="tab-icon">⌕</span>
+      <span>SEARCH</span>
+    </button>
+    <button class="tab-btn" id="tabPanel" onclick="switchTab('panel')">
+      <span class="tab-icon">◷</span>
+      <span>SAVED</span>
     </button>
     <div class="bottom-nav-sep"></div>
     <button class="icon-btn" id="darkToggle" title="Toggle theme">☀️</button>
@@ -637,16 +889,25 @@ vertical-align: middle; margin-left: 6px;
 
 // ── State ────────────────────────────────────────────────────────────────────
 
+// ── Persistence ─────────────────────────────────────────────────────────────
+const DB = {
+  get: (k, def=null) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : def; } catch { return def; } },
+  set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+};
+
 let state = {
-  view: "idle",       // idle | loading | reader | error | papers
-  theme: 'light', // light | day | dim | dark
-  fontSize: 18,
+  view: "idle",       // idle | loading | reader | error | papers | search | panel
+  theme: DB.get("theme", "light"),
+  fontSize: DB.get("fontSize", 18),
+  readerFont: DB.get("readerFont", "serif"), // serif | source | mono
   history: [],
   histIdx: -1,
   article: null,
   errors: [],
   activeMethod: "",
   papersLoaded: false,
+  readHistory: DB.get("readHistory", []),    // [{url, title, ts}]
+  saved: DB.get("saved", []),               // [{url, title, ts, source}]
 };
 
 // ── DOM refs ─────────────────────────────────────────────────────────────────
@@ -670,6 +931,7 @@ const views = {
   error:   document.getElementById("viewError"),
   reader:  document.getElementById("viewReader"),
   papers:  document.getElementById("viewPapers"),
+  deep:    document.getElementById("viewDeep"),
 };
 
 // ── Clock ────────────────────────────────────────────────────────────────────
@@ -695,14 +957,15 @@ darkToggle.addEventListener("click", () => {
   const cycle = { light: "day", day: "dim", dim: "dark", dark: "light" };
   state.theme = cycle[state.theme];
   applyTheme(state.theme);
+  DB.set("theme", state.theme);
 });
 // Apply initial theme
 applyTheme(state.theme);
 
 // ── Font size ────────────────────────────────────────────────────────────────
 
-fontDn.addEventListener("click", () => { state.fontSize = Math.max(14, state.fontSize - 1); applyFontSize(); });
-fontUp.addEventListener("click", () => { state.fontSize = Math.min(26, state.fontSize + 1); applyFontSize(); });
+fontDn.addEventListener("click", () => { state.fontSize = Math.max(14, state.fontSize - 1); applyFontSize(); DB.set("fontSize", state.fontSize); });
+fontUp.addEventListener("click", () => { state.fontSize = Math.min(26, state.fontSize + 1); applyFontSize(); DB.set("fontSize", state.fontSize); });
 
 function applyFontSize() {
   document.querySelectorAll(".reader-p, .reader-blockquote").forEach(el => el.style.fontSize = state.fontSize + "px");
@@ -714,26 +977,155 @@ function applyFontSize() {
 
 function showView(name) {
   state.view = name;
-  const allViews = ["idle","loading","error","reader","papers"];
+  const allViews = ["idle","loading","error","reader","papers","search","panel","deep"];
   allViews.forEach(k => {
     const el = document.getElementById("view" + k.charAt(0).toUpperCase() + k.slice(1));
     if (el) el.style.display = k === name ? "block" : "none";
   });
-  shareBtn.style.display = (name === "reader") ? "inline-flex" : "none";
-  const notIdle = name !== "idle" && name !== "papers";
+  const readerActions = document.getElementById("readerActions");
+  shareBtn.style.display = "";  // always flex within readerActions
+  if (readerActions) readerActions.style.display = (name === "reader") ? "flex" : "none";
+  const notIdle = !["idle","papers","search","panel","deep"].includes(name);
   homeBtn.style.display  = notIdle ? "flex" : "none";
   fontDn.style.display   = (name === "reader") ? "flex" : "none";
   fontUp.style.display   = (name === "reader") ? "flex" : "none";
+  const fontPickerBtn = document.getElementById("fontPickerBtn");
+  if (fontPickerBtn) fontPickerBtn.style.display = (name === "reader") ? "flex" : "none";
   // Hide tab buttons in reader to give more space
   const tabSep = document.getElementById("tabSep");
   const tabFeedEl = document.getElementById("tabFeed");
   const tabPapersEl = document.getElementById("tabPapers");
+  const tabSearchEl = document.getElementById("tabSearch");
+  const tabPanelEl = document.getElementById("tabPanel");
   const inReader = name === "reader";
   if (tabSep) tabSep.style.display = inReader ? "none" : "";
   if (tabFeedEl) tabFeedEl.style.display = inReader ? "none" : "";
   if (tabPapersEl) tabPapersEl.style.display = inReader ? "none" : "";
+  if (tabSearchEl) tabSearchEl.style.display = inReader ? "none" : "";
+  if (tabPanelEl) tabPanelEl.style.display = inReader ? "none" : "";
+  const tabDeepEl = document.getElementById("tabDeep");
+  if (tabDeepEl) tabDeepEl.style.display = inReader ? "none" : "";
   scrollArea.scrollTop = 0;
   progressFill.style.width = "0%";
+}
+
+
+// ── DEEP — curated long-form reading list ────────────────────────────────────
+const DEEP_LIST = [
+  {
+    section: "Essays",
+    items: [
+      { pub:"The Atlantic",    mins:18, title:"The Coddling of the American Mind",              desc:"How good intentions and bad ideas are setting up a generation for failure.",                       url:"https://www.theatlantic.com/magazine/archive/2015/09/the-coddling-of-the-american-mind/399356/" },
+      { pub:"The New Yorker",  mins:22, title:"The Catastrophist",                              desc:"How one scientist became convinced that civilisation is on the brink of collapse.",               url:"https://www.newyorker.com/magazine/2009/06/01/the-catastrophist" },
+      { pub:"Aeon",            mins:14, title:"The Tyranny of Time",                            desc:"Clock time is a recent invention. It has reshaped how we think, feel and live.",                 url:"https://aeon.co/essays/the-tyranny-of-clock-time-is-a-recent-and-troubling-invention" },
+      { pub:"Aeon",            mins:16, title:"The Case Against Reality",                       desc:"A cognitive scientist argues that evolution hid reality from us — for our benefit.",             url:"https://aeon.co/articles/the-case-against-reality" },
+      { pub:"Longreads",       mins:20, title:"The Friendship That Made Google Huge",           desc:"Jeff Dean and Sanjay Ghemawat changed the company — and computing — from a single office.",     url:"https://www.newyorker.com/magazine/2018/12/10/the-friendship-that-made-google-huge" },
+      { pub:"n+1",             mins:25, title:"Too Much Sociology",                             desc:"The rise and fall of the theory that could explain everything.",                                  url:"https://www.nplusonemag.com/issue-13/essays/too-much-sociology/" },
+    ]
+  },
+  {
+    section: "Science & Technology",
+    items: [
+      { pub:"Ars Technica",    mins:15, title:"The Inside Story of ChatGPT's Astonishing Potential", desc:"How OpenAI's chatbot went from research curiosity to cultural moment.",                  url:"https://arstechnica.com/information-technology/2023/02/the-inside-story-of-chatgpts-astonishing-potential/" },
+      { pub:"Wired",           mins:19, title:"The Man Who Broke the Music Business",           desc:"How one man's obsession dismantled the recording industry.",                                     url:"https://www.wired.com/2012/03/the-man-who-broke-the-music-business/" },
+      { pub:"MIT Tech Review", mins:12, title:"We're Not Prepared for the End of Moore's Law",  desc:"What happens when the engine of progress runs out of road.",                                    url:"https://www.technologyreview.com/2020/02/24/905789/were-not-prepared-for-the-end-of-moores-law/" },
+      { pub:"Nautilus",        mins:17, title:"How Life Became an App",                         desc:"The gamification of everyday existence and what we lost in the process.",                       url:"https://nautil.us/how-life-became-an-app-235702/" },
+      { pub:"The Atlantic",    mins:21, title:"Have Smartphones Destroyed a Generation?",       desc:"More comfortable online than out partying, post-Millennials are safer, on the brink of a mental-health crisis.",  url:"https://www.theatlantic.com/magazine/archive/2017/09/has-the-smartphone-destroyed-a-generation/534198/" },
+    ]
+  },
+  {
+    section: "Reported Stories",
+    items: [
+      { pub:"ProPublica",      mins:28, title:"The Secret IRS Files",                           desc:"Inside the tax records of the wealthiest Americans — and how they avoid taxes.",               url:"https://www.propublica.org/article/the-secret-irs-files-trove-of-never-before-seen-records-reveal-how-the-wealthiest-avoid-income-tax" },
+      { pub:"The Guardian",    mins:24, title:"The Cambridge Analytica Files",                  desc:"How a data company harvested millions of Facebook profiles for political targeting.",            url:"https://www.theguardian.com/news/2018/mar/17/cambridge-analytica-facebook-influence-us-election" },
+      { pub:"New York Mag",    mins:30, title:"The Uninhabitable Earth",                        desc:"Famine, economic collapse, a sun that cooks us — what climate change could wreak in a lifetime.", url:"https://nymag.com/intelligencer/2017/07/climate-change-earth-too-hot-for-humans.html" },
+      { pub:"Bloomberg",       mins:22, title:"The Big Hack",                                   desc:"How China used a tiny chip to infiltrate America's top companies.",                             url:"https://www.bloomberg.com/news/features/2018-10-04/the-big-hack-how-china-used-a-tiny-chip-to-infiltrate-america-s-top-companies" },
+      { pub:"The Atlantic",    mins:26, title:"Secret Consumers",                               desc:"Inside the sprawling underground economy of stolen credit cards and the people who police it.", url:"https://www.theatlantic.com/magazine/archive/2024/01/stolen-credit-card-fraud-underground-economy/676125/" },
+    ]
+  }
+];
+
+let deepRendered = false;
+function renderDeep() {
+  if (deepRendered) return;
+  deepRendered = true;
+  const wrap = document.getElementById("deepContent");
+
+  // Flatten all items to pick a featured article (longest read)
+  const allItems = DEEP_LIST.flatMap(s => s.items);
+  const featured = allItems.reduce((best, item) => item.mins > best.mins ? item : best, allItems[0]);
+
+  const SECTION_ICONS = { "Essays": "✦", "Science & Technology": "◎", "Reported Stories": "◈" };
+
+  let html = `<div class="deep-wrap">`;
+
+  // ── Page header ──
+  html += `
+    <div class="deep-hero">
+      <div class="deep-hero-label">◉ Deep Reads</div>
+      <div class="deep-hero-title">Long-form worth your time</div>
+      <div class="deep-hero-sub">Curated essays, investigations, and stories — set aside 15–30 minutes.</div>
+    </div>`;
+
+  // ── Featured card ──
+  html += `
+    <div style="padding: 16px 0 4px">
+      <div class="deep-card-featured" data-deep-url="${escHtml(featured.url)}">
+        <div class="deep-card-featured-banner">
+          <div class="deep-card-featured-label">Featured Read</div>
+          <div class="deep-card-featured-pub">${escHtml(featured.pub)}</div>
+        </div>
+        <div class="deep-card-featured-body">
+          <div class="deep-card-featured-title">${escHtml(featured.title)}</div>
+          <div class="deep-card-featured-desc">${escHtml(featured.desc)}</div>
+          <div class="deep-card-featured-meta">
+            <span>⏱</span>
+            <span>${featured.mins} min read</span>
+            <span style="opacity:0.4">·</span>
+            <span>Tap to read</span>
+          </div>
+        </div>
+      </div>
+    </div>`;
+
+  // ── Sections ──
+  DEEP_LIST.forEach(section => {
+    const icon = SECTION_ICONS[section.section] || "◈";
+    html += `
+      <div class="deep-section-header">
+        <span class="deep-section-label">${icon} ${escHtml(section.section)}</span>
+        <div class="deep-section-line"></div>
+      </div>`;
+
+    section.items.forEach(item => {
+      const isFeatured = item === featured;
+      // Use a slightly muted style for the featured item since it's already shown above
+      html += `
+        <div class="deep-card${isFeatured ? ' deep-card-featured-item' : ''}" data-deep-url="${escHtml(item.url)}">
+          <div class="deep-card-accent"></div>
+          <div class="deep-card-body">
+            <div class="deep-card-pub">${escHtml(item.pub)}</div>
+            <div class="deep-card-title">${escHtml(item.title)}</div>
+            <div class="deep-card-desc">${escHtml(item.desc)}</div>
+            <div class="deep-card-meta">
+              <span class="deep-card-readtime">${item.mins} min read</span>
+              <span class="deep-card-arrow">→</span>
+            </div>
+          </div>
+        </div>`;
+    });
+  });
+
+  html += `</div>`;
+  wrap.innerHTML = html;
+
+  // Single delegated click handler — no inline onclick
+  wrap.addEventListener("click", e => {
+    const card = e.target.closest("[data-deep-url]");
+    if (!card) return;
+    const url = card.dataset.deepUrl;
+    if (url) { urlInput.value = url; startRead(url, true); }
+  });
 }
 
 // ── Tab switching ─────────────────────────────────────────────────────────────
@@ -742,13 +1134,24 @@ let activeTab = "feed";
 
 function switchTab(tab) {
   activeTab = tab;
-  document.getElementById("tabFeed").classList.toggle("active", tab === "feed");
-  document.getElementById("tabPapers").classList.toggle("active", tab === "papers");
+  ["feed","papers","search","panel","deep"].forEach(t => {
+    const el = document.getElementById("tab" + t.charAt(0).toUpperCase() + t.slice(1));
+    if (el) el.classList.toggle("active", t === tab);
+  });
   if (tab === "feed") {
     showView("idle");
   } else if (tab === "papers") {
     showView("papers");
     if (!state.papersLoaded) initPapers();
+  } else if (tab === "search") {
+    showView("search");
+    setTimeout(() => document.getElementById("searchInput")?.focus(), 80);
+  } else if (tab === "panel") {
+    showView("panel");
+    renderPanel();
+  } else if (tab === "deep") {
+    showView("deep");
+    renderDeep();
   }
 }
 
@@ -763,7 +1166,7 @@ function pushHistory(url) {
 // ── Home button ──────────────────────────────────────────────────────────────────
 
 homeBtn.addEventListener("click", () => {
-  switchTab(activeTab === "papers" ? "papers" : "feed");
+  switchTab("feed");
   urlInput.value = "";
   scrollArea.scrollTop = 0;
 });
@@ -771,7 +1174,7 @@ homeBtn.addEventListener("click", () => {
 // ── Reset ─────────────────────────────────────────────────────────────────────
 
 document.getElementById("resetBtn").addEventListener("click", () => {
-  switchTab(activeTab === "papers" ? "papers" : "feed");
+  switchTab("feed");
   urlInput.value = "";
   urlInput.focus();
 });
@@ -806,7 +1209,7 @@ function sourceDomain(url) {
 const BLOCKED_DOMAINS = new Set([
   "twitter.com","x.com","t.co","nitter.net",
   "youtube.com","youtu.be","vimeo.com",
-  "instagram.com","threads.net","snapchat.com",
+  "instagram.com","threads.net","threads.com","snapchat.com",
   "twitch.tv","streamable.com","streamja.com","streamff.com","clippituser.tv",
   "imgur.com","i.imgur.com","gfycat.com","redgifs.com",
   "v.redd.it","i.redd.it","preview.redd.it",
@@ -828,6 +1231,15 @@ const BLOCKED_DOMAINS = new Set([
   "zerohedge.com","infowars.com","breitbart.com","dailywire.com",
   "naturalblaze.com","activistpost.com","thenewamerican.com",
   "scmp.com","globaltimes.cn","xinhuanet.com","cgtn.com","chinadaily.com.cn",
+  // Code repositories — not articles
+  "github.com","gitlab.com","gist.github.com","raw.githubusercontent.com",
+  "codepen.io","jsfiddle.net","codesandbox.io","stackblitz.com",
+  // Academic paper hosts — raw research, not journalism
+  "arxiv.org","papers.ssrn.com","ssrn.com","researchgate.net",
+  "semanticscholar.org","scholar.google.com","jstor.org",
+  "academia.edu","philpapers.org","bioarxiv.org","medrxiv.org",
+  "dl.acm.org","ieeexplore.ieee.org","link.springer.com",
+  "huggingface.co","paperswithcode.com","openreview.net",
 ]);
 
 // Allowlist of known large, English-language publications.
@@ -881,7 +1293,7 @@ function isArticleUrl(url) {
     if (BLOCKED_DOMAINS.has(host)) return false;
     if ([...BLOCKED_DOMAINS].some(d => host.endsWith("." + d))) return false;
     const ext = u.pathname.split(".").pop().toLowerCase().split("?")[0];
-    if (MEDIA_EXTENSIONS.has(ext)) return false;
+    if (MEDIA_EXTENSIONS.has(ext) || ext === "pdf") return false;
     if (u.pathname.length < 5) return false;
     // Filter non-English domains
     if (NON_ENGLISH_DOMAINS.test(host)) return false;
@@ -943,7 +1355,7 @@ const LIVE_SOURCES = [
       const stories = await Promise.all(ids.slice(0, 25).map(id =>
         fetch(`https://hacker-news.firebaseio.com/v0/item/${id}.json`).then(r => r.json()).catch(() => null)
       ));
-      return stories.filter(s => s && s.url && s.title && !s.url.includes(".pdf")).slice(0, 12).map(s => ({
+      return stories.filter(s => s && s.url && s.title && isArticleUrl(s.url)).slice(0, 12).map(s => ({
         title:   s.title,
         link:    s.url,
         desc:    `${s.score} points · ${s.descendants || 0} comments`,
@@ -964,7 +1376,7 @@ const LIVE_SOURCES = [
       ));
       const AI_KEYWORDS = ["ai","llm","gpt","claude","gemini","openai","anthropic","model","neural","machine learning","deep learning","transformer","diffusion","agent","inference","llama","mistral","groq","perplexity","copilot","midjourney","stable diffusion","chatbot","rag","finetuning","fine-tuning","embedding"];
       return stories
-        .filter(s => s && s.url && s.title && AI_KEYWORDS.some(k => s.title.toLowerCase().includes(k)))
+        .filter(s => s && s.url && s.title && isArticleUrl(s.url) && AI_KEYWORDS.some(k => s.title.toLowerCase().includes(k)))
         .slice(0, 12).map(s => ({
           title:   s.title,
           link:    s.url,
@@ -1221,68 +1633,78 @@ const LIVE_SOURCES = [
         .slice(0, 12);
     }
   },
-  // Sports — Reddit sports subs, real article titles fetched from og:title
+  // Sports — RSS feeds first, Reddit as supplement
   {
     cat: "Sports",
     fetch: async () => {
-      const subs = [
-        { sub: "nfl",     limit: 15 },
-        { sub: "nba",     limit: 15 },
-        { sub: "baseball",limit: 10 },
-        { sub: "soccer",  limit: 10 },
+      // RSS feeds from major sports outlets — actual article titles, no Reddit needed
+      const rssFeeds = [
+        { url: "https://www.espn.com/espn/rss/news",          source: "espn.com" },
+        { url: "https://www.espn.com/espn/rss/nfl/news",      source: "espn.com" },
+        { url: "https://www.espn.com/espn/rss/nba/news",      source: "espn.com" },
+        { url: "https://www.espn.com/espn/rss/mlb/news",      source: "espn.com" },
+        { url: "https://www.cbssports.com/rss/headlines/",     source: "cbssports.com" },
+        { url: "https://www.cbssports.com/rss/headlines/nfl/", source: "cbssports.com" },
+        { url: "https://www.cbssports.com/rss/headlines/nba/", source: "cbssports.com" },
+        { url: "https://feeds.nbcsports.com/nbcsports/rss",    source: "nbcsports.com" },
+        { url: "https://www.skysports.com/rss/12040",          source: "skysports.com" },
+        { url: "https://www.sportingnews.com/us/rss",          source: "sportingnews.com" },
       ];
-      const results = await Promise.allSettled(subs.map(({ sub, limit }) =>
-        redditFetch(`/r/${sub}/top.json?limit=${limit}&t=day`)
+
+      const fetchRss = async ({ url, source }) => {
+        for (const proxyFn of [
+          u => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,
+          u => `https://corsproxy.io/?${encodeURIComponent(u)}`,
+        ]) {
+          try {
+            const r = await Promise.race([fetch(proxyFn(url)), new Promise((_,rej)=>setTimeout(rej,7000))]);
+            if (!r.ok) continue;
+            let text;
+            if (proxyFn(url).includes("allorigins")) { const j = await r.json(); text = j.contents||""; }
+            else { text = await r.text(); }
+            if (!text.includes("<item")) continue;
+            const xml = new DOMParser().parseFromString(text, "text/xml");
+            return [...xml.querySelectorAll("item")].slice(0, 5).map(item => {
+              const title   = item.querySelector("title")?.textContent?.replace(/<!\[CDATA\[|\]\]>/g,"").trim()||"";
+              const link    = item.querySelector("link")?.textContent?.trim()||item.querySelector("guid")?.textContent?.trim()||"";
+              const pubDate = item.querySelector("pubDate")?.textContent?.trim()||new Date().toISOString();
+              if (!title || !link || !isArticleUrl(link)) return null;
+              return { title, link, desc:"", image:"", pubDate, age:timeAgo(pubDate), source };
+            }).filter(Boolean);
+          } catch {}
+        }
+        return [];
+      };
+
+      // Reddit as supplement — t=week so we always have articles even on slow days
+      const redditSubs = ["nfl","nba","baseball","soccer","nhl","sports"];
+      const redditResults = await Promise.allSettled(redditSubs.map(sub =>
+        redditFetch(`/r/${sub}/top.json?limit=25&t=week`)
       ));
-      const raw = results.flatMap(r => {
+      const redditItems = redditResults.flatMap(r => {
         if (r.status !== "fulfilled") return [];
-        return (r.value?.data?.children || []).map(c => c.data)
+        return (r.value?.data?.children||[]).map(c=>c.data)
           .filter(p => p.url && !p.url.includes("reddit.com") && isArticleUrl(p.url))
-          .slice(0, 3).map(p => ({
-            redditTitle: p.title,
+          .slice(0, 4).map(p => ({
             title:   p.title,
-            link:    p.url,
-            desc:    "",
-            image:   redditImage(p),
-            pubDate: new Date(p.created_utc * 1000).toISOString(),
-            age:     timeAgo(new Date(p.created_utc * 1000).toISOString()),
+            link:    p.url, desc:"", image: redditImage(p),
+            pubDate: new Date(p.created_utc*1000).toISOString(),
+            age:     timeAgo(new Date(p.created_utc*1000).toISOString()),
             source:  sourceDomain(p.url),
+            _isReddit: true,
           }));
       });
+
+      const rssResults = await Promise.allSettled(rssFeeds.map(fetchRss));
+      const rssItems = rssResults.flatMap(r => r.status==="fulfilled" ? r.value : []);
+
+      // Merge: RSS first (real titles), Reddit as fill-in
       const seen = new Set();
-      const items = raw.filter(i => { if (seen.has(i.link)) return false; seen.add(i.link); return true; }).slice(0, 8);
+      const all = [...rssItems, ...redditItems]
+        .filter(i => { if (!i?.link || seen.has(i.link)) return false; seen.add(i.link); return true; })
+        .sort((a,b) => { try { return new Date(b.pubDate)-new Date(a.pubDate); } catch { return 0; } });
 
-      // Fetch real article titles via two proxy methods — parallel, 4s timeout each
-      await Promise.allSettled(items.map(async item => {
-        try {
-          // Try corsproxy first (returns raw HTML), fall back to allorigins
-          let html = null;
-          for (const proxyUrl of [
-            `https://corsproxy.io/?${encodeURIComponent(item.link)}`,
-            `https://api.allorigins.win/raw?url=${encodeURIComponent(item.link)}`,
-          ]) {
-            try {
-              const r = await Promise.race([
-                fetch(proxyUrl),
-                new Promise((_,rej) => setTimeout(rej, 4000))
-              ]);
-              if (r.ok) { html = await r.text(); break; }
-            } catch {}
-          }
-          if (!html) return;
-          const ogTitle = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']{10,})/i)?.[1]
-                       || html.match(/<meta[^>]+content=["']([^"']{10,})["'][^>]+property=["']og:title["']/i)?.[1]
-                       || html.match(/<title[^>]*>([^<]{10,})<\/title>/i)?.[1]?.split(/[|—–-]/)[0].trim();
-          if (ogTitle && ogTitle.length > 10) {
-            item.title = ogTitle
-              .replace(/&amp;/g,"&").replace(/&#39;/g,"'").replace(/&quot;/g,'"')
-              .replace(/&#x27;/g,"'").replace(/&lt;/g,"<").replace(/&gt;/g,">")
-              .trim();
-          }
-        } catch {}
-      }));
-
-      return items;
+      return all.slice(0, 16);
     }
   },
 ];
@@ -1293,6 +1715,136 @@ const ARTICLE_REGISTRY = [];
 // ── Per-category infinite scroll state ────────────────────────────────────────
 const CAT_PAGE = {};
 const CAT_ITEMS = {};
+
+// ── Market data ──────────────────────────────────────────────────────────────
+
+// Decode a Google News RSS article URL (CBMi... format) to the real article URL
+function decodeGoogleNewsUrl(gnUrl) {
+  try {
+    if (!gnUrl.includes("news.google.com")) return gnUrl;
+    // Extract the base64 payload from the path
+    const match = gnUrl.match(/articles\/([A-Za-z0-9_-]+)/);
+    if (!match) return null;
+    // base64url → base64 standard
+    const b64 = match[1].replace(/-/g, "+").replace(/_/g, "/");
+    const pad = b64.length % 4 === 0 ? "" : "=".repeat(4 - b64.length % 4);
+    const binary = atob(b64 + pad);
+    // Walk the protobuf bytes to find a field containing a URL
+    // Field 1 (tag 0x0a = field 1, wire type 2 = length-delimited)
+    const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
+    let i = 0;
+    while (i < bytes.length) {
+      const tag = bytes[i++];
+      const fieldNum = tag >> 3;
+      const wireType = tag & 0x7;
+      if (wireType === 2) {
+        // length-delimited
+        let len = 0, shift = 0;
+        while (i < bytes.length) {
+          const b = bytes[i++];
+          len |= (b & 0x7f) << shift;
+          if (!(b & 0x80)) break;
+          shift += 7;
+        }
+        const strBytes = bytes.slice(i, i + len);
+        i += len;
+        const str = new TextDecoder().decode(strBytes);
+        if (str.startsWith("http://") || str.startsWith("https://")) {
+          if (!str.includes("news.google.com")) return str;
+        }
+      } else if (wireType === 0) {
+        // varint — skip
+        while (i < bytes.length && bytes[i++] & 0x80) {}
+      } else if (wireType === 5) {
+        i += 4;
+      } else if (wireType === 1) {
+        i += 8;
+      } else break;
+    }
+    return null;
+  } catch { return null; }
+}
+
+const MARKET_CACHE_KEY = "marketData";
+const MARKET_TTL = 5 * 60 * 1000; // 5 minutes
+
+function applyMarketTiles(tiles) {
+  // tiles: [{ id, price, pct }]
+  tiles.forEach(({ id, price, pct }) => {
+    const up = pct >= 0;
+    const priceEl  = document.getElementById(`mkt-${id}-price`);
+    const changeEl = document.getElementById(`mkt-${id}-change`);
+    const tile     = document.getElementById(`mkt-${id}`);
+    if (!priceEl) return;
+    priceEl.textContent = price >= 10000
+      ? price.toLocaleString("en-US", {maximumFractionDigits:0})
+      : price.toLocaleString("en-US", {minimumFractionDigits:2, maximumFractionDigits:2});
+    changeEl.textContent = `${up?"▲":"▼"} ${Math.abs(pct).toFixed(2)}%`;
+    changeEl.className = `market-tile-change ${up?"market-up":"market-down"}`;
+    if (tile) tile.classList.remove("loading");
+  });
+}
+
+async function fetchMarketData() {
+  // ── 1. Render from cache immediately if available ─────────────────────────
+  const cached = DB.get(MARKET_CACHE_KEY);
+  if (cached?.tiles?.length) {
+    applyMarketTiles(cached.tiles);
+    // If cache is still fresh, skip the network entirely
+    if (Date.now() - (cached.ts || 0) < MARKET_TTL) return;
+  }
+
+  // ── 2. Fetch fresh data ───────────────────────────────────────────────────
+  // Try v6 bulk endpoint first (one round-trip for all three)
+  try {
+    const symbols = "^DJI,^GSPC,^IXIC";
+    const url = `https://query1.finance.yahoo.com/v6/finance/quote?symbols=${encodeURIComponent(symbols)}`;
+    const proxy = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+    const r = await Promise.race([fetch(proxy), new Promise((_,rej)=>setTimeout(rej,8000))]);
+    if (!r.ok) throw new Error("proxy fail");
+    const j = await r.json();
+    const data = JSON.parse(j.contents || "{}");
+    const quotes = data?.quoteResponse?.result;
+    if (quotes?.length) {
+      const MAP = { "^DJI":"dji", "^GSPC":"sp", "^IXIC":"nq" };
+      const tiles = quotes.map(q => {
+        const id = MAP[q.symbol];
+        if (!id || !q.regularMarketPrice) return null;
+        return { id, price: q.regularMarketPrice, pct: q.regularMarketChangePercent || 0 };
+      }).filter(Boolean);
+      if (tiles.length) {
+        applyMarketTiles(tiles);
+        DB.set(MARKET_CACHE_KEY, { tiles, ts: Date.now() });
+        return;
+      }
+    }
+  } catch {}
+
+  // ── 3. Fallback: individual v8 chart calls ────────────────────────────────
+  const TICKERS = [
+    { id:"dji", symbol:"%5EDJI"  },
+    { id:"sp",  symbol:"%5EGSPC" },
+    { id:"nq",  symbol:"%5EIXIC" },
+  ];
+  const tiles = (await Promise.allSettled(TICKERS.map(async ({id, symbol}) => {
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=2d`;
+    const proxy = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+    const r = await Promise.race([fetch(proxy), new Promise((_,rej)=>setTimeout(rej,8000))]);
+    if (!r.ok) throw new Error();
+    const j = await r.json();
+    const meta = JSON.parse(j.contents||"{}")?.chart?.result?.[0]?.meta;
+    if (!meta) throw new Error();
+    const price = meta.regularMarketPrice;
+    const prev  = meta.chartPreviousClose || meta.previousClose;
+    if (!price || !prev) throw new Error();
+    return { id, price, pct: ((price - prev) / prev) * 100 };
+  }))).filter(r => r.status === "fulfilled").map(r => r.value);
+
+  if (tiles.length) {
+    applyMarketTiles(tiles);
+    DB.set(MARKET_CACHE_KEY, { tiles, ts: Date.now() });
+  }
+}
 
 function renderFeed(catMap) {
   const wrap = document.getElementById("feedContent");
@@ -1313,7 +1865,25 @@ function renderFeed(catMap) {
 
   const now = new Date();
   const dateStr = now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
-  let html = `<div class="feed-date-header">${dateStr}</div>`;
+  let html = `<div class="feed-date-header">${dateStr}</div>
+  <div class="market-row" id="marketRow">
+    <div class="market-tile loading" id="mkt-dji">
+      <div class="market-tile-name">DJI</div>
+      <div class="market-tile-price" id="mkt-dji-price">—</div>
+      <div class="market-tile-change" id="mkt-dji-change">—</div>
+    </div>
+    <div class="market-tile loading" id="mkt-sp">
+      <div class="market-tile-name">S&amp;P 500</div>
+      <div class="market-tile-price" id="mkt-sp-price">—</div>
+      <div class="market-tile-change" id="mkt-sp-change">—</div>
+    </div>
+    <div class="market-tile loading" id="mkt-nq">
+      <div class="market-tile-name">NASDAQ</div>
+      <div class="market-tile-price" id="mkt-nq-price">—</div>
+      <div class="market-tile-change" id="mkt-nq-change">—</div>
+    </div>
+  </div>`;
+  // fetchMarketData called after wrap.innerHTML below
 
   const CAT_SEED_BASE = {
     World: 10, Technology: 60, Finance: 100, Sports: 140,
@@ -1357,7 +1927,9 @@ function renderFeed(catMap) {
     html += `<div class="card-strip" id="strip-${escHtml(cat)}">`;
 
     const PAGE_SIZE = 6;
-    items.slice(0, PAGE_SIZE).forEach(item => {
+    // Skip items[0] for first category — it's already shown as the hero card
+    const stripItems = (cat === allCats[0]) ? items.slice(1) : items;
+    stripItems.slice(0, PAGE_SIZE).forEach(item => {
       const idx = ARTICLE_REGISTRY.length;
       ARTICLE_REGISTRY.push(item);
       const fb = articleImageUrl(item.title, cat);
@@ -1366,7 +1938,7 @@ function renderFeed(catMap) {
           <img id="img-${idx}" class="card-mini-img" src="${item.image || fb}" alt="" onerror="this.src='${fb}'">
           <div class="card-mini-body">
             <div class="card-mini-source">${escHtml(item.source)}</div>
-            <div class="card-mini-title">${escHtml(item.title)}</div>
+            <div class="card-mini-title" id="title-${idx}">${escHtml(item.title)}</div>
             <div class="card-mini-meta" style="font-family:'DM Mono',monospace;font-size:10px;color:var(--sub);margin-top:4px">${escHtml(item.age)}</div>
           </div>
         </div>
@@ -1387,6 +1959,7 @@ function renderFeed(catMap) {
 
   html += `<div style="height:20px"></div>`;
   wrap.innerHTML = html;
+  fetchMarketData();
 
   allCats.forEach(cat => {
     const sentinel = document.getElementById(`sentinel-${cat}`);
@@ -1426,7 +1999,7 @@ function loadMoreCategory(cat, sentinel, observer) {
       <img id="img-${idx}" class="card-mini-img" src="${item.image || fb}" alt="" onerror="this.src='${fb}'">
       <div class="card-mini-body">
         <div class="card-mini-source">${escHtml(item.source)}</div>
-        <div class="card-mini-title">${escHtml(item.title)}</div>
+        <div class="card-mini-title" id="title-${idx}">${escHtml(item.title)}</div>
         <div class="card-mini-meta" style="font-family:'DM Mono',monospace;font-size:10px;color:var(--sub);margin-top:4px">${escHtml(item.age)}</div>
       </div>
     `;
@@ -1553,78 +2126,11 @@ async function fetchRssPaper(feedUrl, after, sourceOverride) {
 
 const NEWSPAPERS = [
   { id:"ap", name:"AP", emoji:"📡",
-    fetch: async (after) => {
-      // Google News RSS search for site:apnews.com — always fresh, no auth needed
-      const feedUrl = "https://news.google.com/rss/search?q=site:apnews.com&hl=en-US&gl=US&ceid=US:en";
-      for (const proxy of [
-        `https://api.allorigins.win/get?url=${encodeURIComponent(feedUrl)}`,
-        `https://corsproxy.io/?${encodeURIComponent(feedUrl)}`,
-      ]) {
-        try {
-          const r = await Promise.race([fetch(proxy), new Promise((_,rej)=>setTimeout(rej,10000))]);
-          if (!r.ok) continue;
-          let text;
-          if (proxy.includes("allorigins")) { const j = await r.json(); text = j.contents; }
-          else text = await r.text();
-          if (!text?.includes("<item")) continue;
-          const xml = new DOMParser().parseFromString(text, "text/xml");
-          const items = [...xml.querySelectorAll("item")].slice(after, after + 10);
-          if (!items.length) continue;
-          // Google News URLs need resolving — extract real URL from the item
-          const resolved = await Promise.all(items.map(async item => {
-            const title = (item.querySelector("title")?.textContent||"").trim();
-            const gnUrl = item.querySelector("link")?.textContent?.trim() || "";
-            const pubDate = item.querySelector("pubDate")?.textContent?.trim() || "";
-            // Try to extract real apnews URL from item description
-            const desc = item.querySelector("description")?.textContent || "";
-            const apMatch = desc.match(/https:\/\/apnews\.com\/article\/[^"&\s<]+/) ||
-                            gnUrl.match(/https:\/\/apnews\.com\/article\/[^"&\s<]+/);
-            const link = apMatch?.[0] || gnUrl;
-            if (!title || !link) return null;
-            const pd = pubDate ? new Date(pubDate).toISOString() : "";
-            return { title, link, desc: "", image: "", pubDate: pd, age: pd ? timeAgo(pd) : "", source: "apnews.com" };
-          }));
-          const valid = resolved.filter(Boolean);
-          if (valid.length > 2) return valid;
-        } catch {}
-      }
-      return [];
-    }
+    fetch: (after) => fetchRssPaper("https://feeds.bbci.co.uk/news/world/us-and-canada/rss.xml", after, "bbc.co.uk")
   },
   { id:"npr",      name:"NPR",       emoji:"📻", fetch: (after) => fetchRssPaper("https://feeds.npr.org/1001/rss.xml",                               after, "npr.org")           },
   { id:"reuters", name:"Reuters", emoji:"🌐",
-    fetch: async (after) => {
-      // r/reuters RSS — most reliable public Reuters feed
-      for (const feedUrl of ["https://www.reddit.com/r/reuters.rss", "https://www.reutersagency.com/feed/?taxonomy=best-topics&post_type=best"]) {
-        for (const makeProxy of [
-          u => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,
-          u => `https://corsproxy.io/?${encodeURIComponent(u)}`,
-        ]) {
-          try {
-            const r = await Promise.race([fetch(makeProxy(feedUrl)), new Promise((_,rej)=>setTimeout(rej,10000))]);
-            if (!r.ok) continue;
-            let text;
-            if (makeProxy(feedUrl).includes("allorigins")) { const j = await r.json(); text = j.contents; }
-            else text = await r.text();
-            if (!text?.includes("<item") && !text?.includes("<entry")) continue;
-            const xml = new DOMParser().parseFromString(text, "text/xml");
-            const items = [...xml.querySelectorAll("entry,item")].slice(after, after+10);
-            return items.map(item => {
-              const title = (item.querySelector("title")?.textContent||"").replace(/<!\[CDATA\[|\]\]>/g,"").trim();
-              const link  = item.querySelector("link")?.getAttribute("href")||item.querySelector("link")?.textContent?.trim()||"";
-              const pubDate = item.querySelector("updated,published,pubDate")?.textContent?.trim()||"";
-              const thumb = item.querySelector("thumbnail")?.getAttribute("url")||
-                            item.querySelector("enclosure[type^='image']")?.getAttribute("url")||"";
-              const actualLink = link.includes("reddit.com") ? (item.querySelector("content")?.textContent||"").match(/href="(https:\/\/(?:www\.)?reuters\.com[^"]+)"/)?.[1] || link : link;
-              if (!title) return null;
-              const pd = pubDate ? new Date(pubDate).toISOString() : "";
-              return { title, link: actualLink||link, desc:"", image:thumb, pubDate:pd, age:pd?timeAgo(pd):"", source:"reuters.com" };
-            }).filter(Boolean);
-          } catch {}
-        }
-      }
-      return [];
-    }
+    fetch: (after) => fetchRssPaper("https://feeds.reuters.com/reuters/worldNews", after, "reuters.com")
   },
   { id:"nyt",      name:"NYT",       emoji:"📰", fetch: (after) => fetchRssPaper("https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml",        after, "nytimes.com")      },
   { id:"bbc",      name:"BBC",       emoji:"🇬🇧", fetch: (after) => fetchRssPaper("https://feeds.bbci.co.uk/news/world/rss.xml",                   after, "bbc.co.uk")        },
@@ -1840,14 +2346,28 @@ async function loadFeed() {
       const existing = new Set(catMap[src.cat].map(x => x.link));
       items.forEach(item => { if (!existing.has(item.link)) catMap[src.cat].push(item); });
       catMap[src.cat].sort((a,b) => { try { return new Date(b.pubDate)-new Date(a.pubDate); } catch { return 0; } });
-      // Prefer quality sources — filter out unknowns if we have enough quality items
-      const qualityItems = catMap[src.cat].filter(i => isQualitySource(i.link));
-      if (qualityItems.length >= 4) catMap[src.cat] = qualityItems;
       if (state.view === "idle") { firstRender = true; renderFeed(catMap); }
     }).catch(() => {})
   );
 
   await Promise.allSettled(promises);
+
+  // Quality filter: applied once, after all sources have settled.
+  // Only replaces a category if we have >= 4 quality items — never wipes a category.
+  Object.keys(catMap).forEach(cat => {
+    const qualityItems = catMap[cat].filter(i => isQualitySource(i.link));
+    if (qualityItems.length >= 4) catMap[cat] = qualityItems;
+  });
+
+  // Per-source cap: max 3 articles from any single domain per category.
+  Object.keys(catMap).forEach(cat => {
+    const sourceCounts = {};
+    catMap[cat] = catMap[cat].filter(item => {
+      const src = (() => { try { return new URL(item.link).hostname.replace(/^www\./,""); } catch { return "?"; } })();
+      sourceCounts[src] = (sourceCounts[src]||0) + 1;
+      return sourceCounts[src] <= 3;
+    });
+  });
 
   if (Object.keys(catMap).length > 0 && state.view === "idle") renderFeed(catMap);
   else if (!firstRender) {
@@ -1971,6 +2491,19 @@ function renderReader(article) {
     </div></div>`;
 
   container.innerHTML = html;
+  applyReaderFont(state.readerFont);
+
+  // Update bookmark button state
+  const bookmarkBtn = document.getElementById("bookmarkBtn");
+  if (bookmarkBtn) {
+    bookmarkBtn.textContent = isSaved(article.url) ? "✦" : "✧";
+    bookmarkBtn.classList.toggle("saved-active", isSaved(article.url));
+  }
+
+  // Track read history
+  addToReadHistory({ url: article.url, title: article.headline || article.url,
+    source: (() => { try { return new URL(article.url).hostname.replace(/^www\./,""); } catch { return ""; } })() });
+
   showView("reader");
 }
 
@@ -2571,39 +3104,57 @@ const PAYWALL_SIGNALS = [
   "you've used all your free articles",
   "you have reached your article limit",
   "to continue, please subscribe",
-  // Bot/Cloudflare walls
-  "please make sure your browser supports javascript",
+  // Bot/Cloudflare walls — these must be distinctive enough to not false-positive
+  "please make sure your browser supports javascript and cookies",
   "checking if the site connection is secure",
   "please enable js and disable any ad blocker",
-  "just a moment",
+  "enable javascript and cookies to continue",
+  "ray id:", // Cloudflare challenge page signature
 ];
 
-// Domains where Jina works — send it first, skip slow fallbacks
-const JINA_WORKS = new Set([
-  "bloomberg.com","ft.com","reuters.com","washingtonpost.com",
-  "economist.com","theatlantic.com","newyorker.com","wired.com",
-  "arstechnica.com","theguardian.com","bbc.com","bbc.co.uk",
-  "npr.org","cnn.com","cnbc.com","theverge.com",
-  // AP: open/free — handled by default cascade (corsproxy first, faster)
-]);
-
-// Open sites — try direct proxies before Jina (faster, no rate-limit risk)
-const OPEN_FIRST = new Set([
-  "apnews.com","npr.org","theguardian.com","bbc.com","bbc.co.uk",
+// ── Empirical per-domain routing (Tier C) ────────────────────────────────────
+//
+// TIER 1 — PROXY_ONLY: genuinely open sites. corsproxy → AllOrigins → Wayback.
+//   No Jina — it's slower and these sites have no paywall.
+const PROXY_ONLY = new Set([
+  "apnews.com","npr.org",
+  "theguardian.com","bbc.com","bbc.co.uk",
   "cnn.com","cbsnews.com","nbcnews.com","abcnews.go.com",
-  "thehill.com","axios.com","politico.com","vox.com","theatlantic.com",
-  "propublica.org","theintercept.com","motherjones.com","time.com",
+  "thehill.com","axios.com","politico.com","vox.com",
+  "propublica.org","theintercept.com","motherjones.com",
+  "time.com","techcrunch.com","theverge.com",
+  "arstechnica.com","wired.com","sciencedaily.com",
+  "marketwatch.com","cnbc.com",
+  "pbs.org","usatoday.com",
 ]);
 
-// Domains where plain Jina fails — but special variants may work
+// TIER 2 — RACE: Cloudflare-protected or JS-heavy but not hard-paywalled.
+//   corsproxy and Jina fire simultaneously — first valid result wins.
+const RACE_DOMAINS = new Set([
+  "reuters.com","finance.yahoo.com","yahoo.com",
+  "theatlantic.com","bloomberg.com","ft.com",
+  "washingtonpost.com","economist.com",
+  "businessinsider.com","forbes.com","fortune.com",
+  "slate.com","huffpost.com","thedailybeast.com",
+  "nbcsports.com","espn.com","theathletic.com",
+  "technologyreview.com","nymag.com","nautil.us","aeon.co",
+  "nplusonemag.com","thecut.com","vulture.com",
+]);
+
+// TIER 3a — JINA_ONLY: hard paywalled, proxies always return subscription walls.
+const JINA_ONLY = new Set([
+  "newyorker.com","spectator.co.uk",
+]);
+
+// TIER 3b — WSJ/Barron's/Times: Google Webcache is the only bypass.
 const JINA_BLOCKED = new Set([
   "wsj.com","barrons.com","thetimes.co.uk",
 ]);
 
-// NYT: gift URL pattern + googlebot UA unlocks metered articles
+// TIER 3c — NYT: gift URL + googlebot UA.
 const NYT_DOMAINS = new Set(["nytimes.com","nyt.com"]);
 
-// For NYT/WSJ: search HN for same story on an open outlet, then Jina that
+// Open domains for open-version search fallback (NYT/WSJ)
 const OPEN_DOMAINS = new Set([
   "apnews.com","reuters.com","theguardian.com","bbc.com","bbc.co.uk",
   "npr.org","axios.com","theatlantic.com","politico.com","arstechnica.com",
@@ -2815,72 +3366,143 @@ function headlineFromUrl(url) {
   } catch { return ""; }
 }
 
-function methodsForUrl(url) {
+// Get a named fetch method by name
+function pick(names) {
+  return names.map(n => FETCH_METHODS.find(m => m.name === n)).filter(Boolean);
+}
+
+// Parse and validate a raw fetch result into an article object.
+// Returns the article if usable, null otherwise.
+function parseResult(result, url) {
+  let article;
+  if (result.type === "markdown") {
+    article = parseJinaMarkdown(result.text, url);
+    article.url = url;
+    const lower = result.text.toLowerCase();
+    if (PAYWALL_SIGNALS.some(s => lower.includes(s))) return null;
+  } else {
+    const lower = result.text.toLowerCase();
+    if (PAYWALL_SIGNALS.some(s => lower.includes(s))) return null;
+    article = extractArticle(result.text, url);
+  }
+  if (!article || article.paragraphs.length < 2) return null;
+  return article;
+}
+
+// Race corsproxy and Jina simultaneously — take whichever returns valid content first.
+// Both run with a 12s timeout. Used for CF-protected / ambiguous domains (Tier 2).
+async function raceFetch(url) {
+  const proxy  = FETCH_METHODS.find(m => m.name === "corsproxy.io");
+  const jina   = FETCH_METHODS.find(m => m.name === "Jina");
+  const allori = FETCH_METHODS.find(m => m.name === "AllOrigins");
+  const TIMEOUT = 12000;
+
+  const attempt = (method) => Promise.race([
+    method.fetch(url),
+    new Promise((_,rej) => setTimeout(() => rej(new Error("Timeout")), TIMEOUT))
+  ]).then(result => {
+    const article = parseResult(result, url);
+    if (!article) throw new Error("No content");
+    return { article, method: method.name };
+  });
+
+  // Promise.any resolves as soon as the FIRST attempt succeeds — true race.
+  // If both fail, fall through to AllOrigins as tiebreaker.
   try {
-    const host = new URL(url).hostname.replace(/^www\./,"");
-    // NYT: gift URL + googlebot UA is the proven bypass
-    if (NYT_DOMAINS.has(host) || [...NYT_DOMAINS].some(d => host.endsWith("."+d)))
-      return reorder(["Jina+gift","Jina+googlebot","corsproxy.io","AllOrigins","Wayback","Archive.ph"]);
-    // Open/free sites — corsproxy is faster and has no rate-limit risk
-    if (OPEN_FIRST.has(host) || [...OPEN_FIRST].some(d => host.endsWith(d)))
-      return reorder(["corsproxy.io","AllOrigins","Jina","Jina+proxy","Wayback","Archive.ph"]);
-    // Sites where Jina works cleanly — lead with it
-    if (JINA_WORKS.has(host) || [...JINA_WORKS].some(d => host.endsWith(d)))
-      return reorder(["Jina","Jina+proxy","corsproxy.io","AllOrigins","Wayback","Archive.ph"]);
-    // WSJ/Barron's — Google Webcache is the primary bypass, then open-version search
-    if (JINA_BLOCKED.has(host) || [...JINA_BLOCKED].some(d => host.endsWith(d)))
-      return reorder(["Jina+gcache"]);
+    return await Promise.any([attempt(proxy), attempt(jina)]);
   } catch {}
-  return FETCH_METHODS;
+  // Both failed — try AllOrigins as tiebreaker
+  try { return await attempt(allori); } catch {}
+  return null;
 }
-
-function reorder(names) {
-  const priority = names.map(n => FETCH_METHODS.find(m => m.name === n)).filter(Boolean);
-  const rest = FETCH_METHODS.filter(m => !names.includes(m.name));
-  return [...priority, ...rest];
-}
-
 
 async function fetchArticle(url, _isRetry = false) {
   const loadingSub = document.getElementById("loadingSub");
-  const methods = methodsForUrl(url);
+  const host = (() => { try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return ""; } })();
 
-  // ── Direct / Jina fetch ───────────────────────────────────────────────────
-  for (const method of methods) {
-    loadingSub.textContent = `Trying ${method.name}…`;
-    logMethod(method.name, "pending", "Connecting…");
+  const inSet = (set) => set.has(host) || [...set].some(d => host.endsWith("." + d));
+
+  // ── Tier 3c: NYT ─────────────────────────────────────────────────────────
+  if (inSet(NYT_DOMAINS)) {
+    for (const method of pick(["Jina+gift","Jina+googlebot","corsproxy.io","AllOrigins","Wayback","Archive.ph"])) {
+      loadingSub.textContent = `Trying ${method.name}…`;
+      logMethod(method.name, "pending", "Connecting…");
+      try {
+        const result = await Promise.race([method.fetch(url), new Promise((_,rej)=>setTimeout(()=>rej(new Error("Timeout")),15000))]);
+        const article = parseResult(result, url);
+        if (!article) { logMethod(method.name, "fail", "No content"); continue; }
+        logMethod(method.name, "ok", `${article.paragraphs.length} paragraphs`);
+        return article;
+      } catch(e) { logMethod(method.name, "fail", e.message || "Network error"); }
+    }
+  }
+
+  // ── Tier 3b: WSJ/Barron's ────────────────────────────────────────────────
+  else if (inSet(JINA_BLOCKED)) {
+    loadingSub.textContent = "Trying Google Cache…";
+    logMethod("Jina+gcache", "pending", "Connecting…");
     try {
-      const result = await Promise.race([
-        method.fetch(url),
-        new Promise((_,rej) => setTimeout(() => rej(new Error("Timeout")), 15000))
-      ]);
+      const result = await Promise.race([FETCH_METHODS.find(m=>m.name==="Jina+gcache").fetch(url), new Promise((_,rej)=>setTimeout(()=>rej(new Error("Timeout")),15000))]);
+      const article = parseResult(result, url);
+      if (article) { logMethod("Jina+gcache", "ok", `${article.paragraphs.length} paragraphs`); return article; }
+      logMethod("Jina+gcache", "fail", "No content");
+    } catch(e) { logMethod("Jina+gcache", "fail", e.message || "Network error"); }
+  }
 
-      let article;
-      if (result.type === "markdown") {
-        // Jina returned markdown — parse it directly
-        article = parseJinaMarkdown(result.text, url);
-        article.url = url;
-        // Check for Jina error signals embedded in markdown
-        const lower = result.text.toLowerCase();
-        if (PAYWALL_SIGNALS.some(s => lower.includes(s))) {
-          logMethod(method.name, "fail", "Bot wall in Jina response"); continue;
-        }
-      } else {
-        // HTML — run through extractor
-        const lower = result.text.toLowerCase();
-        if (PAYWALL_SIGNALS.some(s => lower.includes(s))) {
-          logMethod(method.name, "fail", "Bot wall / paywall"); continue;
-        }
-        article = extractArticle(result.text, url);
-      }
+  // ── Tier 3a: Hard paywalls ───────────────────────────────────────────────
+  else if (inSet(JINA_ONLY)) {
+    for (const method of pick(["Jina","Jina+proxy","Wayback","Archive.ph"])) {
+      loadingSub.textContent = `Trying ${method.name}…`;
+      logMethod(method.name, "pending", "Connecting…");
+      try {
+        const result = await Promise.race([method.fetch(url), new Promise((_,rej)=>setTimeout(()=>rej(new Error("Timeout")),15000))]);
+        const article = parseResult(result, url);
+        if (!article) { logMethod(method.name, "fail", "No content"); continue; }
+        logMethod(method.name, "ok", `${article.paragraphs.length} paragraphs`);
+        return article;
+      } catch(e) { logMethod(method.name, "fail", e.message || "Network error"); }
+    }
+  }
 
-      if (!article || article.paragraphs.length < 2) {
-        logMethod(method.name, "fail", "Too little content"); continue;
-      }
-      logMethod(method.name, "ok", `${article.paragraphs.length} paragraphs`);
-      return article;
-    } catch(e) {
-      logMethod(method.name, "fail", e.message || "Network error");
+  // ── Tier 2: Race (CF-protected / ambiguous) ──────────────────────────────
+  else if (inSet(RACE_DOMAINS)) {
+    loadingSub.textContent = "Fetching…";
+    logMethod("corsproxy.io + Jina", "pending", "Racing…");
+    const raceResult = await raceFetch(url);
+    if (raceResult) {
+      logMethod(raceResult.method, "ok", `${raceResult.article.paragraphs.length} paragraphs`);
+      return raceResult.article;
+    }
+    logMethod("corsproxy.io + Jina", "fail", "Both failed");
+    // Fall through to Wayback/Archive as last resort
+    for (const method of pick(["Wayback","Archive.ph"])) {
+      loadingSub.textContent = `Trying ${method.name}…`;
+      logMethod(method.name, "pending", "Connecting…");
+      try {
+        const result = await Promise.race([method.fetch(url), new Promise((_,rej)=>setTimeout(()=>rej(new Error("Timeout")),15000))]);
+        const article = parseResult(result, url);
+        if (!article) { logMethod(method.name, "fail", "No content"); continue; }
+        logMethod(method.name, "ok", `${article.paragraphs.length} paragraphs`);
+        return article;
+      } catch(e) { logMethod(method.name, "fail", e.message || "Network error"); }
+    }
+  }
+
+  // ── Tier 1: Proxy-only (open sites) + unknown domains ───────────────────
+  else {
+    const methods = inSet(PROXY_ONLY)
+      ? pick(["corsproxy.io","AllOrigins","AMP","Wayback","Archive.ph"])
+      : pick(["corsproxy.io","AllOrigins","AMP","Wayback","Archive.ph","Jina","Jina+proxy"]);
+    for (const method of methods) {
+      loadingSub.textContent = `Trying ${method.name}…`;
+      logMethod(method.name, "pending", "Connecting…");
+      try {
+        const result = await Promise.race([method.fetch(url), new Promise((_,rej)=>setTimeout(()=>rej(new Error("Timeout")),15000))]);
+        const article = parseResult(result, url);
+        if (!article) { logMethod(method.name, "fail", "No content"); continue; }
+        logMethod(method.name, "ok", `${article.paragraphs.length} paragraphs`);
+        return article;
+      } catch(e) { logMethod(method.name, "fail", e.message || "Network error"); }
     }
   }
 
@@ -3015,7 +3637,288 @@ document.querySelector(".logo").addEventListener("click", () => {
 
 readBtn.addEventListener("click", () => startRead(urlInput.value));
 urlInput.addEventListener("keydown", e => { if (e.key === "Enter") startRead(urlInput.value); });
-</script>
 
+// ── Read History ──────────────────────────────────────────────────────────────
+
+function addToReadHistory({ url, title, source }) {
+  const ts = Date.now();
+  // dedupe — remove existing entry for same url
+  state.readHistory = state.readHistory.filter(h => h.url !== url);
+  state.readHistory.unshift({ url, title, source, ts });
+  if (state.readHistory.length > 50) state.readHistory = state.readHistory.slice(0, 50);
+  DB.set("readHistory", state.readHistory);
+}
+
+function clearHistory() {
+  state.readHistory = [];
+  DB.set("readHistory", []);
+  renderPanel();
+}
+
+// ── Saved Articles ────────────────────────────────────────────────────────────
+
+function isSaved(url) {
+  return state.saved.some(s => s.url === url);
+}
+
+function toggleSave() {
+  const article = state.article;
+  if (!article) return;
+  const url = article.url;
+  const btn = document.getElementById("bookmarkBtn");
+  if (isSaved(url)) {
+    state.saved = state.saved.filter(s => s.url !== url);
+    if (btn) { btn.textContent = "✧"; btn.classList.remove("saved-active"); }
+  } else {
+    const source = (() => { try { return new URL(url).hostname.replace(/^www\./,""); } catch { return ""; } })();
+    state.saved.unshift({ url, title: article.headline || url, source, ts: Date.now() });
+    if (btn) { btn.textContent = "✦"; btn.classList.add("saved-active"); }
+  }
+  DB.set("saved", state.saved);
+}
+
+// Bookmark button
+document.getElementById("bookmarkBtn").addEventListener("click", toggleSave);
+
+// Copy button
+document.getElementById("copyBtn").addEventListener("click", copyHeadlineLink);
+
+// ── Reader font popup ────────────────────────────────────────────────────────
+
+(function initFontPicker() {
+  const btn = document.getElementById("fontPickerBtn");
+  if (!btn) return;
+  let popup = null;
+  const FONTS = [
+    { key: "serif",  label: "Playfair" },
+    { key: "source", label: "Source Serif" },
+    { key: "mono",   label: "Mono" },
+  ];
+  function closePopup() {
+    if (popup) { popup.remove(); popup = null; }
+  }
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (popup) { closePopup(); return; }
+    popup = document.createElement("div");
+    popup.className = "font-popup";
+    // Position relative to bottom nav
+    btn.parentElement.style.position = "relative";
+    btn.style.position = "relative";
+    FONTS.forEach(f => {
+      const opt = document.createElement("button");
+      opt.className = "font-popup-opt" + (state.readerFont === f.key ? " active" : "");
+      opt.textContent = f.label;
+      opt.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        setReaderFont(f.key);
+        btn.textContent = "Aa";
+        closePopup();
+      });
+      popup.appendChild(opt);
+    });
+    btn.appendChild(popup);
+  });
+  document.addEventListener("click", closePopup);
+})();
+
+function clearSaved() {
+  state.saved = [];
+  DB.set("saved", []);
+  renderPanel();
+}
+
+// ── Panel render ──────────────────────────────────────────────────────────────
+
+function renderPanelItems(items, containerId) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  if (!items.length) { el.innerHTML = `<div class="panel-empty">Nothing here yet</div>`; return; }
+  el.innerHTML = items.map(item => `
+    <div class="panel-item" onclick="startRead('${escHtml(item.url)}', true)">
+      <img class="panel-item-favicon"
+        src="https://www.google.com/s2/favicons?domain=${escHtml(item.source||'')}&sz=32"
+        onerror="this.style.display='none'" alt="">
+      <div class="panel-item-body">
+        <div class="panel-item-title">${escHtml(item.title || item.url)}</div>
+        <div class="panel-item-meta">${escHtml(item.source || '')}${item.ts ? ' · ' + timeAgo(new Date(item.ts).toISOString()) : ''}</div>
+      </div>
+    </div>`).join("");
+}
+
+function renderPanel() {
+  renderPanelItems(state.saved, "savedList");
+  renderPanelItems(state.readHistory, "historyList");
+}
+
+// ── Search ────────────────────────────────────────────────────────────────────
+
+let searchTimer = null;
+
+(function initSearch() {
+  const input = document.getElementById("searchInput");
+  if (!input) return;
+  input.addEventListener("input", () => {
+    clearTimeout(searchTimer);
+    const q = input.value.trim();
+    if (!q) {
+      document.getElementById("searchResults").innerHTML = `<div class="search-empty">Type to search headlines</div>`;
+      return;
+    }
+    document.getElementById("searchResults").innerHTML = `<div class="search-empty">Searching…</div>`;
+    searchTimer = setTimeout(() => runSearch(q), 400);
+  });
+  input.addEventListener("keydown", e => {
+    if (e.key === "Enter" && input.value.trim()) runSearch(input.value.trim());
+  });
+})();
+
+async function runSearch(query) {
+  const resultsEl = document.getElementById("searchResults");
+  resultsEl.innerHTML = `<div class="search-empty">Searching…</div>`;
+
+  // All feeds go through proxies — direct fetch fails CORS for most sources.
+  // allorigins first (reliable), corsproxy as fallback.
+  const SEARCH_FEEDS = [
+    // Wire / broadcast
+    { url: "https://feeds.bbci.co.uk/news/rss.xml",                                source: "bbc.co.uk" },
+    { url: "https://feeds.bbci.co.uk/news/world/rss.xml",                          source: "bbc.co.uk" },
+    { url: "https://feeds.npr.org/1001/rss.xml",                                    source: "npr.org" },
+    { url: "https://feeds.a.dj.com/rss/RSSWorldNews.xml",                          source: "wsj.com" },
+    { url: "https://feeds.a.dj.com/rss/RSSWSJD.xml",                               source: "wsj.com" },
+    // US news
+    { url: "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml",            source: "nytimes.com" },
+    { url: "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",               source: "nytimes.com" },
+    { url: "https://rss.nytimes.com/services/xml/rss/nyt/US.xml",                  source: "nytimes.com" },
+    { url: "https://feeds.washingtonpost.com/rss/national",                         source: "washingtonpost.com" },
+    { url: "https://feeds.washingtonpost.com/rss/world",                            source: "washingtonpost.com" },
+    { url: "https://www.theguardian.com/world/rss",                                 source: "theguardian.com" },
+    { url: "https://www.theguardian.com/us-news/rss",                               source: "theguardian.com" },
+    // Finance
+    { url: "https://www.cnbc.com/id/100003114/device/rss/rss.html",                source: "cnbc.com" },
+    { url: "https://www.cnbc.com/id/10000664/device/rss/rss.html",                 source: "cnbc.com" },
+    { url: "https://feeds.content.dowjones.io/public/rss/mw_realtimeheadlines",    source: "marketwatch.com" },
+    { url: "https://feeds.content.dowjones.io/public/rss/mw_topstories",           source: "marketwatch.com" },
+    // Tech
+    { url: "https://www.theverge.com/rss/index.xml",                               source: "theverge.com" },
+    { url: "https://feeds.arstechnica.com/arstechnica/index",                      source: "arstechnica.com" },
+    { url: "https://www.wired.com/feed/rss",                                        source: "wired.com" },
+    // Politics / policy
+    { url: "https://feeds.feedburner.com/politico/politics",                        source: "politico.com" },
+    { url: "https://thehill.com/feed/",                                             source: "thehill.com" },
+    { url: "https://www.axios.com/feed/",                                           source: "axios.com" },
+    // Science
+    { url: "https://www.sciencedaily.com/rss/all.xml",                             source: "sciencedaily.com" },
+  ];
+
+  const q = query.toLowerCase();
+  const words = q.split(/\s+/).filter(w => w.length > 2);
+
+  const fetchFeed = async ({ url, source }) => {
+    // Try allorigins then corsproxy — both handle CORS
+    for (const proxyFn of [
+      u => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,
+      u => `https://corsproxy.io/?${encodeURIComponent(u)}`,
+    ]) {
+      try {
+        const r = await Promise.race([
+          fetch(proxyFn(url)),
+          new Promise((_,rej) => setTimeout(rej, 8000))
+        ]);
+        if (!r.ok) continue;
+        let text;
+        if (proxyFn(url).includes("allorigins")) {
+          const j = await r.json(); text = j.contents || "";
+        } else {
+          text = await r.text();
+        }
+        if (!text.includes("<item") && !text.includes("<entry")) continue;
+        const xml = new DOMParser().parseFromString(text, "text/xml");
+        const items = [...xml.querySelectorAll("item,entry")].map(item => {
+          const title = (item.querySelector("title")?.textContent || "").replace(/<!\[CDATA\[|\]\]>/g,"").trim();
+          const link  = item.querySelector("link")?.getAttribute("href") || item.querySelector("link")?.textContent?.trim() || "";
+          const pub   = item.querySelector("pubDate,published,updated")?.textContent?.trim() || "";
+          if (!title || !link) return null;
+          const desc       = (item.querySelector("description")?.textContent || "").toLowerCase();
+          const titleLower = title.toLowerCase();
+          const score = words.reduce((s,w) => s + (titleLower.includes(w) ? 2 : 0) + (desc.includes(w) ? 1 : 0), 0);
+          if (score === 0) return null;
+          return { title, link, source, pub, score };
+        }).filter(Boolean);
+        return items; // success — don't try next proxy
+      } catch {}
+    }
+    return [];
+  };
+
+  try {
+    const results = await Promise.allSettled(SEARCH_FEEDS.map(fetchFeed));
+    const allItems = results.flatMap(r => r.status === "fulfilled" ? r.value : []);
+
+    const seen = new Set();
+    const unique = allItems
+      .filter(i => { if (seen.has(i.link)) return false; seen.add(i.link); return true; })
+      .sort((a,b) => b.score - a.score || (b.pub > a.pub ? 1 : -1))
+      .slice(0, 25);
+
+    if (!unique.length) {
+      resultsEl.innerHTML = `<div class="search-empty">No results for "${escHtml(query)}"</div>`;
+      return;
+    }
+
+    resultsEl.innerHTML = unique.map(item => {
+      const age    = item.pub ? timeAgo(new Date(item.pub).toISOString()) : "";
+      const domain = item.source || (() => { try { return new URL(item.link).hostname.replace(/^www\./,""); } catch { return ""; } })();
+      return `<div class="panel-item" onclick="startRead('${escHtml(item.link)}', true)">
+        <img class="panel-item-favicon"
+          src="https://www.google.com/s2/favicons?domain=${escHtml(domain)}&sz=32"
+          onerror="this.style.display='none'" alt="">
+        <div class="panel-item-body">
+          <div class="panel-item-title">${escHtml(item.title)}</div>
+          <div class="panel-item-meta">${escHtml(domain)}${age ? " · " + age : ""}</div>
+        </div>
+      </div>`;
+    }).join("");
+  } catch {
+    resultsEl.innerHTML = `<div class="search-empty">Search failed</div>`;
+  }
+}
+
+// ── Reader font picker ────────────────────────────────────────────────────────
+
+const READER_FONTS = {
+  serif:  "'Playfair Display', Georgia, serif",
+  source: "'Source Serif 4', Georgia, serif",
+  mono:   "'DM Mono', monospace",
+};
+
+function applyReaderFont(f) {
+  const ff = READER_FONTS[f] || READER_FONTS.serif;
+  document.querySelectorAll(".reader-p, .reader-blockquote, .reader-h2").forEach(el => el.style.fontFamily = ff);
+  document.querySelectorAll(".font-opt").forEach((btn, i) => {
+    const keys = Object.keys(READER_FONTS);
+    btn.classList.toggle("active", keys[i] === f);
+  });
+}
+
+function setReaderFont(f) {
+  state.readerFont = f;
+  DB.set("readerFont", f);
+  applyReaderFont(f);
+}
+
+// ── Copy headline + link ──────────────────────────────────────────────────────
+
+async function copyHeadlineLink() {
+  const article = state.article;
+  if (!article) return;
+  const text = `${article.headline || ""}\n${article.url}`;
+  try {
+    await navigator.clipboard.writeText(text);
+    const btn = document.querySelector(".save-btn[onclick='copyHeadlineLink()']");
+    if (btn) { const orig = btn.textContent; btn.textContent = "✓ Copied"; setTimeout(() => btn.textContent = orig, 1800); }
+  } catch { window.prompt("Copy:", text); }
+}
+</script>
 </body>
 </html>
