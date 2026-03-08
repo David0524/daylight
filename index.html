@@ -595,7 +595,6 @@ vertical-align: middle; margin-left: 6px;
     <button class="icon-btn" id="homeBtn" style="display:none" title="Home">⌂</button>
     <button class="bottom-nav-font" id="fontDn" style="display:none">A−</button>
     <button class="bottom-nav-font" id="fontUp" style="display:none">A+</button>
-    <button class="icon-btn" id="darkToggle" title="Toggle theme">☀️</button>
     <div class="bottom-nav-sep" id="tabSep"></div>
     <button class="tab-btn active" id="tabFeed" onclick="switchTab('feed')">
       <span class="tab-icon">◈</span>
@@ -605,6 +604,8 @@ vertical-align: middle; margin-left: 6px;
       <span class="tab-icon">❋</span>
       <span>PAPERS</span>
     </button>
+    <div class="bottom-nav-sep"></div>
+    <button class="icon-btn" id="darkToggle" title="Toggle theme">☀️</button>
   </div>
 
 </div>
@@ -893,7 +894,7 @@ const LIVE_SOURCES = [
   {
     cat: "AI",
     fetch: async () => {
-      const subs = ["artificial","MachineLearning","LocalLLaMA","ChatGPT","singularity"];
+      const subs = ["artificial","MachineLearning","LocalLLaMA","AINews","technology"];
       const results = await Promise.allSettled(subs.map(sub =>
         redditFetch(`/r/${sub}/top.json?limit=12&t=day`)
       ));
@@ -1229,6 +1230,7 @@ function renderFeed(catMap) {
 
     const isAI = cat === "AI";
     html += `<div class="feed-section">${escHtml(cat)}${isAI ? '<span class="ai-badge">BETA</span>' : ""}</div>`;
+    html += `<div class="card-strip" id="strip-${escHtml(cat)}">`;
 
     const PAGE_SIZE = 6;
     items.slice(0, PAGE_SIZE).forEach(item => {
@@ -1236,19 +1238,22 @@ function renderFeed(catMap) {
       ARTICLE_REGISTRY.push(item);
       const fb = articleImageUrl(item.title, cat);
       html += `
-        <div class="card-list-item" data-idx="${idx}" style="cursor:pointer">
-          <img id="img-${idx}" class="card-list-thumb" src="${item.image || fb}" alt="" onerror="this.src='${fb}'">
-          <div class="card-list-body">
-            <div class="card-list-source">${escHtml(item.source)}</div>
-            <div class="card-list-title">${escHtml(item.title)}</div>
-            <div class="card-list-meta">${escHtml(item.age)}</div>
+        <div class="card-mini" data-idx="${idx}" style="cursor:pointer">
+          <img id="img-${idx}" class="card-mini-img" src="${item.image || fb}" alt="" onerror="this.src='${fb}'">
+          <div class="card-mini-body">
+            <div class="card-mini-source">${escHtml(item.source)}</div>
+            <div class="card-mini-title">${escHtml(item.title)}</div>
+            <div class="card-mini-meta" style="font-family:'DM Mono',monospace;font-size:10px;color:var(--sub);margin-top:4px">${escHtml(item.age)}</div>
           </div>
         </div>
       `;
     });
 
+    html += `</div>`; // close card-strip
+
     CAT_PAGE[cat] = 1;
 
+    // Sentinel sits after the strip (invisible, triggers loading more cards into the strip)
     if (items.length > PAGE_SIZE) {
       html += `<div class="feed-sentinel" data-cat="${escHtml(cat)}" id="sentinel-${escHtml(cat)}">
         <div class="feed-sentinel-spinner" id="spinner-${escHtml(cat)}"></div>
@@ -1280,34 +1285,31 @@ function loadMoreCategory(cat, sentinel, observer) {
   const start = page * PAGE_SIZE;
   if (start >= items.length) { observer.unobserve(sentinel); sentinel.remove(); return; }
 
-  const spinner = document.getElementById(`spinner-${cat}`);
-  if (spinner) spinner.classList.add("visible");
-
   const CAT_SEED_BASE = { World:10,Technology:60,Finance:100,Sports:140,Politics:180,Business:220,Science:260,Ideas:300,AI:340,Default:380 };
   const base = CAT_SEED_BASE[cat] ?? CAT_SEED_BASE.Default;
-  const feedContent = document.getElementById("feedContent");
+  const strip = document.getElementById(`strip-${cat}`);
+  if (!strip) return;
 
   items.slice(start, start + PAGE_SIZE).forEach(item => {
     const idx = ARTICLE_REGISTRY.length;
     ARTICLE_REGISTRY.push(item);
     const fb = `https://picsum.photos/seed/${base + idx}/600/400`;
     const el = document.createElement("div");
-    el.className = "card-list-item";
+    el.className = "card-mini";
     el.dataset.idx = idx;
     el.style.cursor = "pointer";
     el.innerHTML = `
-      <img id="img-${idx}" class="card-list-thumb" src="${item.image || fb}" alt="" onerror="this.src='${fb}'">
-      <div class="card-list-body">
-        <div class="card-list-source">${escHtml(item.source)}</div>
-        <div class="card-list-title">${escHtml(item.title)}</div>
-        <div class="card-list-meta">${escHtml(item.age)}</div>
+      <img id="img-${idx}" class="card-mini-img" src="${item.image || fb}" alt="" onerror="this.src='${fb}'">
+      <div class="card-mini-body">
+        <div class="card-mini-source">${escHtml(item.source)}</div>
+        <div class="card-mini-title">${escHtml(item.title)}</div>
+        <div class="card-mini-meta" style="font-family:'DM Mono',monospace;font-size:10px;color:var(--sub);margin-top:4px">${escHtml(item.age)}</div>
       </div>
     `;
-    feedContent.insertBefore(el, sentinel);
+    strip.appendChild(el);
   });
 
   CAT_PAGE[cat] = page + 1;
-  if (spinner) spinner.classList.remove("visible");
   if ((page + 1) * PAGE_SIZE >= items.length) { observer.unobserve(sentinel); sentinel.remove(); }
 }
 
