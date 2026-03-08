@@ -1261,6 +1261,17 @@ const BLOCKED_DOMAINS = new Set([
   "academia.edu","philpapers.org","bioarxiv.org","medrxiv.org",
   "dl.acm.org","ieeexplore.ieee.org","link.springer.com",
   "huggingface.co","paperswithcode.com","openreview.net",
+  // Fringe / partisan / low-quality news
+  "euromaidanpress.com","kyivpost.com","khpg.org","unian.info",
+  "themoscowtimes.com","intellinews.com","eurointegration.com.ua",
+  "ukrainianworldcongress.org","stopfake.org","uawire.org",
+  "thegrayzone.com","consortiumnews.com","mintpressnews.com",
+  "globalresearch.ca","strategic-culture.org","southfront.org",
+  "oilprice.com","energymonitor.ai","spglobal.com",
+  "pjmedia.com","redstate.com","townhall.com","hotair.com",
+  "dailycaller.com","washingtonexaminer.com","thefederalist.com",
+  "newsmax.com","oann.com","westernjournal.com","thepostmillennial.com",
+  "occupy.com","alternet.org","rawstory.com","salon.com",
 ]);
 
 // Allowlist of known large, English-language publications.
@@ -1366,6 +1377,32 @@ async function redditFetch(path) {
   return null;
 }
 
+// Resolve real og:title + og:image for a Reddit item in one fetch
+async function resolveRedditMeta(item) {
+  try {
+    const proxy = `https://api.allorigins.win/get?url=${encodeURIComponent(item.link)}`;
+    const r = await Promise.race([fetch(proxy), new Promise((_,rej) => setTimeout(rej, 5000))]);
+    if (!r.ok) return item;
+    const j = await r.json();
+    const html = j.contents || "";
+    const ogTitle = html.match(/<meta[^>]+property=["'']og:title["''][^>]+content=["'']([^"'']{5,200})["'']]/i)?.[1]
+                 || html.match(/<meta[^>]+content=["'']([^"'']{5,200})["''][^>]+property=["'']og:title["'']]/i)?.[1]
+                 || html.match(/<title[^>]*>([^<]{5,200})<\/title>/i)?.[1]?.replace(/\s*[-|].*$/, "").trim();
+    const ogImage = html.match(/<meta[^>]+property=["'']og:image["''][^>]+content=["'']([^"'']+)["'']]/i)?.[1]
+                 || html.match(/<meta[^>]+content=["'']([^"'']+)["''][^>]+property=["'']og:image["'']]/i)?.[1];
+    return {
+      ...item,
+      title: ogTitle?.trim() || item.title,
+      image: (ogImage?.startsWith("http") ? ogImage : null) || item.image || "",
+    };
+  } catch {}
+  return item;
+}
+
+// resolveRedditTitles: now returns immediately — enrichment happens post-render
+function resolveRedditTitles(items) {
+  return Promise.resolve(items);
+}
 // Sources that return CORS-friendly JSON natively — no proxy needed
 const LIVE_SOURCES = [
   // Hacker News top stories
@@ -1373,7 +1410,7 @@ const LIVE_SOURCES = [
     cat: "Technology",
     fetch: async () => {
       const ids = await fetch("https://hacker-news.firebaseio.com/v0/topstories.json").then(r => r.json());
-      const stories = await Promise.all(ids.slice(0, 25).map(id =>
+      const stories = await Promise.all(ids.slice(0, 15).map(id =>
         fetch(`https://hacker-news.firebaseio.com/v0/item/${id}.json`).then(r => r.json()).catch(() => null)
       ));
       return stories.filter(s => s && s.url && s.title && isArticleUrl(s.url)).slice(0, 12).map(s => ({
@@ -1392,7 +1429,7 @@ const LIVE_SOURCES = [
     cat: "AI",
     fetch: async () => {
       const ids = await fetch("https://hacker-news.firebaseio.com/v0/topstories.json").then(r => r.json());
-      const stories = await Promise.all(ids.slice(0, 60).map(id =>
+      const stories = await Promise.all(ids.slice(0, 30).map(id =>
         fetch(`https://hacker-news.firebaseio.com/v0/item/${id}.json`).then(r => r.json()).catch(() => null)
       ));
       const AI_KEYWORDS = ["ai","llm","gpt","claude","gemini","openai","anthropic","model","neural","machine learning","deep learning","transformer","diffusion","agent","inference","llama","mistral","groq","perplexity","copilot","midjourney","stable diffusion","chatbot","rag","finetuning","fine-tuning","embedding"];
@@ -1415,7 +1452,7 @@ const LIVE_SOURCES = [
     fetch: async () => {
       const subs = ["artificial","MachineLearning","LocalLLaMA","AINews","technology"];
       const results = await Promise.allSettled(subs.map(sub =>
-        redditFetch(`/r/${sub}/top.json?limit=12&t=day`)
+        redditFetch(`/r/${sub}/hot.json?limit=12`)
       ));
       const items = results.flatMap(r => {
         if (r.status !== "fulfilled" || !r.value) return [];
@@ -1429,16 +1466,17 @@ const LIVE_SOURCES = [
           }));
       });
       const seen = new Set();
-      return items.filter(i => { if (seen.has(i.link)) return false; seen.add(i.link); return true; }).slice(0, 12);
+      const deduped = items.filter(i => { if (seen.has(i.link)) return false; seen.add(i.link); return true; }).slice(0, 12);
+      return resolveRedditTitles(deduped);
     }
   },
   {
     cat: "World",
     fetch: async () => {
-      const d = await redditFetch("/r/worldnews/top.json?limit=20&t=day");
-      return (d?.data?.children || []).map(c => c.data)
+      const d = await redditFetch("/r/worldnews/hot.json?limit=20");
+      const items = (d?.data?.children || []).map(c => c.data)
         .filter(p => p.url && !p.url.includes("reddit.com") && isArticleUrl(p.url))
-        .slice(0, 12).map(p => ({
+        .slice(0, 6).map(p => ({
           title:   p.title,
           link:    p.url,
           desc:    "",
@@ -1447,13 +1485,14 @@ const LIVE_SOURCES = [
           age:     timeAgo(new Date(p.created_utc * 1000).toISOString()),
           source:  sourceDomain(p.url),
         }));
+      return resolveRedditTitles(items);
     }
   },
   {
     cat: "Technology",
     fetch: async () => {
-      const d = await redditFetch("/r/technology/top.json?limit=20&t=day");
-      return (d?.data?.children || []).map(c => c.data)
+      const d = await redditFetch("/r/technology/hot.json?limit=20");
+      const items = (d?.data?.children || []).map(c => c.data)
         .filter(p => p.url && !p.url.includes("reddit.com") && isArticleUrl(p.url))
         .slice(0, 5).map(p => ({
           title:   p.title,
@@ -1464,15 +1503,16 @@ const LIVE_SOURCES = [
           age:     timeAgo(new Date(p.created_utc * 1000).toISOString()),
           source:  sourceDomain(p.url),
         }));
+      return resolveRedditTitles(items);
     }
   },
   {
     cat: "Politics",
     fetch: async () => {
-      const d = await redditFetch("/r/politics/top.json?limit=20&t=day");
-      return (d?.data?.children || []).map(c => c.data)
+      const d = await redditFetch("/r/politics/hot.json?limit=20");
+      const items = (d?.data?.children || []).map(c => c.data)
         .filter(p => p.url && !p.url.includes("reddit.com") && isArticleUrl(p.url))
-        .slice(0, 12).map(p => ({
+        .slice(0, 6).map(p => ({
           title:   p.title,
           link:    p.url,
           desc:    "",
@@ -1481,15 +1521,16 @@ const LIVE_SOURCES = [
           age:     timeAgo(new Date(p.created_utc * 1000).toISOString()),
           source:  sourceDomain(p.url),
         }));
+      return resolveRedditTitles(items);
     }
   },
   {
     cat: "Business",
     fetch: async () => {
-      const d = await redditFetch("/r/business/top.json?limit=20&t=day");
-      return (d?.data?.children || []).map(c => c.data)
+      const d = await redditFetch("/r/business/hot.json?limit=20");
+      const items = (d?.data?.children || []).map(c => c.data)
         .filter(p => p.url && !p.url.includes("reddit.com") && isArticleUrl(p.url))
-        .slice(0, 12).map(p => ({
+        .slice(0, 6).map(p => ({
           title:   p.title,
           link:    p.url,
           desc:    "",
@@ -1498,15 +1539,16 @@ const LIVE_SOURCES = [
           age:     timeAgo(new Date(p.created_utc * 1000).toISOString()),
           source:  sourceDomain(p.url),
         }));
+      return resolveRedditTitles(items);
     }
   },
   {
     cat: "Science",
     fetch: async () => {
-      const d = await redditFetch("/r/science/top.json?limit=20&t=day");
-      return (d?.data?.children || []).map(c => c.data)
+      const d = await redditFetch("/r/science/hot.json?limit=20");
+      const items = (d?.data?.children || []).map(c => c.data)
         .filter(p => p.url && !p.url.includes("reddit.com") && isArticleUrl(p.url))
-        .slice(0, 12).map(p => ({
+        .slice(0, 6).map(p => ({
           title:   p.title,
           link:    p.url,
           desc:    "",
@@ -1515,6 +1557,7 @@ const LIVE_SOURCES = [
           age:     timeAgo(new Date(p.created_utc * 1000).toISOString()),
           source:  sourceDomain(p.url),
         }));
+      return resolveRedditTitles(items);
     }
   },
   // Substack — rotating curated publications via RSS
@@ -1526,10 +1569,10 @@ const LIVE_SOURCES = [
         "byrnehobart","astralcodexten","simonowens","platformer","thediff"
       ];
       // Pick 3 random pubs each load for variety
-      const pick = pubs.sort(() => 0.5 - Math.random()).slice(0, 3);
+      const pick = pubs.sort(() => 0.5 - Math.random()).slice(0, 2);
       const results = await Promise.allSettled(pick.map(async slug => {
         const rssUrl = `https://${slug}.substack.com/feed`;
-        const r = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(rssUrl)}`);
+        const r = await Promise.race([fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(rssUrl)}`), new Promise((_,rej)=>setTimeout(rej,5000))]);
         if (!r.ok) return [];
         const j = await r.json();
         if (!j.contents) return [];
@@ -1556,50 +1599,15 @@ const LIVE_SOURCES = [
       return results.flatMap(r => r.status === "fulfilled" ? r.value : []).slice(0, 6);
     }
   },
-  // Medium top stories via RSS + allorigins proxy
-  {
-    cat: "Ideas",
-    fetch: async () => {
-      const tags = ["technology","business","politics","science","culture"];
-      const tag = tags[Math.floor(Date.now() / 3600000) % tags.length]; // rotate hourly
-      const rssUrl = `https://medium.com/feed/tag/${tag}`;
-      const r = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(rssUrl)}`);
-      if (!r.ok) throw new Error("allorigins failed");
-      const j = await r.json();
-      if (!j.contents) throw new Error("No contents");
-      const parser = new DOMParser();
-      const xml = parser.parseFromString(j.contents, "text/xml");
-      const items = Array.from(xml.querySelectorAll("item")).slice(0, 8);
-      return items.map(item => {
-        const title   = item.querySelector("title")?.textContent?.replace(/<!\[CDATA\[|\]\]>/g,"").trim() || "";
-        const link    = item.querySelector("link")?.textContent?.trim() || item.querySelector("guid")?.textContent?.trim() || "";
-        const pubDate = item.querySelector("pubDate")?.textContent?.trim() || "";
-        // Medium encodes image in content:encoded or media:thumbnail
-        const content = item.querySelector("encoded")?.textContent || "";
-        const imgMatch = content.match(/<img[^>]+src=["']([^"']+)["']/i);
-        const image = imgMatch?.[1] || "";
-        const desc = item.querySelector("description")?.textContent?.replace(/<[^>]+>/g,"").replace(/<!\[CDATA\[|\]\]>/g,"").trim().slice(0,120) || "";
-        if (!title || !link || !link.startsWith("http")) return null;
-        return {
-          title, link, desc, image,
-          pubDate: pubDate ? new Date(pubDate).toISOString() : "",
-          age:     pubDate ? timeAgo(new Date(pubDate).toISOString()) : "",
-          source:  "medium.com",
-        };
-      }).filter(Boolean).slice(0, 6);
-    }
-  },
+
   // Finance — real-time RSS from Yahoo Finance, MarketWatch, CNBC + Reddit hot
   {
     cat: "Finance",
     fetch: async () => {
       // Real-time RSS feeds — update every few minutes
       const rssFeeds = [
-        "https://finance.yahoo.com/news/rssindex",
-        "https://feeds.content.dowjones.io/public/rss/mw_realtimeheadlines",
-        "https://feeds.content.dowjones.io/public/rss/mw_topstories",
         "https://www.cnbc.com/id/100003114/device/rss/rss.html",
-        "https://www.cnbc.com/id/10000664/device/rss/rss.html",
+        "https://feeds.content.dowjones.io/public/rss/mw_realtimeheadlines",
       ];
 
       const fetchRss = async (feedUrl) => {
@@ -1608,7 +1616,7 @@ const LIVE_SOURCES = [
           u => `https://corsproxy.io/?${encodeURIComponent(u)}`,
         ]) {
           try {
-            const r = await Promise.race([fetch(proxy(feedUrl)), new Promise((_,rej)=>setTimeout(rej,8000))]);
+            const r = await Promise.race([fetch(proxy(feedUrl)), new Promise((_,rej)=>setTimeout(rej,5000))]);
             if (!r.ok) continue;
             let text;
             if (proxy(feedUrl).includes('allorigins')) { const j = await r.json(); text = j.contents; }
@@ -1646,7 +1654,8 @@ const LIVE_SOURCES = [
         redditHot,
       ]);
 
-      const all = [...(rssResults.value||[]), ...(reddit.value||[])];
+      const rawAll = [...(rssResults.value||[]), ...(reddit.value||[])];
+      const all = await Promise.all(rawAll.map(async i => i._resolveTitle ? resolveRedditMeta(i) : i));
       const seen = new Set();
       return all
         .filter(i => { if (!i?.link || seen.has(i.link)) return false; seen.add(i.link); return true; })
@@ -1654,119 +1663,37 @@ const LIVE_SOURCES = [
         .slice(0, 12);
     }
   },
-  // Sports — RSS feeds first, Reddit as supplement
+  // Sports — Reddit for URLs, real titles resolved from og:title
   {
     cat: "Sports",
     fetch: async () => {
-      // Sports RSS — RSSHub mirrors ESPN/CBS (bypasses CF mobile blocking).
-      // Direct feed URLs as fallback. US sports only.
-      const rssFeeds = [
-        // ESPN — RSSHub mirrors, then direct
-        { url: "https://rsshub.app/espn/news/nfl",  source: "espn.com" },
-        { url: "https://rsshub.app/espn/news/nba",  source: "espn.com" },
-        { url: "https://rsshub.app/espn/news/mlb",  source: "espn.com" },
-        { url: "https://rsshub.app/espn/news/nhl",  source: "espn.com" },
-        { url: "https://www.espn.com/espn/rss/nfl/news", source: "espn.com" },
-        { url: "https://www.espn.com/espn/rss/nba/news", source: "espn.com" },
-        // CBS Sports — RSSHub mirror
-        { url: "https://rsshub.app/cbssports/headlines", source: "cbssports.com" },
-        { url: "https://www.cbssports.com/rss/headlines/", source: "cbssports.com" },
-        // NBC Sports, AP Sports, The Athletic
-        { url: "https://feeds.nbcnews.com/nbcnews/public/sports", source: "nbcsports.com" },
-        { url: "https://rsshub.app/apnews/topics/apf-sports",     source: "apnews.com" },
-        { url: "https://theathletic.com/rss/",                     source: "theathletic.com" },
-      ];
-
-      const fetchRss = async ({ url, source }) => {
-        for (const proxyFn of [
-          u => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,
-          u => `https://corsproxy.io/?${encodeURIComponent(u)}`,
-        ]) {
-          try {
-            const r = await Promise.race([fetch(proxyFn(url)), new Promise((_,rej)=>setTimeout(rej,7000))]);
-            if (!r.ok) continue;
-            let text;
-            if (proxyFn(url).includes("allorigins")) { const j = await r.json(); text = j.contents||""; }
-            else { text = await r.text(); }
-            if (!text.includes("<item")) continue;
-            const xml = new DOMParser().parseFromString(text, "text/xml");
-            return [...xml.querySelectorAll("item")].slice(0, 6).map(item => {
-              const title   = item.querySelector("title")?.textContent?.replace(/<!\[CDATA\[|\]\]>/g,"").trim()||"";
-              let link      = item.querySelector("link")?.textContent?.trim()||item.querySelector("guid")?.textContent?.trim()||"";
-              const pubDate = item.querySelector("pubDate")?.textContent?.trim()||"";
-              if (!title || !link) return null;
-              // Validate domain — must be a real article from the expected source
-              try {
-                const h = new URL(link).hostname.replace(/^www\./,"");
-                if (BLOCKED_DOMAINS.has(h)) return null;
-                // Reject if domain doesn't match expected source at all
-                if (!h.includes(source.replace(".com","").replace(".org","")) && !isQualitySource(link)) return null;
-              } catch { return null; }
-              if (!isArticleUrl(link)) return null;
-              // Skip articles older than 72 hours
-              if (pubDate) {
-                if (Date.now() - new Date(pubDate).getTime() > 72 * 60 * 60 * 1000) return null;
-              }
-              return { title, link, desc:"", image:"", pubDate, age: pubDate ? timeAgo(pubDate) : "", source };
-            }).filter(Boolean);
-          } catch {}
-        }
-        return [];
-      };
-
-      // Reddit as supplement — try t=day first, only use t=week if day yields < 3 items
-      const redditSubs = ["nfl","nba","baseball","nhl","sports"];
-      const NOW = Date.now();
-      const MAX_AGE_MS = 72 * 60 * 60 * 1000; // never show Reddit items older than 72h
-
-      const fetchRedditSub = async (sub) => {
-        // Try day first
-        let posts = [];
-        for (const t of ["day", "week"]) {
-          const result = await redditFetch(`/r/${sub}/top.json?limit=30&t=${t}`);
-          posts = (result?.data?.children||[]).map(c=>c.data)
-            .filter(p => {
-              if (!p.url) return false;
-              // Block reddit self-posts and v.redd.it (video hosting) — want real articles
-              const h = (() => { try { return new URL(p.url).hostname.replace(/^www\./,""); } catch { return ""; } })();
-              if (h === "reddit.com" || h === "v.redd.it") return false;
-              if (BLOCKED_DOMAINS.has(h)) return false;
-              // Hard cutoff: discard anything older than 72 hours
-              const age = NOW - p.created_utc * 1000;
-              return age <= MAX_AGE_MS;
-            });
-          if (posts.length >= 3) break; // day had enough — don't bother with week
-        }
-        return posts.slice(0, 4).map(p => ({
-          title:   p.title,
-          link:    p.url, desc:"", image: redditImage(p),
-          pubDate: new Date(p.created_utc*1000).toISOString(),
-          age:     timeAgo(new Date(p.created_utc*1000).toISOString()),
-          source:  sourceDomain(p.url),
-          _isReddit: true,
-        }));
-      };
-
-      const redditResults = await Promise.allSettled(redditSubs.map(fetchRedditSub));
-      const redditItems = redditResults.flatMap(r => r.status === "fulfilled" ? r.value : []);
-
-      const rssResults = await Promise.allSettled(rssFeeds.map(fetchRss));
-      const rssItems = rssResults.flatMap(r => r.status==="fulfilled" ? r.value : []);
-
-      // Merge: RSS first, Reddit as fill-in. Cap 4 per source domain.
+      const subs = ["nfl","nba","baseball","nhl","soccer","sports"];
+      const results = await Promise.allSettled(subs.map(sub =>
+        redditFetch(`/r/${sub}/top.json?limit=20&t=day`)
+      ));
+      const items = results.flatMap(r => {
+        if (r.status !== "fulfilled" || !r.value) return [];
+        return (r.value?.data?.children || []).map(c => c.data)
+          .filter(p => {
+            if (!p.url) return false;
+            const h = (() => { try { return new URL(p.url).hostname.replace(/^www\./,""); } catch { return ""; } })();
+            return h !== "reddit.com" && h !== "v.redd.it" && !BLOCKED_DOMAINS.has(h) && isArticleUrl(p.url);
+          })
+          .slice(0, 5).map(p => ({
+            title:   p.title,
+            link:    p.url,
+            desc:    "",
+            image:   redditImage(p),
+            pubDate: new Date(p.created_utc * 1000).toISOString(),
+            age:     timeAgo(new Date(p.created_utc * 1000).toISOString()),
+            source:  sourceDomain(p.url),
+          }));
+      });
       const seen = new Set();
-      const srcCount = {};
-      const all = [...rssItems, ...redditItems]
-        .filter(i => {
-          if (!i?.link || seen.has(i.link)) return false;
-          seen.add(i.link);
-          const h = (() => { try { return new URL(i.link).hostname.replace(/^www\./,""); } catch { return "?"; } })();
-          srcCount[h] = (srcCount[h]||0) + 1;
-          return srcCount[h] <= 4;
-        })
-        .sort((a,b) => { try { return new Date(b.pubDate)-new Date(a.pubDate); } catch { return 0; } });
-
-      return all.slice(0, 20);
+      const deduped = items
+        .filter(i => { if (seen.has(i.link)) return false; seen.add(i.link); return true; })
+        .slice(0, 20);
+      return resolveRedditTitles(deduped);
     }
   },
 ];
@@ -2044,7 +1971,7 @@ function renderFeed(catMap) {
     if (!items?.length) return;
 
     if (isFirst) {
-      const hero = items[0];
+      const hero = items.find(i => isQualitySource(i.link)) || items[0];
       const heroIdx = ARTICLE_REGISTRY.length;
       ARTICLE_REGISTRY.push(hero);
       const heroFb = articleImageUrl(hero.title, cat);
@@ -2123,15 +2050,15 @@ function loadMoreCategory(cat, sentinel, observer) {
   const start = page * PAGE_SIZE;
   if (start >= items.length) { observer.unobserve(sentinel); sentinel.remove(); return; }
 
-  const CAT_SEED_BASE = { World:10,Technology:60,Finance:100,Sports:140,Politics:180,Business:220,Science:260,Ideas:300,AI:340,Default:380 };
-  const base = CAT_SEED_BASE[cat] ?? CAT_SEED_BASE.Default;
+  const CAT_SEED_BASE2 = { World:10,Technology:60,Finance:100,Sports:140,Politics:180,Business:220,Science:260,Ideas:300,AI:340,Default:380 };
+  const base2 = CAT_SEED_BASE2[cat] ?? CAT_SEED_BASE2.Default;
   const strip = document.getElementById(`strip-${cat}`);
   if (!strip) return;
 
-  items.slice(start, start + PAGE_SIZE).forEach(item => {
+  items.slice(start, start + PAGE_SIZE).forEach((item, i) => {
     const idx = ARTICLE_REGISTRY.length;
     ARTICLE_REGISTRY.push(item);
-    const fb = `https://picsum.photos/seed/${base + idx}/600/400`;
+    const fb = `https://picsum.photos/seed/${base2 + start + i}/600/400`;
     const el = document.createElement("div");
     el.className = "card-mini";
     el.dataset.idx = idx;
@@ -2537,60 +2464,80 @@ async function loadMorePaper(id) {
   if (spinner) spinner.classList.remove("visible");
 }
 
+
+// Background enrichment — called after feed renders. Updates title + image in DOM quietly.
+async function enrichFeedMeta(catMap) {
+  const allItems = Object.values(catMap).flat();
+  // Only enrich Reddit-sourced items (they have reddit.com referrer patterns or no image)
+  // Process in small batches to avoid hammering allorigins
+  const BATCH = 4;
+  for (let i = 0; i < allItems.length; i += BATCH) {
+    const batch = allItems.slice(i, i + BATCH);
+    await Promise.allSettled(batch.map(async item => {
+      const idx = ARTICLE_REGISTRY.indexOf(item);
+      if (idx === -1) return;
+      try {
+        const updated = await resolveRedditMeta(item);
+        // Update image in DOM if we got a real one
+        if (updated.image && updated.image !== item.image) {
+          item.image = updated.image;
+          const el = document.getElementById(`img-${idx}`);
+          if (el) el.src = updated.image;
+        }
+        // Update title in DOM if meaningfully different
+        if (updated.title && updated.title !== item.title && updated.title.length > 10) {
+          item.title = updated.title;
+          const titleEl = document.querySelector(`[data-idx="${idx}"] .card-hero-title, [data-idx="${idx}"] .card-mini-title`);
+          if (titleEl) titleEl.textContent = updated.title;
+        }
+      } catch {}
+    }));
+    // Small pause between batches to avoid rate-limiting allorigins
+    if (i + BATCH < allItems.length) await new Promise(r => setTimeout(r, 200));
+  }
+}
+
+function applyFilters(catMap) {
+  const out = {};
+  Object.keys(catMap).forEach(cat => {
+    const qualityItems = catMap[cat].filter(i => isQualitySource(i.link));
+    out[cat] = qualityItems.length >= 4 ? qualityItems : catMap[cat];
+    const counts = {};
+    out[cat] = out[cat].filter(item => {
+      const src = (() => { try { return new URL(item.link).hostname.replace(/^www\./,""); } catch { return "?"; } })();
+      counts[src] = (counts[src]||0) + 1;
+      return counts[src] <= 3;
+    });
+  });
+  return out;
+}
+
 async function loadFeed() {
   const catMap = {};
-  let firstRender = false;
 
   const promises = LIVE_SOURCES.map(src =>
     Promise.race([
       src.fetch(),
-      new Promise((_,rej) => setTimeout(() => rej(new Error("Timeout")), 15000))
+      new Promise((_,rej) => setTimeout(() => rej(new Error("Timeout")), 8000))
     ]).then(items => {
       if (!items?.length) return;
       if (!catMap[src.cat]) catMap[src.cat] = [];
       const existing = new Set(catMap[src.cat].map(x => x.link));
       items.forEach(item => { if (!existing.has(item.link)) catMap[src.cat].push(item); });
       catMap[src.cat].sort((a,b) => { try { return new Date(b.pubDate)-new Date(a.pubDate); } catch { return 0; } });
-      if (state.view === "idle") { firstRender = true; renderFeed(catMap); }
     }).catch(() => {})
   );
 
   await Promise.allSettled(promises);
 
-  // Quality filter: applied once, after all sources have settled.
-  // Only replaces a category if we have >= 4 quality items — never wipes a category.
-  Object.keys(catMap).forEach(cat => {
-    const qualityItems = catMap[cat].filter(i => isQualitySource(i.link));
-    if (qualityItems.length >= 4) catMap[cat] = qualityItems;
-  });
-
-  // Per-source cap: max 3 articles from any single domain per category.
-  Object.keys(catMap).forEach(cat => {
-    const sourceCounts = {};
-    catMap[cat] = catMap[cat].filter(item => {
-      const src = (() => { try { return new URL(item.link).hostname.replace(/^www\./,""); } catch { return "?"; } })();
-      sourceCounts[src] = (sourceCounts[src]||0) + 1;
-      return sourceCounts[src] <= 3;
-    });
-  });
-
-  if (Object.keys(catMap).length > 0 && state.view === "idle") renderFeed(catMap);
-  else if (!firstRender) {
+  const filtered = applyFilters(catMap);
+  if (Object.keys(filtered).length > 0 && state.view === "idle") {
+    renderFeed(filtered);
+    setTimeout(() => enrichFeedMeta(filtered), 200);
+  } else {
     document.getElementById("feedContent").innerHTML =
       `<div class="feed-empty">Couldn't load feeds right now.<br>Paste any URL above to start reading.</div>`;
   }
-
-  const allItems = Object.values(catMap).flat();
-  allItems.filter(i => !i.image).forEach(async (item, i) => {
-    await new Promise(r => setTimeout(r, i * 120));
-    const img = await fetchOgImage(item.link);
-    if (!img) return;
-    item.image = img;
-    const idx = ARTICLE_REGISTRY.indexOf(item);
-    if (idx === -1) return;
-    const el = document.getElementById(`img-${idx}`);
-    if (el && el.src !== img) el.src = img;
-  });
 }
 
 // Kick off feed load immediately
