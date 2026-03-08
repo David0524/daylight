@@ -29,14 +29,28 @@
 –red: #C0504A;
 –green: #5A9A6A;
 }
+/* Light — warm white, brighter than Day */
+body.light {
+–bg: #FFFDF8;
+–text: #1C1917;
+–sub: #6B6560;
+–border: #E8DFC8;
+–card: #FFFFFF;
+–input-bg: #F2EBD9;
+–gold: #C9974A;
+–gold2: #E2B96F;
+–shell: #EDE3CC;
+–red: #C0504A;
+–green: #5A9A6A;
+}
 body.dim {
-–bg: #15202B;
+–bg: #1C2B3A;
 –text: #F7F9F9;
 –sub: #8B98A5;
-–border: #253341;
-–card: #1E2732;
-–input-bg: #253341;
-–shell: #0D1821;
+–border: #2A3D50;
+–card: #223040;
+–input-bg: #2A3D50;
+–shell: #111E2A;
 }
 body.dark {
 –bg: #1A1A1A;
@@ -620,7 +634,7 @@ vertical-align: middle; margin-left: 6px;
 
 let state = {
   view: "idle",       // idle | loading | reader | error | papers
-  theme: 'day',   // day | dim | dark
+  theme: 'light', // light | day | dim | dark
   fontSize: 18,
   history: [],
   histIdx: -1,
@@ -666,14 +680,19 @@ scrollArea.addEventListener("scroll", () => {
 
 // ── Dark mode ────────────────────────────────────────────────────────────────
 
+const THEME_ICONS = { day: "☀️", light: "🔆", dim: "🌑", dark: "🌙" };
+function applyTheme(t) {
+  document.body.classList.remove("light", "dim", "dark");
+  if (t !== "day") document.body.classList.add(t);
+  darkToggle.textContent = THEME_ICONS[t];
+}
 darkToggle.addEventListener("click", () => {
-  const cycle = { day: "dim", dim: "dark", dark: "day" };
-  const icons = { day: "☀️", dim: "🌑", dark: "🌙" };
-  document.body.classList.remove("dim", "dark");
+  const cycle = { light: "day", day: "dim", dim: "dark", dark: "light" };
   state.theme = cycle[state.theme];
-  if (state.theme !== "day") document.body.classList.add(state.theme);
-  darkToggle.textContent = icons[state.theme];
+  applyTheme(state.theme);
 });
+// Apply initial theme
+applyTheme(state.theme);
 
 // ── Font size ────────────────────────────────────────────────────────────────
 
@@ -797,7 +816,52 @@ const BLOCKED_DOMAINS = new Set([
   "sportsbay.tv","livetv.sx","bosscast.net","mystreams.live",
   "highlightstore.me","dailymotion.com","rumble.com","bitchute.com",
   "sportstream.live","streamhub.to","sportfire.tv","sport365.live",
+  // Small/low-quality sites
+  "substack.com","medium.com","wordpress.com","blogspot.com","tumblr.com",
+  "patch.com","local12.com","wlwt.com","wkrc.com","wcpo.com",
+  "finviz.com","seekingalpha.com","fool.com","motleyfool.com",
+  "zerohedge.com","infowars.com","breitbart.com","dailywire.com",
+  "naturalblaze.com","activistpost.com","thenewamerican.com",
+  "scmp.com","globaltimes.cn","xinhuanet.com","cgtn.com","chinadaily.com.cn",
 ]);
+
+// Allowlist of known large, English-language publications.
+// If a domain is NOT in this set and NOT a known wire service,
+// we do a language/quality check on the title before showing it.
+const QUALITY_DOMAINS = new Set([
+  // US newspapers
+  "nytimes.com","wsj.com","washingtonpost.com","latimes.com","usatoday.com",
+  "nypost.com","chicagotribune.com","bostonglobe.com","sfchronicle.com",
+  "dallasnews.com","seattletimes.com","denverpost.com","azcentral.com",
+  // US digital/broadcast
+  "cnn.com","foxnews.com","msnbc.com","cbsnews.com","nbcnews.com",
+  "abcnews.go.com","npr.org","pbs.org","theatlantic.com","newyorker.com",
+  "politico.com","thehill.com","axios.com","vox.com","slate.com",
+  "huffpost.com","buzzfeednews.com","propublica.org","theintercept.com",
+  "apnews.com","reuters.com","bloomberg.com","cnbc.com","marketwatch.com",
+  "finance.yahoo.com","forbes.com","fortune.com","businessinsider.com",
+  "techcrunch.com","theverge.com","wired.com","arstechnica.com","engadget.com",
+  "cnet.com","zdnet.com","pcmag.com","9to5mac.com","macrumors.com",
+  "time.com","newsweek.com","thedailybeast.com","motherjones.com",
+  // UK
+  "theguardian.com","bbc.com","bbc.co.uk","thetimes.co.uk","telegraph.co.uk",
+  "independent.co.uk","ft.com","economist.com","spectator.co.uk",
+  "dailymail.co.uk","mirror.co.uk","thesun.co.uk","sky.com",
+  // International English
+  "aljazeera.com","dw.com","france24.com","thehindu.com","straitstimes.com",
+  "japantimes.co.jp","irishtimes.com","smh.com.au","theage.com.au",
+  "abc.net.au","cbc.ca","globeandmail.com","nationalpost.com",
+  // Sports
+  "espn.com","si.com","theathletic.com","nbcsports.com","cbssports.com",
+  "sportingnews.com","goal.com","skysports.com","bbc.co.uk",
+  // Science/health
+  "scientificamerican.com","nature.com","science.org","newscientist.com",
+  "statnews.com","medscape.com","webmd.com","healthline.com",
+]);
+
+// Non-English TLD patterns — filter these out
+const NON_ENGLISH_TLDS = /\.(de|fr|es|it|pt|ru|cn|jp|kr|ar|pl|nl|sv|no|da|fi|cs|hu|ro|tr|he|fa|hi|th|vi|id|ms|uk|bg|hr|sk|sl|et|lv|lt)(\/|$)/i;
+const NON_ENGLISH_DOMAINS = /\.(de|fr|es|it|pt|ru|cn|jp|kr|ar|pl|nl|se|no|dk|fi|cz|hu|ro|tr)\/|spiegel\.de|lemonde\.fr|elpais\.com|corriere\.it|folha\.uol|globo\.com|rt\.com|xinhua\.net|kyodonews/i;
 
 // File extensions that are never articles
 const MEDIA_EXTENSIONS = new Set([
@@ -809,15 +873,23 @@ function isArticleUrl(url) {
   try {
     const u = new URL(url);
     const host = u.hostname.replace(/^www\./, "");
-    // Exact match OR subdomain match (e.g. l.threads.net, clips.twitch.tv)
     if (BLOCKED_DOMAINS.has(host)) return false;
     if ([...BLOCKED_DOMAINS].some(d => host.endsWith("." + d))) return false;
-    // Block by file extension
     const ext = u.pathname.split(".").pop().toLowerCase().split("?")[0];
     if (MEDIA_EXTENSIONS.has(ext)) return false;
-    // Must have a real path (not just a homepage)
     if (u.pathname.length < 5) return false;
+    // Filter non-English domains
+    if (NON_ENGLISH_DOMAINS.test(host)) return false;
+    if (NON_ENGLISH_TLDS.test(u.href) && !QUALITY_DOMAINS.has(host)) return false;
     return true;
+  } catch { return false; }
+}
+
+// Returns true if this article is from a known quality publication
+function isQualitySource(url) {
+  try {
+    const host = new URL(url).hostname.replace(/^www\./, "");
+    return QUALITY_DOMAINS.has(host) || [...QUALITY_DOMAINS].some(d => host.endsWith("." + d));
   } catch { return false; }
 }
 
@@ -1079,34 +1151,69 @@ const LIVE_SOURCES = [
       }).filter(Boolean).slice(0, 6);
     }
   },
-  // Finance — Reddit finance subs, same proven pattern as other categories
+  // Finance — real-time RSS from Yahoo Finance, MarketWatch, CNBC + Reddit hot
   {
     cat: "Finance",
     fetch: async () => {
-      const subs = [
-        { sub: "economics",     limit: 10 },
-        { sub: "investing",     limit: 10 },
-        { sub: "financialnews", limit: 10 },
+      // Real-time RSS feeds — update every few minutes
+      const rssFeeds = [
+        "https://feeds.finance.yahoo.com/rss/2.0/headline?s=^GSPC,^DJI,^IXIC&region=US&lang=en-US",
+        "https://feeds.content.dowjones.io/public/rss/mw_realtimeheadlines",
+        "https://feeds.content.dowjones.io/public/rss/mw_topstories",
+        "https://www.cnbc.com/id/100003114/device/rss/rss.html",
+        "https://www.cnbc.com/id/10000664/device/rss/rss.html",
       ];
-      const results = await Promise.allSettled(subs.map(({ sub, limit }) =>
-        redditFetch(`/r/${sub}/top.json?limit=${limit}&t=week`)
-      ));
-      const items = results.flatMap(r => {
-        if (r.status !== "fulfilled") return [];
-        return (r.value?.data?.children || []).map(c => c.data)
-          .filter(p => p.url && !p.url.includes("reddit.com") && isArticleUrl(p.url))
-          .slice(0, 4).map(p => ({
-            title:   p.title,
-            link:    p.url,
-            desc:    "",
-            image:   redditImage(p),
+
+      const fetchRss = async (feedUrl) => {
+        for (const proxy of [
+          u => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,
+          u => `https://corsproxy.io/?${encodeURIComponent(u)}`,
+        ]) {
+          try {
+            const r = await Promise.race([fetch(proxy(feedUrl)), new Promise((_,rej)=>setTimeout(rej,8000))]);
+            if (!r.ok) continue;
+            let text;
+            if (proxy(feedUrl).includes('allorigins')) { const j = await r.json(); text = j.contents; }
+            else { text = await r.text(); }
+            if (!text?.includes('<item')) continue;
+            const doc = new DOMParser().parseFromString(text, 'text/xml');
+            return [...doc.querySelectorAll('item')].slice(0, 6).map(item => {
+              const link = item.querySelector('link')?.textContent?.trim() ||
+                           item.querySelector('guid')?.textContent?.trim() || '';
+              const title = item.querySelector('title')?.textContent?.trim() || '';
+              const desc = item.querySelector('description')?.textContent?.replace(/<[^>]+>/g,'').trim() || '';
+              const pubDate = item.querySelector('pubDate')?.textContent?.trim() || new Date().toISOString();
+              if (!link || !isArticleUrl(link)) return null;
+              return { title, link, desc, image: '', pubDate, age: timeAgo(pubDate), source: sourceDomain(link) };
+            }).filter(Boolean);
+          } catch {}
+        }
+        return [];
+      };
+
+      // Reddit hot (not top/week) for community-surfaced stories
+      const redditHot = redditFetch('/r/finance+investing+economics+financialnews/hot.json?limit=25')
+        .then(j => (j?.data?.children || []).map(c => c.data)
+          .filter(p => p.url && !p.url.includes('reddit.com') && isArticleUrl(p.url))
+          .slice(0, 6).map(p => ({
+            title: p.title, link: p.url, desc: '', image: redditImage(p),
             pubDate: new Date(p.created_utc * 1000).toISOString(),
-            age:     timeAgo(new Date(p.created_utc * 1000).toISOString()),
-            source:  sourceDomain(p.url),
-          }));
-      });
+            age: timeAgo(new Date(p.created_utc * 1000).toISOString()),
+            source: sourceDomain(p.url),
+          }))
+        ).catch(() => []);
+
+      const [rssResults, reddit] = await Promise.allSettled([
+        Promise.all(rssFeeds.map(fetchRss)).then(r => r.flat()),
+        redditHot,
+      ]);
+
+      const all = [...(rssResults.value||[]), ...(reddit.value||[])];
       const seen = new Set();
-      return items.filter(i => { if (seen.has(i.link)) return false; seen.add(i.link); return true; }).slice(0, 8);
+      return all
+        .filter(i => { if (!i?.link || seen.has(i.link)) return false; seen.add(i.link); return true; })
+        .sort((a,b) => { try { return new Date(b.pubDate)-new Date(a.pubDate); } catch { return 0; } })
+        .slice(0, 12);
     }
   },
   // Sports — Reddit sports subs, real article titles fetched from og:title
@@ -1406,98 +1513,85 @@ async function fetchOgImage(url) {
 
 // ── Newspaper sources ─────────────────────────────────────────────────────────
 
+// Shared RSS parser for Papers tab
+async function fetchRssPaper(feedUrl, after, sourceOverride) {
+  for (const proxy of [
+    u => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,
+    u => `https://corsproxy.io/?${encodeURIComponent(u)}`,
+  ]) {
+    try {
+      const r = await Promise.race([fetch(proxy(feedUrl)), new Promise((_,rej)=>setTimeout(rej,10000))]);
+      if (!r.ok) continue;
+      let text;
+      if (proxy(feedUrl).includes("allorigins")) { const j = await r.json(); text = j.contents; }
+      else { text = await r.text(); }
+      if (!text?.includes("<item") && !text?.includes("<entry")) continue;
+      const xml = new DOMParser().parseFromString(text, "text/xml");
+      const items = [...xml.querySelectorAll("item, entry")];
+      return items.slice(after, after + 10).map(item => {
+        const title = (item.querySelector("title")?.textContent || "").replace(/<!\[CDATA\[|\]\]>/g,"").trim();
+        const link  = item.querySelector("link")?.getAttribute("href") || item.querySelector("link")?.textContent?.trim() || "";
+        const pubDate = item.querySelector("pubDate,published,updated")?.textContent?.trim() || "";
+        const thumb = item.querySelector("thumbnail,[medium='image']")?.getAttribute("url")
+          || item.querySelector("enclosure[type^='image']")?.getAttribute("url")
+          || ((item.querySelector("encoded")?.textContent||"").match(/<img[^>]+src=["']([^"']+)["']/i)||[])[1] || "";
+        const desc = (item.querySelector("description")?.textContent||"").replace(/<[^>]+>/g,"").trim().slice(0,200);
+        if (!title || !link) return null;
+        const pd = pubDate ? new Date(pubDate).toISOString() : "";
+        return { title, link, desc, image: thumb, pubDate: pd,
+                 age: pd ? timeAgo(pd) : "", source: sourceOverride || sourceDomain(link) };
+      }).filter(Boolean);
+    } catch {}
+  }
+  return [];
+}
+
 const NEWSPAPERS = [
-  { id:"ap", name:"AP News", emoji:"🗞",
+  { id:"ap", name:"AP", emoji:"📡",
+    fetch: (after) => fetchRssPaper("https://rsshub.app/apnews/topics/apf-topnews", after, "apnews.com")
+  },
+  { id:"npr",      name:"NPR",       emoji:"📻", fetch: (after) => fetchRssPaper("https://feeds.npr.org/1001/rss.xml",                               after, "npr.org")           },
+  { id:"reuters", name:"Reuters", emoji:"🌐",
     fetch: async (after) => {
-      const d = await redditFetch("/r/news/top.json?limit=30&t=day");
-      return (d?.data?.children||[]).map(c=>c.data)
-        .filter(p=>p.url && isArticleUrl(p.url) && !sourceDomain(p.url).includes("reddit"))
-        .slice(after, after+10).map(p=>({ title:p.title, link:p.url, desc:"", image:redditImage(p),
-          pubDate:new Date(p.created_utc*1000).toISOString(), age:timeAgo(new Date(p.created_utc*1000).toISOString()), source:sourceDomain(p.url) }));
+      // r/reuters RSS — most reliable public Reuters feed
+      for (const feedUrl of ["https://www.reddit.com/r/reuters.rss", "https://www.reutersagency.com/feed/?taxonomy=best-topics&post_type=best"]) {
+        for (const makeProxy of [
+          u => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,
+          u => `https://corsproxy.io/?${encodeURIComponent(u)}`,
+        ]) {
+          try {
+            const r = await Promise.race([fetch(makeProxy(feedUrl)), new Promise((_,rej)=>setTimeout(rej,10000))]);
+            if (!r.ok) continue;
+            let text;
+            if (makeProxy(feedUrl).includes("allorigins")) { const j = await r.json(); text = j.contents; }
+            else text = await r.text();
+            if (!text?.includes("<item") && !text?.includes("<entry")) continue;
+            const xml = new DOMParser().parseFromString(text, "text/xml");
+            const items = [...xml.querySelectorAll("entry,item")].slice(after, after+10);
+            return items.map(item => {
+              const title = (item.querySelector("title")?.textContent||"").replace(/<!\[CDATA\[|\]\]>/g,"").trim();
+              const link  = item.querySelector("link")?.getAttribute("href")||item.querySelector("link")?.textContent?.trim()||"";
+              const pubDate = item.querySelector("updated,published,pubDate")?.textContent?.trim()||"";
+              const thumb = item.querySelector("thumbnail")?.getAttribute("url")||
+                            item.querySelector("enclosure[type^='image']")?.getAttribute("url")||"";
+              const actualLink = link.includes("reddit.com") ? (item.querySelector("content")?.textContent||"").match(/href="(https:\/\/(?:www\.)?reuters\.com[^"]+)"/)?.[1] || link : link;
+              if (!title) return null;
+              const pd = pubDate ? new Date(pubDate).toISOString() : "";
+              return { title, link: actualLink||link, desc:"", image:thumb, pubDate:pd, age:pd?timeAgo(pd):"", source:"reuters.com" };
+            }).filter(Boolean);
+          } catch {}
+        }
+      }
+      return [];
     }
   },
-  { id:"bbc", name:"BBC", emoji:"🇬🇧",
-    fetch: async (after) => {
-      const r = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent("https://feeds.bbci.co.uk/news/world/rss.xml")}`);
-      const j = await r.json(); const xml = new DOMParser().parseFromString(j.contents,"text/xml");
-      return Array.from(xml.querySelectorAll("item")).slice(after, after+10).map(item => {
-        const title = item.querySelector("title")?.textContent?.replace(/<!\[CDATA\[|\]\]>/g,"").trim()||"";
-        const link  = item.querySelector("link")?.textContent?.trim()||"";
-        const pubDate = item.querySelector("pubDate")?.textContent?.trim()||"";
-        const thumb = item.querySelector("thumbnail")?.getAttribute("url")||"";
-        if (!title||!link) return null;
-        return { title, link, desc:"", image:thumb, pubDate:pubDate?new Date(pubDate).toISOString():"", age:pubDate?timeAgo(new Date(pubDate).toISOString()):"", source:"bbc.co.uk" };
-      }).filter(Boolean);
-    }
-  },
-  { id:"guardian", name:"The Guardian", emoji:"🏛",
-    fetch: async (after) => {
-      const r = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent("https://www.theguardian.com/world/rss")}`);
-      const j = await r.json(); const xml = new DOMParser().parseFromString(j.contents,"text/xml");
-      return Array.from(xml.querySelectorAll("item")).slice(after, after+10).map(item => {
-        const title = item.querySelector("title")?.textContent?.replace(/<!\[CDATA\[|\]\]>/g,"").trim()||"";
-        const link  = item.querySelector("link")?.textContent?.trim()||"";
-        const pubDate = item.querySelector("pubDate")?.textContent?.trim()||"";
-        if (!title||!link) return null;
-        return { title, link, desc:"", image:"", pubDate:pubDate?new Date(pubDate).toISOString():"", age:pubDate?timeAgo(new Date(pubDate).toISOString()):"", source:"theguardian.com" };
-      }).filter(Boolean);
-    }
-  },
-  { id:"ars", name:"Ars Technica", emoji:"⚗️",
-    fetch: async (after) => {
-      const r = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent("https://feeds.arstechnica.com/arstechnica/index")}`);
-      const j = await r.json(); const xml = new DOMParser().parseFromString(j.contents,"text/xml");
-      return Array.from(xml.querySelectorAll("item")).slice(after, after+10).map(item => {
-        const title = item.querySelector("title")?.textContent?.replace(/<!\[CDATA\[|\]\]>/g,"").trim()||"";
-        const link  = item.querySelector("link")?.textContent?.trim()||"";
-        const pubDate = item.querySelector("pubDate")?.textContent?.trim()||"";
-        const content = item.querySelector("encoded")?.textContent||"";
-        const image = content.match(/<img[^>]+src=["']([^"']+)["']/i)?.[1]||"";
-        if (!title||!link) return null;
-        return { title, link, desc:"", image, pubDate:pubDate?new Date(pubDate).toISOString():"", age:pubDate?timeAgo(new Date(pubDate).toISOString()):"", source:"arstechnica.com" };
-      }).filter(Boolean);
-    }
-  },
-  { id:"verge", name:"The Verge", emoji:"◭",
-    fetch: async (after) => {
-      const r = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent("https://www.theverge.com/rss/index.xml")}`);
-      const j = await r.json(); const xml = new DOMParser().parseFromString(j.contents,"text/xml");
-      return Array.from(xml.querySelectorAll("entry,item")).slice(after, after+10).map(item => {
-        const title = item.querySelector("title")?.textContent?.trim()||"";
-        const link  = item.querySelector("link")?.getAttribute("href")||item.querySelector("link")?.textContent?.trim()||"";
-        const pubDate = item.querySelector("updated,published,pubDate")?.textContent?.trim()||"";
-        if (!title||!link) return null;
-        return { title, link, desc:"", image:"", pubDate:pubDate?new Date(pubDate).toISOString():"", age:pubDate?timeAgo(new Date(pubDate).toISOString()):"", source:"theverge.com" };
-      }).filter(Boolean);
-    }
-  },
-  { id:"npr", name:"NPR", emoji:"📻",
-    fetch: async (after) => {
-      const r = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent("https://feeds.npr.org/1001/rss.xml")}`);
-      const j = await r.json(); const xml = new DOMParser().parseFromString(j.contents,"text/xml");
-      return Array.from(xml.querySelectorAll("item")).slice(after, after+10).map(item => {
-        const title = item.querySelector("title")?.textContent?.replace(/<!\[CDATA\[|\]\]>/g,"").trim()||"";
-        const link  = item.querySelector("link")?.textContent?.trim()||"";
-        const pubDate = item.querySelector("pubDate")?.textContent?.trim()||"";
-        const thumb = item.querySelector("thumbnail,[medium='image']")?.getAttribute("url")||"";
-        if (!title||!link) return null;
-        return { title, link, desc:"", image:thumb, pubDate:pubDate?new Date(pubDate).toISOString():"", age:pubDate?timeAgo(new Date(pubDate).toISOString()):"", source:"npr.org" };
-      }).filter(Boolean);
-    }
-  },
-  { id:"wired", name:"Wired", emoji:"⚡",
-    fetch: async (after) => {
-      const r = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent("https://www.wired.com/feed/rss")}`);
-      const j = await r.json(); const xml = new DOMParser().parseFromString(j.contents,"text/xml");
-      return Array.from(xml.querySelectorAll("item")).slice(after, after+10).map(item => {
-        const title = item.querySelector("title")?.textContent?.replace(/<!\[CDATA\[|\]\]>/g,"").trim()||"";
-        const link  = item.querySelector("link")?.textContent?.trim()||"";
-        const pubDate = item.querySelector("pubDate")?.textContent?.trim()||"";
-        if (!title||!link) return null;
-        return { title, link, desc:"", image:"", pubDate:pubDate?new Date(pubDate).toISOString():"", age:pubDate?timeAgo(new Date(pubDate).toISOString()):"", source:"wired.com" };
-      }).filter(Boolean);
-    }
-  },
+  { id:"nyt",      name:"NYT",       emoji:"📰", fetch: (after) => fetchRssPaper("https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml",        after, "nytimes.com")      },
+  { id:"wsj",      name:"WSJ",       emoji:"📈", fetch: (after) => fetchRssPaper("https://feeds.a.dj.com/rss/RSSWorldNews.xml",                      after, "wsj.com")          },
+  { id:"wapo",     name:"WaPo",      emoji:"🏛", fetch: (after) => fetchRssPaper("https://feeds.washingtonpost.com/rss/national",                    after, "washingtonpost.com")},
+  { id:"cnn",      name:"CNN",       emoji:"🔴", fetch: (after) => fetchRssPaper("http://rss.cnn.com/rss/edition.rss",                               after, "cnn.com")          },
+  { id:"bloomberg",name:"Bloomberg", emoji:"💹", fetch: (after) => fetchRssPaper("https://feeds.bloomberg.com/markets/news.rss",                     after, "bloomberg.com")    },
+  { id:"cnbc",     name:"CNBC",      emoji:"📊", fetch: (after) => fetchRssPaper("https://www.cnbc.com/id/100003114/device/rss/rss.html",             after, "cnbc.com")         },
+  { id:"verge",    name:"The Verge", emoji:"◭",  fetch: (after) => fetchRssPaper("https://www.theverge.com/rss/index.xml",                           after, "theverge.com")     },
 ];
 
 // ── Papers tab ────────────────────────────────────────────────────────────────
@@ -1569,6 +1663,44 @@ function renderPaperContent(id) {
       urlInput.value = item.link; startRead(item.link);
     });
   });
+  // Enrich missing images via Jina og:image (fire and forget)
+  enrichPaperImages(id);
+}
+
+// Fetch og:image for paper articles that have no thumbnail
+async function enrichPaperImages(id) {
+  const ps = PAPER_STATE[id];
+  const noImg = ps.items.filter(item => !item.image && item.link);
+  // Do up to 6 at a time, staggered to avoid hammering
+  for (let i = 0; i < Math.min(noImg.length, 6); i++) {
+    const item = noImg[i];
+    setTimeout(async () => {
+      try {
+        const ogImg = await fetchOgImage(item.link);
+        if (!ogImg) return;
+        item.image = ogImg;
+        // Update the DOM thumbnail if the card is still visible
+        const listEl = document.getElementById(`paper-list-${id}`);
+        if (!listEl) return;
+        const cards = listEl.querySelectorAll(".paper-article");
+        for (const card of cards) {
+          const idx = parseInt(card.dataset.idx, 10);
+          if (ARTICLE_REGISTRY[idx] === item) {
+            const existing = card.querySelector(".paper-article-thumb");
+            if (!existing) {
+              const img = document.createElement("img");
+              img.className = "paper-article-thumb";
+              img.src = ogImg;
+              img.alt = "";
+              img.onerror = () => img.style.display = "none";
+              card.appendChild(img);
+            }
+            break;
+          }
+        }
+      } catch {}
+    }, i * 400); // stagger by 400ms each
+  }
 }
 
 function setupPaperInfiniteScroll(id) {
@@ -1633,6 +1765,9 @@ async function loadFeed() {
       const existing = new Set(catMap[src.cat].map(x => x.link));
       items.forEach(item => { if (!existing.has(item.link)) catMap[src.cat].push(item); });
       catMap[src.cat].sort((a,b) => { try { return new Date(b.pubDate)-new Date(a.pubDate); } catch { return 0; } });
+      // Prefer quality sources — filter out unknowns if we have enough quality items
+      const qualityItems = catMap[src.cat].filter(i => isQualitySource(i.link));
+      if (qualityItems.length >= 4) catMap[src.cat] = qualityItems;
       if (state.view === "idle") { firstRender = true; renderFeed(catMap); }
     }).catch(() => {})
   );
@@ -2252,6 +2387,13 @@ function parseJinaMarkdown(text, url) {
     if (/^\[\]\(.*?\)$/.test(trimmed)) continue;
     // Standalone images: ![alt](url) — skip entirely
     if (/^!\[.*?\]\(.*?\)$/.test(trimmed)) continue;
+    // Jina image caption lines: "Image 1: ..." or "Image 1Image 2: ..."
+    if (/^Image \d+(Image \d+)?:/i.test(trimmed)) continue;
+    // Photo credit lines: "Photographer/Agency", "Name/AP", "*hide caption*"
+    if (/^\*?(hide caption|toggle caption)\*?$/i.test(trimmed)) continue;
+    if (/^[A-Z][^.!?]{3,60}\/[A-Z][^.!?]{2,40}(\/[A-Z][^.!?]{2,30})?$/.test(trimmed)) continue; // "Reuters/Getty Images" style
+    if (/^(Photo:|Photograph:|Credit:|Caption:|Image credit:)/i.test(trimmed)) continue;
+    if (/\/(AP|Reuters|Getty|AFP|EPA|Shutterstock|Alamy|NTB|Scanpix|UPI)/.test(trimmed) && trimmed.length < 120) continue;
     // Dividers
     if (/^[-*_]{3,}$/.test(trimmed)) continue;
     // NYT / news site ad markers
@@ -2266,6 +2408,47 @@ function parseJinaMarkdown(text, url) {
     if (/webcache\.googleusercontent|support\.google\.com\/websearch|Accessibility (help|feedback|Links)|Go to Google Home/i.test(trimmed)) continue;
     if (/^\[\]\(https:\/\/(www\.google\.com|webcache|support\.google)/i.test(trimmed)) continue;
     if (/^(Copyright|©|All rights reserved|Terms|Privacy|Advertise|About us)/i.test(trimmed)) continue;
+    // Bloomberg-specific cruft
+    if (/^Bloomberg (the Company|Terminal|Anywhere|Customer|Professional|Live|Media)/i.test(trimmed)) continue;
+    if (/^Connecting decision makers to a dynamic network/i.test(trimmed)) continue;
+    if (/^Before it's here, it's on the Bloomberg Terminal/i.test(trimmed)) break;
+    if (/^(Contact us:|Confidential tip|Site feedback:|Takeaways by Bloomberg)/i.test(trimmed)) continue;
+    if (/^Photographer:/i.test(trimmed)) continue;
+    if (/HomeBTV\+|MarketsEconomics|WealthPursuits|StocksCommodities|NewslettersExplainers/i.test(trimmed)) continue;
+    if (/Bloomberg L\.P\. All Rights Reserved/i.test(trimmed)) break;
+    if (/^Global news that uncovers a new tomorrow/i.test(trimmed)) break;
+    if (/^By accepting, you agree to our updated Terms/i.test(trimmed)) break;
+    // Generic site-footer signals — stop parsing
+    if (/^(Terms of Service|Privacy Policy|Do Not Sell|Cookie Policy|©\s*20\d\d)/i.test(trimmed)) break;
+    if (/^(Subscribe|Sign up|Get unlimited access|Try .+ for free|Already a subscriber)/i.test(trimmed) && paragraphs.length > 3) continue;
+    // NPR-specific cruft — strip nav, cookie walls, station promos
+    if (/^(News|Culture|Music|Podcasts & Shows)Expand\/collapse/i.test(trimmed)) continue;
+    if (/^Keyboard shortcuts for audio/i.test(trimmed)) continue;
+    if (/^Sign in or register to see your station/i.test(trimmed)) continue;
+    if (/^(Sign In|Personalize Your Experience)/i.test(trimmed)) continue;
+    if (/^(Manage Consent|Strictly Necessary|Performance and Analytics|Targeting and Sponsor)/i.test(trimmed)) continue;
+    if (/^(Share Data for Targeted Sponsorship|You may opt out)/i.test(trimmed)) continue;
+    if (/NPR\+|NPR Shop|sponsorship (credits|vendors)|cookie banner/i.test(trimmed)) continue;
+    if (/^Support mission-driven journalism/i.test(trimmed)) break; // everything after is footer
+    if (/^When you visit our website or app, we store cookies/i.test(trimmed)) break;
+    if (/^Give a little\. Get a lot\./i.test(trimmed)) break;
+    if (/^Already have NPR\+/i.test(trimmed)) continue;
+    // BBC-specific cruft
+    if (/^The BBC is in multiple languages/i.test(trimmed)) break; // everything after this is footer
+    if (/^Read the BBC (in your own language|in )/i.test(trimmed)) continue;
+    if (/^Do not share or sell my info/i.test(trimmed)) continue;
+    if (/HABARI KWA KISWAHILI|ગુજરાતીમાં|hispanoparlantes/i.test(trimmed)) continue;
+    // Trailing mini-teasers: short bold lines followed by dashes (BBC related-articles injected)
+    if (/^#{1,3}\s.{10,80}$/.test(trimmed) && paragraphs.length > 8) {
+      // If we already have a good article body, stop at section headers that look like teasers
+      const looksLikeTeaserHeader = /^#{2,3}/.test(trimmed) &&
+        (trimmed.includes(" - ") || trimmed.includes(" – ") || /\d+ (hrs?|days?|months?) ago/i.test(trimmed));
+      if (looksLikeTeaserHeader) break;
+    }
+    // Lines ending in timestamps that are clearly injected teasers
+    if (/\d+ (hr|day|month)s? ago$/i.test(trimmed) && trimmed.length < 120) continue;
+    // "Related stories" / "More from X" section headers that signal end of article
+    if (/^(Related:|More from|More on this|Also in the news|Latest stories|Top stories|You might also|Recommended)/i.test(trimmed)) break;
     // Medium-specific clutter
     if (/^(Clap|Bookmark|Responses|More from|Written by|Published in)/i.test(trimmed)) continue;
     // Short lines that are just nav/button labels (but allow short blockquotes/headings)
@@ -2322,6 +2505,14 @@ const JINA_WORKS = new Set([
   "bloomberg.com","ft.com","reuters.com","washingtonpost.com",
   "economist.com","theatlantic.com","newyorker.com","wired.com",
   "arstechnica.com","theguardian.com","bbc.com","bbc.co.uk",
+  "npr.org","cnn.com","cnbc.com","theverge.com",
+  // AP: open/free — handled by default cascade (corsproxy first, faster)
+]);
+
+// Open sites — try direct proxies before Jina (faster, no rate-limit risk)
+const OPEN_FIRST = new Set([
+  "apnews.com","npr.org","theguardian.com","bbc.com","bbc.co.uk",
+  "cnn.com","cbsnews.com","nbcnews.com","abcnews.go.com",
 ]);
 
 // Domains where plain Jina fails — but special variants may work
@@ -2549,7 +2740,10 @@ function methodsForUrl(url) {
     const host = new URL(url).hostname.replace(/^www\./,"");
     // NYT: gift URL + googlebot UA is the proven bypass
     if (NYT_DOMAINS.has(host) || [...NYT_DOMAINS].some(d => host.endsWith("."+d)))
-      return reorder(["Jina+gift","Jina+googlebot","Wayback","Archive.ph"]);
+      return reorder(["Jina+gift","Jina+googlebot","corsproxy.io","AllOrigins","Wayback","Archive.ph"]);
+    // Open/free sites — corsproxy is faster and has no rate-limit risk
+    if (OPEN_FIRST.has(host) || [...OPEN_FIRST].some(d => host.endsWith(d)))
+      return reorder(["corsproxy.io","AllOrigins","Jina","Jina+proxy","Wayback","Archive.ph"]);
     // Sites where Jina works cleanly — lead with it
     if (JINA_WORKS.has(host) || [...JINA_WORKS].some(d => host.endsWith(d)))
       return reorder(["Jina","Jina+proxy","corsproxy.io","AllOrigins","Wayback","Archive.ph"]);
@@ -2671,23 +2865,34 @@ async function startRead(rawUrl, addToHistory = true) {
 
   if (addToHistory) pushHistory(url);
 
-  const article = await fetchArticle(url);
-
-  if (!article) {
-    // Mirror method log to error screen so user sees what failed
-    const methodLogEl = document.getElementById("methodLog");
-    const errorLogEl  = document.getElementById("errorLog");
-    if (errorLogEl && methodLogEl) errorLogEl.innerHTML = methodLogEl.innerHTML;
-    const linkEl = document.getElementById("errorDirectLink");
-    const linkWrap = document.getElementById("errorOpenLink");
-    if (linkEl && linkWrap) { linkEl.href = url; linkEl.textContent = "↗ " + url; linkWrap.style.display = "block"; }
+  // Hard ceiling — if everything hangs, show error after 90s
+  const hardTimeout = setTimeout(() => {
+    readBtn.disabled = false;
+    readBtn.textContent = "READ";
     showView("error");
-  } else {
-    renderReader(article);
-  }
+  }, 90000);
 
-  readBtn.disabled = false;
-  readBtn.textContent = "READ";
+  try {
+    const article = await fetchArticle(url);
+
+    if (!article) {
+      const methodLogEl = document.getElementById("methodLog");
+      const errorLogEl  = document.getElementById("errorLog");
+      if (errorLogEl && methodLogEl) errorLogEl.innerHTML = methodLogEl.innerHTML;
+      const linkEl = document.getElementById("errorDirectLink");
+      const linkWrap = document.getElementById("errorOpenLink");
+      if (linkEl && linkWrap) { linkEl.href = url; linkEl.textContent = "↗ " + url; linkWrap.style.display = "block"; }
+      showView("error");
+    } else {
+      renderReader(article);
+    }
+  } catch(e) {
+    showView("error");
+  } finally {
+    clearTimeout(hardTimeout);
+    readBtn.disabled = false;
+    readBtn.textContent = "READ";
+  }
 }
 
 // ── Input / button handlers ───────────────────────────────────────────────────
