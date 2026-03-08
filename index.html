@@ -141,11 +141,12 @@
 
   /* Status bar */
   .status-bar {
-    padding: 14px 26px 0;
+    padding: 8px 20px 8px;
     display: flex;
     justify-content: space-between;
     align-items: center;
     flex-shrink: 0;
+    min-height: 44px;
   }
   .status-time { font-family: 'DM Mono', monospace; font-size: 12px; color: var(--sub); }
   .status-icons { display: flex; gap: 10px; align-items: center; }
@@ -182,6 +183,8 @@
   }
   .icon-btn:hover { color: var(--text); }
   .icon-btn:disabled { opacity: 0.25; cursor: default; }
+  .reader-action-btn { font-size: 20px !important; padding: 6px 8px !important; border-radius: 8px; }
+  .reader-action-btn:hover { background: var(--border); color: var(--text); }
 
   /* URL bar */
   .url-bar {
@@ -738,10 +741,10 @@
   <!-- Status bar -->
   <div class="status-bar">
     <span class="logo" id="logoBtn">Daylight</span>
-    <div id="readerActions" style="display:none;align-items:center;gap:2px">
-      <button class="icon-btn" id="copyBtn" title="Copy headline + link" style="font-size:15px">⎘</button>
-      <button class="icon-btn" id="shareBtn" title="Share article" style="font-size:17px">↗</button>
-      <button class="icon-btn" id="bookmarkBtn" title="Save article" style="font-size:16px">✧</button>
+    <div id="readerActions" style="display:none;align-items:center;gap:4px">
+      <button class="icon-btn reader-action-btn" id="copyBtn" title="Copy headline + link">⎘</button>
+      <button class="icon-btn reader-action-btn" id="shareBtn" title="Share article">↗</button>
+      <button class="icon-btn reader-action-btn" id="bookmarkBtn" title="Save article">✧</button>
     </div>
   </div>
 
@@ -1253,7 +1256,7 @@ const QUALITY_DOMAINS = new Set([
   // US digital/broadcast
   "cnn.com","foxnews.com","msnbc.com","cbsnews.com","nbcnews.com",
   "abcnews.go.com","npr.org","pbs.org","theatlantic.com","newyorker.com",
-  "politico.com","thehill.com","axios.com","vox.com","slate.com",
+  "politico.com","axios.com","vox.com","slate.com",
   "huffpost.com","buzzfeednews.com","propublica.org","theintercept.com",
   "apnews.com","reuters.com","bloomberg.com","cnbc.com","marketwatch.com",
   "finance.yahoo.com","forbes.com","fortune.com","businessinsider.com",
@@ -1574,7 +1577,7 @@ const LIVE_SOURCES = [
     fetch: async () => {
       // Real-time RSS feeds — update every few minutes
       const rssFeeds = [
-        "https://feeds.finance.yahoo.com/rss/2.0/headline?s=^GSPC,^DJI,^IXIC&region=US&lang=en-US",
+        "https://finance.yahoo.com/news/rssindex",
         "https://feeds.content.dowjones.io/public/rss/mw_realtimeheadlines",
         "https://feeds.content.dowjones.io/public/rss/mw_topstories",
         "https://www.cnbc.com/id/100003114/device/rss/rss.html",
@@ -1646,9 +1649,11 @@ const LIVE_SOURCES = [
         { url: "https://www.cbssports.com/rss/headlines/",     source: "cbssports.com" },
         { url: "https://www.cbssports.com/rss/headlines/nfl/", source: "cbssports.com" },
         { url: "https://www.cbssports.com/rss/headlines/nba/", source: "cbssports.com" },
-        { url: "https://feeds.nbcsports.com/nbcsports/rss",    source: "nbcsports.com" },
+        { url: "https://feeds.nbcnews.com/nbcnews/public/sports", source: "nbcsports.com" },
         { url: "https://www.skysports.com/rss/12040",          source: "skysports.com" },
-        { url: "https://www.sportingnews.com/us/rss",          source: "sportingnews.com" },
+        { url: "https://www.si.com/rss/si_topstories.rss",     source: "si.com" },
+        { url: "https://apnews.com/apf-Sports",                 source: "apnews.com" },
+        { url: "https://rss.cnn.com/rss/edition_sport.rss",     source: "cnn.com" },
       ];
 
       const fetchRss = async ({ url, source }) => {
@@ -2092,6 +2097,36 @@ async function fetchOgImage(url) {
 // ── Newspaper sources ─────────────────────────────────────────────────────────
 
 // Shared RSS parser for Papers tab
+// Resolve a Google News redirect URL to the real article URL.
+// Follows the redirect chain via corsproxy. Returns the real URL or the original.
+async function resolveGoogleNewsUrl(gnUrl) {
+  if (!gnUrl.includes("news.google.com")) return gnUrl;
+  // First try protobuf decode
+  const decoded = decodeGoogleNewsUrl(gnUrl);
+  if (decoded && !decoded.includes("news.google.com")) return decoded;
+  // Fall back: fetch the redirect page and extract the canonical URL
+  try {
+    for (const proxyFn of [
+      u => `https://corsproxy.io/?${encodeURIComponent(u)}`,
+      u => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,
+    ]) {
+      const r = await Promise.race([
+        fetch(proxyFn(gnUrl)),
+        new Promise((_,rej) => setTimeout(rej, 6000))
+      ]);
+      if (!r.ok) continue;
+      let text;
+      if (proxyFn(gnUrl).includes("allorigins")) { const j = await r.json(); text = j.contents||""; }
+      else text = await r.text();
+      // Google News redirect pages contain a canonical <a href> or meta refresh to the real URL
+      const href = text.match(/href="(https?:\/\/(?!news\.google\.com)[^"]+)"/)?.[1]
+                || text.match(/url=(https?:\/\/(?!news\.google\.com)[^"&\s]+)/i)?.[1];
+      if (href) return decodeURIComponent(href);
+    }
+  } catch {}
+  return gnUrl;
+}
+
 async function fetchRssPaper(feedUrl, after, sourceOverride) {
   for (const proxy of [
     u => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,
@@ -2116,8 +2151,16 @@ async function fetchRssPaper(feedUrl, after, sourceOverride) {
         const desc = (item.querySelector("description")?.textContent||"").replace(/<[^>]+>/g,"").trim().slice(0,200);
         if (!title || !link) return null;
         const pd = pubDate ? new Date(pubDate).toISOString() : "";
-        return { title, link, desc, image: thumb, pubDate: pd,
-                 age: pd ? timeAgo(pd) : "", source: sourceOverride || sourceDomain(link) };
+        // Decode Google News redirect URLs (CBMi... format) to real article URLs
+        let realLink = link;
+        if (link.includes("news.google.com")) {
+          realLink = decodeGoogleNewsUrl(link) || link;
+          // If still a google.com URL, mark for async resolution
+          if (realLink.includes("news.google.com")) realLink = link;
+        }
+        return { title, link: realLink, desc, image: thumb, pubDate: pd,
+                 age: pd ? timeAgo(pd) : "", source: sourceOverride || sourceDomain(realLink),
+                 _gnRedirect: realLink.includes("news.google.com") };
       }).filter(Boolean);
     } catch {}
   }
@@ -2126,11 +2169,23 @@ async function fetchRssPaper(feedUrl, after, sourceOverride) {
 
 const NEWSPAPERS = [
   { id:"ap", name:"AP", emoji:"📡",
-    fetch: (after) => fetchRssPaper("https://feeds.bbci.co.uk/news/world/us-and-canada/rss.xml", after, "bbc.co.uk")
+    fetch: async (after) => {
+      // AP's native RSS feeds — append .rss to any apnews.com section URL
+      const feeds = [
+        "https://apnews.com/apf-topnews.rss",
+        "https://apnews.com/hub/ap-top-news.rss",
+        "https://apnews.com/world-news.rss",
+      ];
+      for (const feedUrl of feeds) {
+        const items = await fetchRssPaper(feedUrl, after, "apnews.com");
+        if (items && items.length > 0) return items;
+      }
+      return [];
+    }
   },
   { id:"npr",      name:"NPR",       emoji:"📻", fetch: (after) => fetchRssPaper("https://feeds.npr.org/1001/rss.xml",                               after, "npr.org")           },
   { id:"reuters", name:"Reuters", emoji:"🌐",
-    fetch: (after) => fetchRssPaper("https://feeds.reuters.com/reuters/worldNews", after, "reuters.com")
+    fetch: (after) => fetchRssPaper("https://news.google.com/rss/search?q=when:24h+allinurl:reuters.com&hl=en-US&gl=US&ceid=US:en", after, "reuters.com")
   },
   { id:"nyt",      name:"NYT",       emoji:"📰", fetch: (after) => fetchRssPaper("https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml",        after, "nytimes.com")      },
   { id:"bbc",      name:"BBC",       emoji:"🇬🇧", fetch: (after) => fetchRssPaper("https://feeds.bbci.co.uk/news/world/rss.xml",                   after, "bbc.co.uk")        },
@@ -2167,7 +2222,7 @@ const NEWSPAPERS = [
       return [];
     }
   },
-  { id:"bloomberg",name:"Bloomberg", emoji:"💹", fetch: (after) => fetchRssPaper("https://feeds.bloomberg.com/markets/news.rss",                     after, "bloomberg.com")    },
+  { id:"bloomberg",name:"Bloomberg", emoji:"💹", fetch: (after) => fetchRssPaper("https://news.google.com/rss/search?q=bloomberg+markets+finance&hl=en-US&gl=US&ceid=US:en",                     after, "bloomberg.com")    },
   { id:"cnbc",     name:"CNBC",      emoji:"📊", fetch: (after) => fetchRssPaper("https://www.cnbc.com/id/100003114/device/rss/rss.html",             after, "cnbc.com")         },
   { id:"verge",    name:"The Verge", emoji:"◭",  fetch: (after) => fetchRssPaper("https://www.theverge.com/rss/index.xml",                           after, "theverge.com")     },
 ];
@@ -2205,8 +2260,15 @@ function selectPaper(id) {
         <div class="skeleton" style="width:64px;height:64px;border-radius:8px;flex-shrink:0"></div>
       </div>`).join("")}</div>`;
     ps.loading = true;
-    NEWSPAPERS.find(p=>p.id===id).fetch(0).then(items => {
-      ps.items = items; ps.page = 1; ps.loading = false;
+    NEWSPAPERS.find(p=>p.id===id).fetch(0).then(async items => {
+      if (items?.some(i => i._gnRedirect)) {
+        items = await Promise.all(items.map(async item => {
+          if (!item._gnRedirect) return item;
+          const real = await resolveGoogleNewsUrl(item.link);
+          return { ...item, link: real, source: item.source || sourceDomain(real), _gnRedirect: false };
+        }));
+      }
+      ps.items = items || []; ps.page = 1; ps.loading = false;
       renderPaperContent(id); setupPaperInfiniteScroll(id);
     }).catch(() => { ps.loading = false; content.innerHTML = `<div class="feed-empty">Couldn't load right now.</div>`; });
   } else {
@@ -2303,7 +2365,14 @@ async function loadMorePaper(id) {
   const spinner = document.getElementById(`paper-spinner-${id}`);
   if (spinner) spinner.classList.add("visible");
   try {
-    const newItems = await NEWSPAPERS.find(p=>p.id===id).fetch(ps.page*10);
+    let newItems = await NEWSPAPERS.find(p=>p.id===id).fetch(ps.page*10);
+    if (newItems?.some(i => i._gnRedirect)) {
+      newItems = await Promise.all(newItems.map(async item => {
+        if (!item._gnRedirect) return item;
+        const real = await resolveGoogleNewsUrl(item.link);
+        return { ...item, link: real, source: item.source || sourceDomain(real), _gnRedirect: false };
+      }));
+    }
     if (!newItems?.length) { ps.exhausted = true; document.getElementById(`paper-sentinel-${id}`)?.remove(); }
     else {
       const list = document.getElementById(`paper-list-${id}`);
@@ -3120,12 +3189,15 @@ const PROXY_ONLY = new Set([
   "apnews.com","npr.org",
   "theguardian.com","bbc.com","bbc.co.uk",
   "cnn.com","cbsnews.com","nbcnews.com","abcnews.go.com",
-  "thehill.com","axios.com","politico.com","vox.com",
+  "axios.com","politico.com","vox.com",
   "propublica.org","theintercept.com","motherjones.com",
   "time.com","techcrunch.com","theverge.com",
   "arstechnica.com","wired.com","sciencedaily.com",
   "marketwatch.com","cnbc.com",
-  "pbs.org","usatoday.com",
+  "pbs.org","usatoday.com","cbssports.com","si.com","skysports.com",
+  "aljazeera.com","france24.com","dw.com",
+  "engadget.com","cnet.com","techcrunch.com",
+  "huffpost.com","buzzfeednews.com","slate.com",
 ]);
 
 // TIER 2 — RACE: Cloudflare-protected or JS-heavy but not hard-paywalled.
@@ -3135,7 +3207,7 @@ const RACE_DOMAINS = new Set([
   "theatlantic.com","bloomberg.com","ft.com",
   "washingtonpost.com","economist.com",
   "businessinsider.com","forbes.com","fortune.com",
-  "slate.com","huffpost.com","thedailybeast.com",
+  "thedailybeast.com",
   "nbcsports.com","espn.com","theathletic.com",
   "technologyreview.com","nymag.com","nautil.us","aeon.co",
   "nplusonemag.com","thecut.com","vulture.com",
@@ -3159,7 +3231,7 @@ const OPEN_DOMAINS = new Set([
   "apnews.com","reuters.com","theguardian.com","bbc.com","bbc.co.uk",
   "npr.org","axios.com","theatlantic.com","politico.com","arstechnica.com",
   "wired.com","techcrunch.com","theverge.com","nbcnews.com","abcnews.go.com",
-  "cbsnews.com","propublica.org","thehill.com","vox.com","time.com",
+  "cbsnews.com","propublica.org","vox.com","time.com",
   "finance.yahoo.com","marketwatch.com","cnbc.com",
 ]);
 
@@ -3219,23 +3291,7 @@ async function searchGoogleNews(query) {
 }
 
 // Resolve a Google News redirect URL to the actual article URL
-async function resolveGoogleNewsUrl(gnUrl) {
-  try {
-    // Jina follows redirects and returns the final URL in its output
-    const r = await Promise.race([
-      fetch(`https://r.jina.ai/${gnUrl}`, { headers: { "Accept": "text/plain", "X-Return-Format": "markdown" } }),
-      new Promise((_,rej) => setTimeout(rej, 8000))
-    ]);
-    if (!r.ok) return null;
-    const text = await r.text();
-    // Jina returns "URL Source: https://actual-article-url" in its header
-    const m = text.match(/^URL Source:\s*(https?:\/\/\S+)/im);
-    return m?.[1] || null;
-  } catch { return null; }
-}
 
-// For Reuters: try to fetch the article via Reuters' own JSON API
-// Reuters exposes article data at a predictable internal API endpoint
 async function fetchReutersApi(url) {
   try {
     if (!url.includes("reuters.com")) return null;
@@ -3804,11 +3860,14 @@ async function runSearch(query) {
     { url: "https://feeds.arstechnica.com/arstechnica/index",                      source: "arstechnica.com" },
     { url: "https://www.wired.com/feed/rss",                                        source: "wired.com" },
     // Politics / policy
-    { url: "https://feeds.feedburner.com/politico/politics",                        source: "politico.com" },
-    { url: "https://thehill.com/feed/",                                             source: "thehill.com" },
-    { url: "https://www.axios.com/feed/",                                           source: "axios.com" },
+    { url: "https://rss.politico.com/politicopicks.xml",                        source: "politico.com" },
+    { url: "https://api.axios.com/feed/",                                           source: "axios.com" },
     // Science
     { url: "https://www.sciencedaily.com/rss/all.xml",                             source: "sciencedaily.com" },
+    { url: "https://rss.cnn.com/rss/edition.rss",                                   source: "cnn.com" },
+    { url: "https://abcnews.go.com/abcnews/topstories",                              source: "abcnews.go.com" },
+    { url: "https://feeds.nbcnews.com/nbcnews/public/news",                          source: "nbcnews.com" },
+    { url: "https://aljazeera.com/xml/rss/all.xml",                                  source: "aljazeera.com" },
   ];
 
   const q = query.toLowerCase();
