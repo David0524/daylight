@@ -29,17 +29,17 @@
 –red: #C0504A;
 –green: #5A9A6A;
 }
-/* Light — warm white, brighter than Day */
+/* Light — clean bright white, clearly distinct from warm Day parchment */
 body.light {
-–bg: #FFFDF8;
-–text: #1C1917;
-–sub: #6B6560;
-–border: #E8DFC8;
-–card: #FFFFFF;
-–input-bg: #F2EBD9;
+–bg: #FFFFFF;
+–text: #111111;
+–sub: #555555;
+–border: #E0E0E0;
+–card: #F8F8F8;
+–input-bg: #EFEFEF;
 –gold: #C9974A;
 –gold2: #E2B96F;
-–shell: #EDE3CC;
+–shell: #E4E4E4;
 –red: #C0504A;
 –green: #5A9A6A;
 }
@@ -715,7 +715,7 @@ function showView(name) {
     if (el) el.style.display = k === name ? "block" : "none";
   });
   shareBtn.style.display = (name === "reader") ? "inline-flex" : "none";
-  const notIdle = name !== "idle";
+  const notIdle = name !== "idle" && name !== "papers";
   homeBtn.style.display  = notIdle ? "flex" : "none";
   fontDn.style.display   = (name === "reader") ? "flex" : "none";
   fontUp.style.display   = (name === "reader") ? "flex" : "none";
@@ -1499,7 +1499,7 @@ async function fetchOgImage(url) {
     try {
       const r = await Promise.race([
         fetch(proxy),
-        new Promise((_,rej) => setTimeout(rej, 5000))
+        new Promise((_,rej) => setTimeout(rej, 3000))
       ]);
       if (!r.ok) continue;
       const html = await r.text();
@@ -1548,7 +1548,43 @@ async function fetchRssPaper(feedUrl, after, sourceOverride) {
 
 const NEWSPAPERS = [
   { id:"ap", name:"AP", emoji:"📡",
-    fetch: (after) => fetchRssPaper("https://rsshub.app/apnews/topics/apf-topnews", after, "apnews.com")
+    fetch: async (after) => {
+      // Google News RSS search for site:apnews.com — always fresh, no auth needed
+      const feedUrl = "https://news.google.com/rss/search?q=site:apnews.com&hl=en-US&gl=US&ceid=US:en";
+      for (const proxy of [
+        `https://api.allorigins.win/get?url=${encodeURIComponent(feedUrl)}`,
+        `https://corsproxy.io/?${encodeURIComponent(feedUrl)}`,
+      ]) {
+        try {
+          const r = await Promise.race([fetch(proxy), new Promise((_,rej)=>setTimeout(rej,10000))]);
+          if (!r.ok) continue;
+          let text;
+          if (proxy.includes("allorigins")) { const j = await r.json(); text = j.contents; }
+          else text = await r.text();
+          if (!text?.includes("<item")) continue;
+          const xml = new DOMParser().parseFromString(text, "text/xml");
+          const items = [...xml.querySelectorAll("item")].slice(after, after + 10);
+          if (!items.length) continue;
+          // Google News URLs need resolving — extract real URL from the item
+          const resolved = await Promise.all(items.map(async item => {
+            const title = (item.querySelector("title")?.textContent||"").trim();
+            const gnUrl = item.querySelector("link")?.textContent?.trim() || "";
+            const pubDate = item.querySelector("pubDate")?.textContent?.trim() || "";
+            // Try to extract real apnews URL from item description
+            const desc = item.querySelector("description")?.textContent || "";
+            const apMatch = desc.match(/https:\/\/apnews\.com\/article\/[^"&\s<]+/) ||
+                            gnUrl.match(/https:\/\/apnews\.com\/article\/[^"&\s<]+/);
+            const link = apMatch?.[0] || gnUrl;
+            if (!title || !link) return null;
+            const pd = pubDate ? new Date(pubDate).toISOString() : "";
+            return { title, link, desc: "", image: "", pubDate: pd, age: pd ? timeAgo(pd) : "", source: "apnews.com" };
+          }));
+          const valid = resolved.filter(Boolean);
+          if (valid.length > 2) return valid;
+        } catch {}
+      }
+      return [];
+    }
   },
   { id:"npr",      name:"NPR",       emoji:"📻", fetch: (after) => fetchRssPaper("https://feeds.npr.org/1001/rss.xml",                               after, "npr.org")           },
   { id:"reuters", name:"Reuters", emoji:"🌐",
@@ -1586,9 +1622,40 @@ const NEWSPAPERS = [
     }
   },
   { id:"nyt",      name:"NYT",       emoji:"📰", fetch: (after) => fetchRssPaper("https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml",        after, "nytimes.com")      },
+  { id:"bbc",      name:"BBC",       emoji:"🇬🇧", fetch: (after) => fetchRssPaper("https://feeds.bbci.co.uk/news/world/rss.xml",                   after, "bbc.co.uk")        },
   { id:"wsj",      name:"WSJ",       emoji:"📈", fetch: (after) => fetchRssPaper("https://feeds.a.dj.com/rss/RSSWorldNews.xml",                      after, "wsj.com")          },
   { id:"wapo",     name:"WaPo",      emoji:"🏛", fetch: (after) => fetchRssPaper("https://feeds.washingtonpost.com/rss/national",                    after, "washingtonpost.com")},
-  { id:"cnn",      name:"CNN",       emoji:"🔴", fetch: (after) => fetchRssPaper("http://rss.cnn.com/rss/edition.rss",                               after, "cnn.com")          },
+  { id:"cnn", name:"CNN", emoji:"🔴",
+    fetch: async (after) => {
+      // lite.cnn.com — CNN's text-only version, no JS, always current
+      for (const proxy of [
+        `https://api.allorigins.win/get?url=${encodeURIComponent("https://lite.cnn.com/")}`,
+        `https://corsproxy.io/?${encodeURIComponent("https://lite.cnn.com/")}`,
+      ]) {
+        try {
+          const r = await Promise.race([fetch(proxy), new Promise((_,rej)=>setTimeout(rej,10000))]);
+          if (!r.ok) continue;
+          let html;
+          if (proxy.includes("allorigins")) { const j = await r.json(); html = j.contents; }
+          else html = await r.text();
+          if (!html?.includes("lite.cnn.com")) continue;
+          const doc = new DOMParser().parseFromString(html, "text/html");
+          const links = [...doc.querySelectorAll("a[href]")]
+            .map(a => ({ href: a.getAttribute("href"), text: a.textContent.trim() }))
+            .filter(a => a.href && a.href.match(/^\/\d{4}\//) && a.text.length > 20);
+          const items = links.slice(after, after + 10).map(a => ({
+            title: a.text,
+            link: "https://www.cnn.com" + a.href.replace(/^https:\/\/lite\.cnn\.com/, ""),
+            desc: "", image: "",
+            pubDate: "", age: "",
+            source: "cnn.com",
+          }));
+          if (items.length > 2) return items;
+        } catch {}
+      }
+      return [];
+    }
+  },
   { id:"bloomberg",name:"Bloomberg", emoji:"💹", fetch: (after) => fetchRssPaper("https://feeds.bloomberg.com/markets/news.rss",                     after, "bloomberg.com")    },
   { id:"cnbc",     name:"CNBC",      emoji:"📊", fetch: (after) => fetchRssPaper("https://www.cnbc.com/id/100003114/device/rss/rss.html",             after, "cnbc.com")         },
   { id:"verge",    name:"The Verge", emoji:"◭",  fetch: (after) => fetchRssPaper("https://www.theverge.com/rss/index.xml",                           after, "theverge.com")     },
@@ -1671,8 +1738,9 @@ function renderPaperContent(id) {
 async function enrichPaperImages(id) {
   const ps = PAPER_STATE[id];
   const noImg = ps.items.filter(item => !item.image && item.link);
-  // Do up to 6 at a time, staggered to avoid hammering
-  for (let i = 0; i < Math.min(noImg.length, 6); i++) {
+  // Up to 4, staggered — skip enrichment entirely if most items already have images
+  if (noImg.length < 2) return;
+  for (let i = 0; i < Math.min(noImg.length, 4); i++) {
     const item = noImg[i];
     setTimeout(async () => {
       try {
@@ -1699,7 +1767,7 @@ async function enrichPaperImages(id) {
           }
         }
       } catch {}
-    }, i * 400); // stagger by 400ms each
+    }, i * 250); // stagger by 250ms each
   }
 }
 
@@ -2414,10 +2482,13 @@ function parseJinaMarkdown(text, url) {
     if (/^Before it's here, it's on the Bloomberg Terminal/i.test(trimmed)) break;
     if (/^(Contact us:|Confidential tip|Site feedback:|Takeaways by Bloomberg)/i.test(trimmed)) continue;
     if (/^Photographer:/i.test(trimmed)) continue;
-    if (/HomeBTV\+|MarketsEconomics|WealthPursuits|StocksCommodities|NewslettersExplainers/i.test(trimmed)) continue;
+    if (/HomeBTV|MarketsEconomics|WealthPursuits|StocksCommodities|NewslettersExplainers/i.test(trimmed)) continue;
     if (/Bloomberg L\.P\. All Rights Reserved/i.test(trimmed)) break;
     if (/^Global news that uncovers a new tomorrow/i.test(trimmed)) break;
     if (/^By accepting, you agree to our updated Terms/i.test(trimmed)) break;
+    if (/^Subscribe to read this story|^Subscriber exclusive|^This article is for Bloomberg/i.test(trimmed)) break;
+    // Compact nav strings — no spaces between words = concatenated nav items
+    if (trimmed.length > 30 && trimmed.length < 200 && /^[A-Z][a-z]+[A-Z][a-z]/.test(trimmed) && !/\s{2,}/.test(trimmed) && (trimmed.match(/[A-Z]/g)||[]).length > 4) continue;
     // Generic site-footer signals — stop parsing
     if (/^(Terms of Service|Privacy Policy|Do Not Sell|Cookie Policy|©\s*20\d\d)/i.test(trimmed)) break;
     if (/^(Subscribe|Sign up|Get unlimited access|Try .+ for free|Already a subscriber)/i.test(trimmed) && paragraphs.length > 3) continue;
@@ -2513,6 +2584,8 @@ const JINA_WORKS = new Set([
 const OPEN_FIRST = new Set([
   "apnews.com","npr.org","theguardian.com","bbc.com","bbc.co.uk",
   "cnn.com","cbsnews.com","nbcnews.com","abcnews.go.com",
+  "thehill.com","axios.com","politico.com","vox.com","theatlantic.com",
+  "propublica.org","theintercept.com","motherjones.com","time.com",
 ]);
 
 // Domains where plain Jina fails — but special variants may work
