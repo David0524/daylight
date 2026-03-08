@@ -78,7 +78,8 @@ justify-content: center;
 transition: background 0.3s;
 }
 
-body.dim { background: var(–shell, #0D1821); background-color: #0D1821; }
+body.light { background: var(–shell, #E4E4E4); background-color: #E4E4E4; }
+body.dim { background: var(–shell, #0D1821); background-color: #111E2A; }
 body.dark { background: var(–shell, #111); background-color: #111; }
 body.dim .phone { background: #15202B; color: #F7F9F9; }
 body.dark .phone { background: #1A1A1A; color: #E8E4DC; }
@@ -114,10 +115,14 @@ flex-direction: column;
 transition: background 0.3s;
 }
 
+body.light .phone { background: #FFFFFF; background-color: #FFFFFF; }
+
 @media (max-width: 768px) {
 html { background-color: #F5EFE0; }
 body { align-items: flex-start; background: var(–bg, #F5EFE0); background-color: #F5EFE0; }
-body.dim { background-color: #15202B; }
+body.light { background: #FFFFFF; background-color: #FFFFFF; }
+body.light html { background-color: #FFFFFF; }
+body.dim { background-color: #111E2A; }
 body.dark { background-color: #1A1A1A; }
 .phone { width: 100vw; height: 100%; min-height: 100dvh; border-radius: 0; box-shadow: none; }
 .status-bar { padding-top: env(safe-area-inset-top, 14px); height: calc(44px + env(safe-area-inset-top, 0px)); }
@@ -1642,9 +1647,9 @@ const NEWSPAPERS = [
           const doc = new DOMParser().parseFromString(html, "text/html");
           const links = [...doc.querySelectorAll("a[href]")]
             .map(a => ({ href: a.getAttribute("href"), text: a.textContent.trim() }))
-            .filter(a => a.href && a.href.match(/^\/\d{4}\//) && a.text.length > 20);
+            .filter(a => a.href && a.href.match(/^\/\d{4}\//) && a.text.length > 20 && a.text.length < 300 && !a.text.match(/^(CNN|Home|Live|Video|Audio|About)/i));
           const items = links.slice(after, after + 10).map(a => ({
-            title: a.text,
+            title: a.text.split(/\n/)[0].trim(),
             link: "https://www.cnn.com" + a.href.replace(/^https:\/\/lite\.cnn\.com/, ""),
             desc: "", image: "",
             pubDate: "", age: "",
@@ -1736,6 +1741,8 @@ function renderPaperContent(id) {
 
 // Fetch og:image for paper articles that have no thumbnail
 async function enrichPaperImages(id) {
+  // Skip enrichment for sources where og:image is useless (AP logo, CNN lite has none)
+  if (["ap","cnn"].includes(id)) return;
   const ps = PAPER_STATE[id];
   const noImg = ps.items.filter(item => !item.image && item.link);
   // Up to 4, staggered — skip enrichment entirely if most items already have images
