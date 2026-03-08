@@ -1687,7 +1687,7 @@ function renderReader(article) {
   }
 
   const pill = article.metaOnly
-    ? `<div class="reader-meta-pill" style="background:var(--input-bg);color:var(--sub)">⚠ Preview only — full text unavailable</div>`
+    ? `<div class="reader-meta-pill" style="background:var(--input-bg);color:var(--sub)">🔒 Subscription required</div>`
     : article.openVersionNote
     ? `<div class="reader-meta-pill" style="background:var(--input-bg);color:var(--sub)">↗ ${escHtml(article.openVersionNote)}</div>`
     : article.viaRss && article.rssNote
@@ -1717,15 +1717,37 @@ function renderReader(article) {
   });
 
   if (article.metaOnly) {
+    const siteHost = (() => { try { return new URL(article.url).hostname.replace(/^www\./, ""); } catch { return ""; } })();
+    const siteName = siteHost.includes("wsj") ? "The Wall Street Journal"
+      : siteHost.includes("reuters") ? "Reuters"
+      : siteHost.includes("ft.com") ? "Financial Times"
+      : siteHost.includes("thetimes") ? "The Times"
+      : siteHost.includes("barrons") ? "Barron's"
+      : siteHost;
+
     html += `
-      <div style="margin:24px 0;padding:16px;background:var(--input-bg);border-radius:12px;text-align:center">
-        <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--sub);margin-bottom:10px">
-          This article is behind a paywall or bot protection.<br>Tap below to read on the original site.
+      <div style="margin:28px 0 0;border:1px solid var(--border);border-radius:14px;overflow:hidden">
+        <div style="padding:18px 20px 20px;background:var(--input-bg)">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+            <img src="https://www.google.com/s2/favicons?domain=${escHtml(siteHost)}&sz=32"
+              style="width:18px;height:18px;border-radius:4px;opacity:0.8" onerror="this.style.display='none'">
+            <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--sub);letter-spacing:0.04em;text-transform:uppercase">${escHtml(siteName)}</span>
+            <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--sub);opacity:0.4">· Subscription required</span>
+          </div>
+          ${article.desc ? `<p style="font-size:${Math.round(state.fontSize * 0.95)}px;color:var(--sub);line-height:1.6;margin:0 0 18px;font-family:'Source Serif 4',serif">${escHtml(article.desc)}</p>` : ""}
+          <a href="${escHtml(article.url)}" target="_blank" rel="noreferrer"
+            style="display:flex;align-items:center;justify-content:center;gap:8px;background:linear-gradient(135deg,var(--gold),var(--gold2));color:#1C1917;font-family:'DM Mono',monospace;font-size:12px;font-weight:700;padding:12px 20px;border-radius:9px;text-decoration:none;letter-spacing:0.02em">
+            <span>↗</span>
+            <span>Read on ${escHtml(siteName)}</span>
+          </a>
+          <div style="margin-top:10px;text-align:center">
+            <a href="https://www.google.com/search?q=${encodeURIComponent((article.headline||"").split(" ").slice(0,8).join(" "))}"
+              target="_blank" rel="noreferrer"
+              style="font-family:'DM Mono',monospace;font-size:10px;color:var(--sub);opacity:0.6;text-decoration:none">
+              🔍 Search for coverage elsewhere
+            </a>
+          </div>
         </div>
-        <a href="${escHtml(article.url)}" target="_blank" rel="noreferrer"
-          style="display:inline-block;background:linear-gradient(135deg,var(--gold),var(--gold2));color:#1C1917;font-family:'DM Mono',monospace;font-size:12px;font-weight:700;padding:10px 20px;border-radius:9px;text-decoration:none">
-          ↗ Open in browser
-        </a>
       </div>`;
   }
 
@@ -1855,36 +1877,94 @@ function stripWaybackToolbar(html) {
 // Cloudflare-wall domains — only Jina can get their meta tags
 const CF_WALL_DOMAINS = new Set(["nytimes.com","wsj.com","barrons.com","thetimes.co.uk","bloomberg.com"]);
 
+// Convert slug to title case headline
+function slugToHeadline(url) {
+  try {
+    const slug = new URL(url).pathname.split("/").filter(Boolean).pop() || "";
+    const clean = slug
+      .replace(/-[a-f0-9]{6,}$/, "")   // strip WSJ article ID hash
+      .replace(/-\d{8,}$/, "")          // strip date suffixes
+      .replace(/-/g, " ").trim();
+    if (!clean || clean.length < 8) return "";
+    // Title-case: capitalize first letter of each major word
+    const MINOR = new Set(["a","an","the","and","but","or","for","nor","on","at","to","by","in","of","up","as","is","it"]);
+    return clean.split(" ").map((w,i) =>
+      (i === 0 || !MINOR.has(w)) ? w.charAt(0).toUpperCase() + w.slice(1) : w
+    ).join(" ");
+  } catch { return ""; }
+}
+
+// Fetch WSJ/Reuters meta via Google's cache of their snippet
+// Google indexes WSJ and caches title+description in search results
+async function fetchMetaViaGoogle(url) {
+  try {
+    const headline = slugToHeadline(url);
+    if (!headline) return null;
+    // Use Google News RSS to get description — first result for exact URL is usually the article
+    const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent('"' + headline.split(" ").slice(0,6).join(" ") + '"')}&hl=en-US&gl=US&ceid=US:en`;
+    const r = await Promise.race([
+      fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(rssUrl)}`),
+      new Promise((_,rej) => setTimeout(rej, 7000))
+    ]);
+    if (!r.ok) return null;
+    const j = await r.json();
+    if (!j.contents) return null;
+    const doc = new DOMParser().parseFromString(j.contents, "text/xml");
+    const items = [...doc.querySelectorAll("item")];
+    const host = new URL(url).hostname.replace(/^www\./, "");
+    // Find the item from the same publisher
+    for (const item of items) {
+      const srcUrl = item.querySelector("source")?.getAttribute("url") || "";
+      if (!srcUrl.includes(host)) continue;
+      const title = item.querySelector("title")?.textContent?.replace(/\s*-\s*WSJ\s*$/, "").replace(/\s*-\s*Reuters\s*$/, "").trim() || "";
+      const desc = item.querySelector("description")?.textContent?.trim() || "";
+      if (title && title.length > 10) return { headline: title, desc: desc.replace(/<[^>]+>/g,"").slice(0,200), image: "", author: "", date: "" };
+    }
+    return null;
+  } catch { return null; }
+}
+
 async function fetchMetaOnly(url) {
   const host = (() => { try { return new URL(url).hostname.replace(/^www\./,""); } catch { return ""; } })();
   const isCfWall = CF_WALL_DOMAINS.has(host) || [...CF_WALL_DOMAINS].some(d => host.endsWith("."+d));
+  const isNyt = NYT_DOMAINS.has(host) || [...NYT_DOMAINS].some(d => host.endsWith("."+d));
 
-  // For Cloudflare-protected sites, Jina is the only way to get real meta
-  if (isCfWall) {
-    try {
-      const r = await Promise.race([
-        fetch(`https://r.jina.ai/${url}`, { headers: { "Accept": "text/plain", "X-Return-Format": "markdown" } }),
-        new Promise((_,rej) => setTimeout(rej, 12000))
-      ]);
-      if (r.ok) {
+  if (isCfWall || isNyt) {
+    // For NYT try gift URL first, then plain Jina
+    const urlsToTry = isNyt
+      ? [`${url}${url.includes("?")?"&":"?"}unlocked_article_code=1&smid=url-share`, url]
+      : [url];
+    for (const tryUrl of urlsToTry) {
+      try {
+        const r = await Promise.race([
+          fetch(`https://r.jina.ai/${tryUrl}`, { headers: { "Accept": "text/plain", "X-Return-Format": "markdown" } }),
+          new Promise((_,rej) => setTimeout(rej, 12000))
+        ]);
+        if (!r.ok) continue;
         const text = await r.text();
-        if (!text.includes("error 401") && !text.includes("Unauthorized") && text.length > 200) {
+        if (text.includes("error 401") || text.includes("Unauthorized")) continue;
+        if (text.length > 300) {
           const parsed = parseJinaMarkdown(text, url);
           if (parsed.headline) return {
             headline: parsed.headline, desc: parsed.paragraphs[0]?.text || "",
             image: parsed.heroImage, author: parsed.author, date: parsed.date,
           };
         }
-        // Jina failed too — at least parse what it returned for the title
         const titleMatch = text.match(/^Title:\s*(.+)/im);
         if (titleMatch) {
           let t = titleMatch[1].trim().replace(/\s*\|\s*by .+$/i,"").replace(/\s*[-–—]\s*.{2,30}$/,"").trim();
-          if (t && t.length > 5 && !t.includes("nytimes.com") && !t.includes("wsj.com"))
+          if (t && t.length > 5 && !t.match(/^(nytimes\.com|wsj\.com|bloomberg\.com)$/i))
             return { headline: t, desc: "", image: "", author: "", date: "" };
         }
-      }
-    } catch {}
-    return null; // Can't get meta for hard-blocked sites
+      } catch {}
+    }
+    // Jina failed — build meta from slug + Google News snippet
+    const [googleMeta] = await Promise.allSettled([fetchMetaViaGoogle(url)]);
+    if (googleMeta.value) return googleMeta.value;
+    // Last resort: slug is already a perfect headline for WSJ
+    const headline = slugToHeadline(url);
+    if (headline) return { headline, desc: "", image: "", author: "", date: "" };
+    return null;
   }
 
   // Standard proxy approach for non-CF sites
@@ -1918,6 +1998,48 @@ async function fetchMetaOnly(url) {
   return null;
 }
 
+
+// Strip Google Webcache wrapper chrome from Jina markdown output.
+// Google wraps cached pages with accessibility links, a cache banner, and footer.
+// The actual article content starts after the banner.
+function stripGoogleCacheChrome(text) {
+  const lines = text.split("\n");
+  let startIdx = 0;
+
+  // Find where Google's chrome ends and article begins.
+  // The cache banner contains "It is a snapshot of the page" or "cached version"
+  // After it, there's usually a separator line, then the real content.
+  for (let i = 0; i < Math.min(lines.length, 40); i++) {
+    const l = lines[i].toLowerCase();
+    if (
+      l.includes("skip to main content") ||
+      l.includes("accessibility") ||
+      l.includes("google search") ||
+      l.includes("cached version") ||
+      l.includes("snapshot of the page") ||
+      l.includes("webcache.googleusercontent") ||
+      /^\[.*?\]\(https:\/\/webcache\./.test(lines[i]) ||
+      /^\[.*?\]\(https:\/\/support\.google\.com/.test(lines[i]) ||
+      /^\[\]\(https:\/\/www\.google\.com/.test(lines[i])
+    ) {
+      startIdx = i + 1;
+    }
+  }
+
+  // Also strip trailing Google footer (usually after last real paragraph)
+  let endIdx = lines.length;
+  for (let i = lines.length - 1; i > lines.length - 20 && i > startIdx; i--) {
+    const l = lines[i].toLowerCase();
+    if (l.includes("google") || l.includes("webcache") || l.includes("cached") || l.includes("© 20")) {
+      endIdx = i;
+    } else if (lines[i].trim().length > 60) {
+      break; // hit real content, stop trimming
+    }
+  }
+
+  return lines.slice(startIdx, endIdx).join("\n").trim();
+}
+
 const FETCH_METHODS = [
   {
     // Jina Reader: real browser rendering, returns clean markdown. Best for most sites.
@@ -1932,6 +2054,74 @@ const FETCH_METHODS = [
         throw new Error("Jina: site requires auth");
       if (t.length < 500) throw new Error("Too short");
       return { type: "markdown", text: t };
+    }
+  },
+  {
+    // Jina with NYT gift URL params — unlocks metered NYT articles
+    name: "Jina+gift",
+    fetch: async (url) => {
+      const sep = url.includes("?") ? "&" : "?";
+      // Try multiple sharing param variants — NYT checks these server-side
+      const variants = [
+        `${url}${sep}unlocked_article_code=1&smid=nytcore-ios-share`,
+        `${url}${sep}unlocked_article_code=1&smid=url-share`,
+        `${url}${sep}smid=nytcore-ios-share`,
+      ];
+      for (const giftUrl of variants) {
+        try {
+          const r = await fetch(`https://r.jina.ai/${giftUrl}`, {
+            headers: { "Accept": "text/plain", "X-Return-Format": "markdown",
+                       "X-Referer": "https://www.google.com/" }
+          });
+          if (!r.ok) continue;
+          const t = await r.text();
+          if (t.includes("error 401") || t.includes("Unauthorized")) continue;
+          // Check we got real content, not just the lede
+          const contentLines = t.split("\n").filter(l => l.trim().length > 60).length;
+          if (contentLines < 3) continue;
+          return { type: "markdown", text: t };
+        } catch {}
+      }
+      throw new Error("All gift variants blocked");
+    }
+  },
+  {
+    // Jina with Googlebot UA — many publishers grant first-click-free to Googlebot
+    name: "Jina+googlebot",
+    fetch: async (url) => {
+      const r = await fetch(`https://r.jina.ai/${url}`, {
+        headers: {
+          "Accept": "text/plain",
+          "X-Return-Format": "markdown",
+          "X-User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+          "X-Referer": "https://www.google.com/search?q=" + encodeURIComponent(url.split("/").pop().replace(/-/g," ")),
+        }
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const t = await r.text();
+      if (t.includes("error 401") || t.includes("Unauthorized")) throw new Error("Blocked");
+      if (t.length < 500) throw new Error("Too short");
+      return { type: "markdown", text: t };
+    }
+  },
+  {
+    // Google Webcache → Jina: Google caches WSJ pages on Google's own servers.
+    // WSJ cannot block Google without deindexing themselves — this bypasses their paywall entirely.
+    name: "Jina+gcache",
+    fetch: async (url) => {
+      const cacheUrl = `https://webcache.googleusercontent.com/search?q=cache:${url}`;
+      const r = await fetch(`https://r.jina.ai/${cacheUrl}`, {
+        headers: { "Accept": "text/plain", "X-Return-Format": "markdown" }
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const t = await r.text();
+      if (t.includes("error 401") || t.includes("Unauthorized")) throw new Error("Blocked");
+      // Strip Google Webcache chrome — everything before the actual article
+      // Google wraps cached pages with its own header/footer
+      const stripped = stripGoogleCacheChrome(t);
+      const lines = stripped.split("\n").filter(l => l.trim().length > 60).length;
+      if (lines < 4) throw new Error(`Only ${lines} content lines after stripping`);
+      return { type: "markdown", text: stripped };
     }
   },
   {
@@ -2064,12 +2254,21 @@ function parseJinaMarkdown(text, url) {
     if (/^!\[.*?\]\(.*?\)$/.test(trimmed)) continue;
     // Dividers
     if (/^[-*_]{3,}$/.test(trimmed)) continue;
+    // NYT / news site ad markers
+    if (/^advertisement$/i.test(trimmed)) continue;
+    if (/^\[SKIP ADVERTISEMENT\]/i.test(trimmed)) continue;
+    if (/^\[skip to/i.test(trimmed)) continue;
+    // Section labels that aren't article content (NYT uses single-word section names)
+    if (/^(Ideas|Opinion|News|World|U\.S\.|Politics|Business|Technology|Science|Health|Sports|Arts|Style|Food|Travel|Magazine|Real Estate|Obituaries|Today's Paper|Corrections)$/i.test(trimmed)) continue;
     // UI chrome patterns
     if (/^(Skip to|Jump to|Back to|Continue reading|Read more|Sign in|Log in|Subscribe|Newsletter|Follow|Share|Listen|Watch|View|Press enter|Click to)/i.test(trimmed)) continue;
+    // Google Webcache chrome lines
+    if (/webcache\.googleusercontent|support\.google\.com\/websearch|Accessibility (help|feedback|Links)|Go to Google Home/i.test(trimmed)) continue;
+    if (/^\[\]\(https:\/\/(www\.google\.com|webcache|support\.google)/i.test(trimmed)) continue;
     if (/^(Copyright|©|All rights reserved|Terms|Privacy|Advertise|About us)/i.test(trimmed)) continue;
     // Medium-specific clutter
     if (/^(Clap|Bookmark|Responses|More from|Written by|Published in)/i.test(trimmed)) continue;
-    // Short lines that are just nav/button labels
+    // Short lines that are just nav/button labels (but allow short blockquotes/headings)
     if (trimmed.length < 30 && !/^#{1,3}\s/.test(trimmed) && !trimmed.startsWith(">")) continue;
 
     let tag = "p";
@@ -2125,37 +2324,218 @@ const JINA_WORKS = new Set([
   "arstechnica.com","theguardian.com","bbc.com","bbc.co.uk",
 ]);
 
-// Domains where Jina is known to fail — skip it entirely
+// Domains where plain Jina fails — but special variants may work
 const JINA_BLOCKED = new Set([
-  "nytimes.com","wsj.com","barrons.com","thetimes.co.uk",
+  "wsj.com","barrons.com","thetimes.co.uk",
 ]);
 
+// NYT: gift URL pattern + googlebot UA unlocks metered articles
+const NYT_DOMAINS = new Set(["nytimes.com","nyt.com"]);
+
 // For NYT/WSJ: search HN for same story on an open outlet, then Jina that
-async function findOpenVersion(url, titleHint) {
+const OPEN_DOMAINS = new Set([
+  "apnews.com","reuters.com","theguardian.com","bbc.com","bbc.co.uk",
+  "npr.org","axios.com","theatlantic.com","politico.com","arstechnica.com",
+  "wired.com","techcrunch.com","theverge.com","nbcnews.com","abcnews.go.com",
+  "cbsnews.com","propublica.org","thehill.com","vox.com","time.com",
+  "finance.yahoo.com","marketwatch.com","cnbc.com",
+]);
+
+// Search HN Algolia for same story on an open outlet
+async function searchHN(query) {
   try {
-    const searchText = titleHint || headlineFromUrl(url);
-    if (!searchText || searchText.length < 8) return null;
-    const query = encodeURIComponent(searchText.split(" ").slice(0,7).join(" "));
     const hn = await Promise.race([
-      fetch(`https://hn.algolia.com/api/v1/search?query=${query}&tags=story&hitsPerPage=15`).then(r=>r.json()),
-      new Promise((_,rej)=>setTimeout(rej,6000))
-    ]);
-    const OPEN = new Set([
-      "apnews.com","reuters.com","theguardian.com","bbc.com","bbc.co.uk",
-      "npr.org","axios.com","theatlantic.com","politico.com","arstechnica.com",
-      "wired.com","techcrunch.com","theverge.com","nbcnews.com","abcnews.go.com",
-      "cbsnews.com","propublica.org","thehill.com","vox.com","time.com",
+      fetch(`https://hn.algolia.com/api/v1/search?query=${encodeURIComponent(query)}&tags=story&hitsPerPage=20`).then(r=>r.json()),
+      new Promise((_,rej)=>setTimeout(rej,7000))
     ]);
     for (const hit of (hn?.hits || [])) {
       if (!hit.url) continue;
       try {
         const h = new URL(hit.url).hostname.replace(/^www\./,"");
-        if (OPEN.has(h)) return { openUrl: hit.url, source: h };
+        if (OPEN_DOMAINS.has(h)) return { openUrl: hit.url, source: h };
       } catch {}
     }
-    return null;
+  } catch {}
+  return null;
+}
+
+// Google News RSS — returns real article URLs from AP/Reuters/Guardian covering a story.
+// No auth, no CORS issues via proxy, highly relevant results.
+async function searchGoogleNews(query) {
+  try {
+    const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=en-US&gl=US&ceid=US:en`;
+    const r = await Promise.race([
+      fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(rssUrl)}`),
+      new Promise((_,rej) => setTimeout(rej, 8000))
+    ]);
+    if (!r.ok) return null;
+    const j = await r.json();
+    if (!j.contents) return null;
+    const doc = new DOMParser().parseFromString(j.contents, "text/xml");
+    const items = [...doc.querySelectorAll("item")].slice(0, 10);
+    // Google News RSS items link to a google.com/articles/... redirect.
+    // The real URL is in <source url="..."> or can be extracted from the link
+    for (const item of items) {
+      // Try source element first
+      const sourceUrl = item.querySelector("source")?.getAttribute("url") || "";
+      const link = item.querySelector("link")?.textContent?.trim() || "";
+      // Google News links look like: https://news.google.com/rss/articles/CBMi...
+      // We need to resolve them — but we can check the source domain directly
+      if (sourceUrl) {
+        try {
+          const h = new URL(sourceUrl).hostname.replace(/^www\./,"");
+          if (OPEN_DOMAINS.has(h)) {
+            // Fetch the google news redirect URL to get the real article URL
+            const resolved = await resolveGoogleNewsUrl(link);
+            if (resolved) return { openUrl: resolved, source: h };
+          }
+        } catch {}
+      }
+    }
+  } catch {}
+  return null;
+}
+
+// Resolve a Google News redirect URL to the actual article URL
+async function resolveGoogleNewsUrl(gnUrl) {
+  try {
+    // Jina follows redirects and returns the final URL in its output
+    const r = await Promise.race([
+      fetch(`https://r.jina.ai/${gnUrl}`, { headers: { "Accept": "text/plain", "X-Return-Format": "markdown" } }),
+      new Promise((_,rej) => setTimeout(rej, 8000))
+    ]);
+    if (!r.ok) return null;
+    const text = await r.text();
+    // Jina returns "URL Source: https://actual-article-url" in its header
+    const m = text.match(/^URL Source:\s*(https?:\/\/\S+)/im);
+    return m?.[1] || null;
   } catch { return null; }
 }
+
+// For Reuters: try to fetch the article via Reuters' own JSON API
+// Reuters exposes article data at a predictable internal API endpoint
+async function fetchReutersApi(url) {
+  try {
+    if (!url.includes("reuters.com")) return null;
+    // Extract article ID from Reuters URL path
+    // Reuters URLs: /world/us/some-slug-YYYY-MM-DD/ or /article/idXXXXX
+    const path = new URL(url).pathname;
+    // Try the Reuters article API - returns JSON with full article body
+    const articleId = path.match(/\/article\/(id[A-Z0-9]+)/)?.[1];
+    if (articleId) {
+      const apiUrl = `https://www.reuters.com/pf/api/v3/content/fetch/articles-by-id-v1?query=${encodeURIComponent(JSON.stringify({id: articleId}))}&d=199`;
+      const r = await Promise.race([
+        fetch(`https://corsproxy.io/?${encodeURIComponent(apiUrl)}`),
+        new Promise((_,rej) => setTimeout(rej, 8000))
+      ]);
+      if (r.ok) {
+        const j = await r.json();
+        const body = j?.result?.articles?.[0]?.body;
+        if (body && body.length > 200) return { type: "html", text: body };
+      }
+    }
+    // Fallback: try Reuters' Arc GraphQL/content API with slug
+    const slugMatch = path.match(/\/([^/]+)\/?$/);
+    if (slugMatch) {
+      const slug = slugMatch[1];
+      const arcUrl = `https://www.reuters.com/arc/outboundfeeds/v3/article/${slug}/?outputType=json`;
+      const r2 = await Promise.race([
+        fetch(`https://corsproxy.io/?${encodeURIComponent(arcUrl)}`),
+        new Promise((_,rej) => setTimeout(rej, 8000))
+      ]);
+      if (r2.ok) {
+        const j2 = await r2.json();
+        // Arc CMS format
+        const elements = j2?.content_elements || j2?.result?.content_elements || [];
+        const paras = elements.filter(e => e.type === "text").map(e => e.content).filter(Boolean);
+        if (paras.length > 2) {
+          const html = paras.map(p => `<p>${p}</p>`).join("");
+          return { type: "html", text: `<article>${html}</article>` };
+        }
+      }
+    }
+  } catch {}
+  return null;
+}
+
+// Fetch real headline from a blocked page via Jina
+async function fetchRealHeadline(url) {
+  try {
+    const r = await Promise.race([
+      fetch(`https://r.jina.ai/${url}`, { headers: { "Accept": "text/plain", "X-Return-Format": "markdown" } }),
+      new Promise((_,rej) => setTimeout(rej, 8000))
+    ]);
+    if (!r.ok) return null;
+    const text = await r.text();
+    const m = text.match(/^Title:\s*(.+)/im);
+    if (!m) return null;
+    let title = m[1].trim()
+      .replace(/\s*[-–|]\s*(WSJ|The Wall Street Journal|Reuters|Bloomberg|FT|Financial Times)\s*$/i, "")
+      .replace(/\s*[-–|]\s*Wall Street Journal\s*$/i, "")
+      .trim();
+    return title.length > 10 ? title : null;
+  } catch { return null; }
+}
+
+async function findOpenVersion(url) {
+  const host = (() => { try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return ""; } })();
+  const isHardBlocked = JINA_BLOCKED.has(host) || [...JINA_BLOCKED].some(d => host.endsWith(d));
+  const isReuters = host.includes("reuters.com");
+
+  // Reuters: try their internal API first — no search needed
+  if (isReuters) {
+    const apiResult = await fetchReutersApi(url);
+    if (apiResult) {
+      const article = extractArticle(apiResult.text, url);
+      if (article.paragraphs.length >= 2) return { directArticle: article };
+    }
+  }
+
+  // Get real headline for search — Jina returns Title: even when content is blocked
+  let query = headlineFromUrl(url);
+  if (isHardBlocked || isReuters) {
+    const real = await fetchRealHeadline(url);
+    if (real) query = real;
+  }
+  if (!query || query.length < 8) return null;
+  query = query.split(" ").slice(0, 8).join(" ");
+
+  // Search all three in parallel — HN preferred, Google News and Yahoo as fallbacks
+  const [hnRes, gnRes, yahooRes] = await Promise.allSettled([
+    searchHN(query),
+    searchGoogleNews(query),
+    searchYahooFinance(query),
+  ]);
+
+  // Return first valid result in priority order
+  return hnRes.value || gnRes.value || yahooRes.value || null;
+}
+
+// Relevance-checked Yahoo Finance search
+async function searchYahooFinance(query) {
+  try {
+    const searchUrl = `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(query)}&newsCount=6&enableFuzzyQuery=false`;
+    const r = await Promise.race([
+      fetch(`https://corsproxy.io/?${encodeURIComponent(searchUrl)}`),
+      new Promise((_,rej) => setTimeout(rej, 6000))
+    ]);
+    if (!r.ok) return null;
+    const j = await r.json();
+    const queryWords = new Set(query.toLowerCase().split(/\W+/).filter(w => w.length > 4));
+    for (const item of (j?.news || [])) {
+      if (!item.link || !item.title) continue;
+      const overlap = item.title.toLowerCase().split(/\W+/).filter(w => queryWords.has(w)).length;
+      if (overlap < 3) continue;
+      try {
+        const h = new URL(item.link).hostname.replace(/^www\./,"");
+        if (h.includes("yahoo.com") || OPEN_DOMAINS.has(h))
+          return { openUrl: item.link, source: h };
+      } catch {}
+    }
+  } catch {}
+  return null;
+}
+
 
 function headlineFromUrl(url) {
   try {
@@ -2167,12 +2547,15 @@ function headlineFromUrl(url) {
 function methodsForUrl(url) {
   try {
     const host = new URL(url).hostname.replace(/^www\./,"");
-    const base = JINA_WORKS.has(host) || [...JINA_WORKS].some(d => host.endsWith(d))
-      ? reorder(["Jina","Jina+proxy","corsproxy.io","AllOrigins","Wayback","Archive.ph"])
-      : JINA_BLOCKED.has(host) || [...JINA_BLOCKED].some(d => host.endsWith(d))
-      ? reorder(["Wayback","Archive.ph","AMP"])  // Jina won't help, try archives
-      : FETCH_METHODS; // default: try everything
-    return base;
+    // NYT: gift URL + googlebot UA is the proven bypass
+    if (NYT_DOMAINS.has(host) || [...NYT_DOMAINS].some(d => host.endsWith("."+d)))
+      return reorder(["Jina+gift","Jina+googlebot","Wayback","Archive.ph"]);
+    // Sites where Jina works cleanly — lead with it
+    if (JINA_WORKS.has(host) || [...JINA_WORKS].some(d => host.endsWith(d)))
+      return reorder(["Jina","Jina+proxy","corsproxy.io","AllOrigins","Wayback","Archive.ph"]);
+    // WSJ/Barron's — Google Webcache is the primary bypass, then open-version search
+    if (JINA_BLOCKED.has(host) || [...JINA_BLOCKED].some(d => host.endsWith(d)))
+      return reorder(["Jina+gcache"]);
   } catch {}
   return FETCH_METHODS;
 }
@@ -2234,6 +2617,12 @@ async function fetchArticle(url, _isRetry = false) {
     logMethod("Open version", "pending", "Searching HN…");
     const openVersion = await findOpenVersion(url);
     if (openVersion) {
+      // Reuters API returned article directly — no need to fetch again
+      if (openVersion.directArticle) {
+        logMethod("Reuters API", "ok", `${openVersion.directArticle.paragraphs.length} paragraphs`);
+        openVersion.directArticle.url = url;
+        return openVersion.directArticle;
+      }
       logMethod("Open version", "ok", `Found on ${openVersion.source}`);
       loadingSub.textContent = `Reading ${openVersion.source}…`;
       const openArticle = await fetchArticle(openVersion.openUrl, true);
@@ -2242,7 +2631,7 @@ async function fetchArticle(url, _isRetry = false) {
         return openArticle;
       }
     }
-    logMethod("Open version", "fail", "No open version found on HN");
+    logMethod("Open version", "fail", "No open version found");
   }
 
   // ── Meta preview fallback ─────────────────────────────────────────────────
