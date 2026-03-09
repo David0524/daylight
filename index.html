@@ -2265,6 +2265,7 @@ async function fetchDDG(after, query, source) {
     const ddgUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(pagedQuery)}`;
     let html = null;
     for (const proxyUrl of [
+      `https://wsj.drudd524.workers.dev/?url=${encodeURIComponent(ddgUrl)}`,
       `https://corsproxy.io/?${encodeURIComponent(ddgUrl)}`,
       `https://api.allorigins.win/raw?url=${encodeURIComponent(ddgUrl)}`,
     ]) {
