@@ -1726,30 +1726,72 @@ function decodeGoogleNewsUrl(gnUrl) {
 // the real URL in at least one of: <source url>, description <a href>,
 // or the title <a href> in CDATA content.
 function extractGoogleNewsRealUrl(item, preferDomain) {
-  // 1. <source url="https://..."> — most reliable
-  const sourceEl = item.querySelector("source");
-  if (sourceEl) {
-    const sourceUrl = sourceEl.getAttribute("url");
-    if (sourceUrl && !sourceUrl.includes("news.google.com")) return sourceUrl;
-  }
+  // Google News RSS structure:
+  //   <title> — article headline
+  //   <link>  — encoded google news URL (CBMi... blob) — NOT the real article URL
+  //   <source url="https://wsj.com"> — publisher HOMEPAGE, not article URL
+  //   <description> — HTML snippet containing <a href="real-article-url">
 
-  // 2. First <a href> in the description CDATA that matches preferDomain
+  // 1. Parse description HTML to find article hrefs — most reliable source
   const desc = item.querySelector("description")?.textContent || "";
-  const hrefMatches = [...desc.matchAll(/href=["']([^"']+)["']/gi)].map(m => m[1]);
-  for (const href of hrefMatches) {
-    if (!href.includes("news.google.com") && (!preferDomain || href.includes(preferDomain))) return href;
-  }
-  // Any non-google href
-  for (const href of hrefMatches) {
-    if (!href.includes("news.google.com")) return href;
+  if (desc) {
+    // Description contains HTML like: <a href="https://wsj.com/articles/...">Title</a>
+    const hrefMatches = [...desc.matchAll(/href=["']([^"']+)["']/gi)].map(m => m[1]);
+    // Prefer URL matching the expected domain
+    for (const href of hrefMatches) {
+      try {
+        const u = new URL(href);
+        if (!u.hostname.includes("google.com") && (!preferDomain || u.hostname.includes(preferDomain.replace("www.","")))) {
+          // Must look like an article path, not a homepage
+          if (u.pathname.length > 5) return href;
+        }
+      } catch {}
+    }
+    // Any non-google href with a real path
+    for (const href of hrefMatches) {
+      try {
+        const u = new URL(href);
+        if (!u.hostname.includes("google.com") && u.pathname.length > 5) return href;
+      } catch {}
+    }
   }
 
-  // 3. Raw <link> text — sometimes Google News puts the real URL here directly
+  // 2. Raw <link> text if it's a real URL (not a google news blob)
   const rawLink = item.querySelector("link")?.textContent?.trim() || "";
-  if (rawLink && !rawLink.includes("news.google.com")) return rawLink;
+  if (rawLink && !rawLink.includes("news.google.com") && rawLink.startsWith("http")) return rawLink;
 
-  // 4. Fallback — return the google news link itself; caller will handle
+  // 3. Return google news link as last resort — caller will try to follow it
   return rawLink || null;
+}
+
+// Resolve a Google News redirect URL to the real article URL.
+// Google News RSS links are encoded blobs that redirect to the actual article.
+// We follow the redirect through corsproxy and extract the destination from
+// the page's <meta http-equiv="refresh"> or canonical link.
+async function resolveGoogleNewsUrl(gnUrl) {
+  if (!gnUrl.includes("news.google.com")) return gnUrl;
+  try {
+    // corsproxy follows redirects and returns the final page
+    const r = await Promise.race([
+      fetch(`https://corsproxy.io/?${encodeURIComponent(gnUrl)}`),
+      new Promise((_,rej) => setTimeout(rej, 8000))
+    ]);
+    if (!r.ok) return null;
+    const html = await r.text();
+    // Google News redirect pages contain a meta refresh or JS redirect to the real URL
+    const metaRefresh = html.match(/<meta[^>]+http-equiv=["']refresh["'][^>]+content=["'][^;]+;\s*url=([^"']+)["']/i);
+    if (metaRefresh) {
+      const u = metaRefresh[1].trim();
+      if (!u.includes("google.com")) return u;
+    }
+    // Also check for canonical link
+    const canonical = html.match(/<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)["']/i);
+    if (canonical && !canonical[1].includes("google.com")) return canonical[1];
+    // Check og:url
+    const ogUrl = html.match(/<meta[^>]+property=["']og:url["'][^>]+content=["']([^"']+)["']/i);
+    if (ogUrl && !ogUrl[1].includes("google.com")) return ogUrl[1];
+  } catch {}
+  return null;
 }
 
 const MARKET_CACHE_KEY = "marketData";
@@ -2214,12 +2256,24 @@ async function fetchRssPaper(feedUrl, after, sourceOverride) {
         const pd = pubDate ? new Date(pubDate).toISOString() : "";
         // For Google News RSS, extract the real article URL from the item
         let realLink = rawLink;
+        let needsResolve = false;
         if (rawLink.includes("news.google.com") || feedUrl.includes("news.google.com")) {
-          realLink = extractGoogleNewsRealUrl(item, sourceOverride) || rawLink;
+          const extracted = extractGoogleNewsRealUrl(item, sourceOverride);
+          if (extracted && !extracted.includes("google.com")) {
+            realLink = extracted;
+          } else {
+            // Still a google URL — needs async resolution
+            realLink = rawLink;
+            needsResolve = true;
+          }
         }
         if (!realLink) return null;
-        return { title, link: realLink, desc, image: thumb, pubDate: pd,
-                 age: pd ? timeAgo(pd) : "", source: sourceOverride || sourceDomain(realLink) };
+        return { title, link: realLink, desc,
+                 image: needsResolve ? "" : thumb,
+                 pubDate: pd, age: pd ? timeAgo(pd) : "",
+                 source: sourceOverride || (needsResolve ? "" : sourceDomain(realLink)),
+                 _gnResolve: needsResolve ? rawLink : null,
+                 _skipEnrich: needsResolve };
       }).filter(Boolean);
     } catch {}
   }
@@ -2362,8 +2416,40 @@ function renderPaperContent(id) {
       urlInput.value = item.link; startRead(item.link);
     });
   });
+  // Resolve any unresolved Google News redirect URLs in background
+  resolveGoogleNewsPaperUrls(id);
   // Enrich missing images via Jina og:image (fire and forget)
   enrichPaperImages(id);
+}
+
+// Resolve Google News redirect URLs to real article URLs in background.
+// Updates ARTICLE_REGISTRY items and DOM links once resolved.
+async function resolveGoogleNewsPaperUrls(id) {
+  const ps = PAPER_STATE[id];
+  if (!ps?.items) return;
+  const toResolve = ps.items.filter(item => item._gnResolve);
+  for (let i = 0; i < toResolve.length; i++) {
+    const item = toResolve[i];
+    setTimeout(async () => {
+      const real = await resolveGoogleNewsUrl(item._gnResolve);
+      if (!real || real.includes("google.com")) return;
+      item.link = real;
+      item.source = item.source || sourceDomain(real);
+      item._gnResolve = null;
+      item._skipEnrich = false;
+      // Update DOM card link if visible
+      const listEl = document.getElementById(`paper-list-${id}`);
+      if (!listEl) return;
+      listEl.querySelectorAll(".paper-article").forEach(card => {
+        const idx = parseInt(card.dataset.idx, 10);
+        if (ARTICLE_REGISTRY[idx] === item) {
+          // Update source label
+          const meta = card.querySelector(".paper-article-meta");
+          if (meta) meta.textContent = `${item.source} · ${item.age}`;
+        }
+      });
+    }, i * 600); // stagger to avoid hammering corsproxy
+  }
 }
 
 // Fetch og:image for paper articles that have no thumbnail
@@ -2371,7 +2457,7 @@ async function enrichPaperImages(id) {
   // Skip enrichment for sources where og:image is useless (AP logo, CNN lite has none)
   if (["ap","cnn"].includes(id)) return;
   const ps = PAPER_STATE[id];
-  const noImg = ps.items.filter(item => !item.image && item.link);
+  const noImg = ps.items.filter(item => !item.image && item.link && !item._skipEnrich && !item.link.includes("google.com"));
   // Up to 4, staggered — skip enrichment entirely if most items already have images
   if (noImg.length < 2) return;
   for (let i = 0; i < Math.min(noImg.length, 4); i++) {
@@ -3122,26 +3208,47 @@ const FETCH_METHODS = [
     }
   },
   {
-    // Google referral bypass — WSJ and some other paywalls allow full access
-    // when the request appears to come from a Google search result.
-    // corsproxy.io forwards the x-cors-headers we pass, which lets us inject
-    // a Referer header that the target server sees as coming from Google.
-    name: "GoogleRef",
+    // Social referral bypass — WSJ allows full access to traffic appearing to come
+    // from Facebook/Twitter (for virality). Google referrer is largely blocked now.
+    // Try each social referrer in turn; first clean response wins.
+    name: "SocialRef",
     fetch: async (url) => {
-      // corsproxy forwards headers specified in x-cors-headers as JSON
-      const r = await fetch(`https://corsproxy.io/?${encodeURIComponent(url)}`, {
-        headers: {
-          "x-cors-headers": JSON.stringify({
-            "Referer": "https://www.google.com/",
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-          })
-        }
-      });
+      const referrers = [
+        "https://www.facebook.com/",
+        "https://t.co/",
+        "https://twitter.com/",
+        "https://www.google.com/",
+      ];
+      for (const referer of referrers) {
+        try {
+          const r = await fetch(`https://corsproxy.io/?${encodeURIComponent(url)}`, {
+            headers: {
+              "x-cors-headers": JSON.stringify({
+                "Referer": referer,
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+              })
+            }
+          });
+          if (!r.ok) continue;
+          const t = await r.text();
+          if (t.length < 800) continue;
+          if (/sign in to read|subscribe to read|subscription required|you have \d+ free article/i.test(t.slice(0, 5000))) continue;
+          return { type: "html", text: t };
+        } catch {}
+      }
+      throw new Error("All referrers blocked");
+    }
+  },
+  {
+    // removepaywall.com — archive-based paywall bypass with direct URL API
+    name: "RemovePaywall",
+    fetch: async (url) => {
+      const rpUrl = `https://www.removepaywall.com/search?url=${encodeURIComponent(url)}`;
+      const r = await fetch(`https://corsproxy.io/?${encodeURIComponent(rpUrl)}`);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const t = await r.text();
       if (t.length < 800) throw new Error("Too short");
-      // If we got a paywall/login page, bail
-      if (/sign in|subscribe|log in|paywall|subscription required/i.test(t.slice(0, 3000))) throw new Error("Paywall");
+      if (/sign in|subscribe|log in|paywall/i.test(t.slice(0, 3000))) throw new Error("Paywall");
       return { type: "html", text: t };
     }
   },
@@ -3712,21 +3819,61 @@ async function fetchArticle(url, _isRetry = false) {
 
   // ── Tier 3b: WSJ/Barron's ────────────────────────────────────────────────
   else if (inSet(JINA_BLOCKED)) {
-    // Try Google referral bypass first — faster than gcache when it works
-    loadingSub.textContent = "Trying Google referral…";
-    logMethod("GoogleRef", "pending", "Connecting…");
+    // archive.ph newest snapshot — confirmed working for WSJ
+    // Format: archive.ph/{timestamp}/{url} — we get the latest via /newest/ redirect
+    loadingSub.textContent = "Trying archive.ph…";
+    logMethod("Archive.ph", "pending", "Looking up snapshot…");
     try {
-      const result = await Promise.race([FETCH_METHODS.find(m=>m.name==="GoogleRef").fetch(url), new Promise((_,rej)=>setTimeout(()=>rej(new Error("Timeout")),10000))]);
-      const article = parseResult(result, url);
-      if (article) { logMethod("GoogleRef", "ok", `${article.paragraphs.length} paragraphs`); return article; }
-      logMethod("GoogleRef", "fail", "No content");
-    } catch(e) { logMethod("GoogleRef", "fail", e.message || "Network error"); }
+      // Step 1: ask archive.ph for newest snapshot URL
+      const newestUrl = `https://archive.ph/newest/${url}`;
+      const r1 = await Promise.race([
+        fetch(`https://corsproxy.io/?${encodeURIComponent(newestUrl)}`),
+        new Promise((_,rej) => setTimeout(() => rej(new Error("Timeout")), 12000))
+      ]);
+      if (!r1.ok) throw new Error(`HTTP ${r1.status}`);
+      const html1 = await r1.text();
+      // Extract the canonical snapshot URL from the response
+      // archive.ph redirects to a URL like: https://archive.ph/AbCd1
+      // or embeds it in <link rel="canonical"> or <meta property="og:url">
+      let snapUrl = null;
+      const canonMatch = html1.match(/<link[^>]+rel=["']canonical["'][^>]+href=["'](https:\/\/archive\.ph\/[A-Za-z0-9]+)["']/i)
+                      || html1.match(/<meta[^>]+property=["']og:url["'][^>]+content=["'](https:\/\/archive\.ph\/[A-Za-z0-9]+)["']/i);
+      if (canonMatch) snapUrl = canonMatch[1];
+      // Also check for timestamped snapshot links like archive.ph/20260309021629/https://...
+      if (!snapUrl) {
+        const tsMatch = html1.match(/https:\/\/archive\.ph\/\d{14}\/https?:\/\/[^\s"'<]+/);
+        if (tsMatch) snapUrl = tsMatch[0];
+      }
+      // If the response itself is the article (corsproxy followed the redirect), use it directly
+      if (!snapUrl && html1.length > 2000 && !html1.includes("archive.ph/newest")) {
+        snapUrl = newestUrl; // treat the response we already have as valid
+      }
+      if (!snapUrl) throw new Error("No snapshot found");
 
-    // Fall back to Google Cache via Jina
+      // Step 2: fetch the snapshot (may already have it from step 1)
+      let snapHtml = html1;
+      if (snapUrl !== newestUrl) {
+        const r2 = await Promise.race([
+          fetch(`https://corsproxy.io/?${encodeURIComponent(snapUrl)}`),
+          new Promise((_,rej) => setTimeout(() => rej(new Error("Timeout")), 12000))
+        ]);
+        if (!r2.ok) throw new Error(`HTTP ${r2.status}`);
+        snapHtml = await r2.text();
+      }
+      if (snapHtml.length < 800) throw new Error("Snapshot too short");
+      const article = parseResult({ type: "html", text: snapHtml }, url);
+      if (article) { logMethod("Archive.ph", "ok", `${article.paragraphs.length} paragraphs`); return article; }
+      logMethod("Archive.ph", "fail", "No content extracted");
+    } catch(e) { logMethod("Archive.ph", "fail", e.message || "Network error"); }
+
+    // Fall back to Jina+gcache
     loadingSub.textContent = "Trying Google Cache…";
     logMethod("Jina+gcache", "pending", "Connecting…");
     try {
-      const result = await Promise.race([FETCH_METHODS.find(m=>m.name==="Jina+gcache").fetch(url), new Promise((_,rej)=>setTimeout(()=>rej(new Error("Timeout")),15000))]);
+      const result = await Promise.race([
+        FETCH_METHODS.find(m => m.name === "Jina+gcache").fetch(url),
+        new Promise((_,rej) => setTimeout(() => rej(new Error("Timeout")), 15000))
+      ]);
       const article = parseResult(result, url);
       if (article) { logMethod("Jina+gcache", "ok", `${article.paragraphs.length} paragraphs`); return article; }
       logMethod("Jina+gcache", "fail", "No content");
