@@ -2362,9 +2362,31 @@ async function fetchRssPaper(feedUrl, after, sourceOverride) {
 }
 
 const NEWSPAPERS = [
-  { id:"ap", name:"AP", emoji:"📡", fetch: (after) => fetchDDG(after, "site:apnews.com/article", "apnews.com") },
+  { id:"ap", name:"AP", emoji:"📡", fetch: async (after) => {
+    const feeds = [
+      "https://feeds.feedburner.com/APTopHeadlines",
+      "https://apnews.com/hub/ap-top-news?format=rss",
+      "https://rsshub.app/apnews/topics/apf-topnews",
+    ];
+    for (const url of feeds) {
+      const items = await fetchRssPaper(url, after, "apnews.com");
+      if (items && items.length > 0) return items;
+    }
+    return fetchDDG(after, "site:apnews.com/article", "apnews.com");
+  }},
   { id:"npr",      name:"NPR",       emoji:"📻", fetch: (after) => fetchRssPaper("https://feeds.npr.org/1001/rss.xml",                               after, "npr.org")           },
-  { id:"reuters", name:"Reuters", emoji:"🌐", fetch: (after) => fetchDDG(after, "site:reuters.com/world OR site:reuters.com/business", "reuters.com") },
+  { id:"reuters", name:"Reuters", emoji:"🌐", fetch: async (after) => {
+    const feeds = [
+      "https://feeds.reuters.com/reuters/topNews",
+      "https://feeds.reuters.com/Reuters/worldNews",
+      "https://feeds.reuters.com/reuters/businessNews",
+    ];
+    for (const url of feeds) {
+      const items = await fetchRssPaper(url, after, "reuters.com");
+      if (items && items.length > 0) return items;
+    }
+    return fetchDDG(after, "site:reuters.com/world OR site:reuters.com/business", "reuters.com");
+  }},
   { id:"nyt",      name:"NYT",       emoji:"📰", fetch: (after) => fetchRssPaper("https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml",        after, "nytimes.com")      },
   { id:"bbc",      name:"BBC",       emoji:"🇬🇧", fetch: (after) => fetchRssPaper("https://feeds.bbci.co.uk/news/world/rss.xml",                   after, "bbc.co.uk")        },
   { id:"wsj", name:"WSJ", emoji:"📈", fetch: async (after) => {
