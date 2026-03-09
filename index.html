@@ -2263,12 +2263,20 @@ async function fetchDDG(after, query, source) {
   try {
     const pagedQuery = after === 0 ? query : query + `&s=${after*10}&dc=${after*10+1}`;
     const ddgUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(pagedQuery)}`;
-    const r = await Promise.race([
-      fetch(`https://corsproxy.io/?${encodeURIComponent(ddgUrl)}`),
-      new Promise((_,rej) => setTimeout(rej, 10000))
-    ]);
-    if (!r.ok) return [];
-    const html = await r.text();
+    let html = null;
+    for (const proxyUrl of [
+      `https://corsproxy.io/?${encodeURIComponent(ddgUrl)}`,
+      `https://api.allorigins.win/raw?url=${encodeURIComponent(ddgUrl)}`,
+    ]) {
+      try {
+        const r = await Promise.race([
+          fetch(proxyUrl),
+          new Promise((_,rej) => setTimeout(rej, 15000))
+        ]);
+        if (r.ok) { html = await r.text(); break; }
+      } catch {}
+    }
+    if (!html) return [];
     const doc = new DOMParser().parseFromString(html, "text/html");
     return [...doc.querySelectorAll(".result")].map(el => {
       const titleEl = el.querySelector(".result__title a, .result__a");
