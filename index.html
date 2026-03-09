@@ -486,7 +486,8 @@
   }
   .paper-tab.active { color: var(--gold); border-bottom-color: var(--gold); }
   .paper-content { animation: fadeUp 0.3s ease; }
-  .paper-article {
+  .paper-article.paper-pending { opacity: 0.45; }
+.paper-article {
     display: flex; gap: 12px; padding: 14px 16px;
     border-bottom: 1px solid var(--border);
     cursor: pointer; transition: background 0.15s; align-items: flex-start;
@@ -1208,6 +1209,11 @@ document.querySelector(".logo").addEventListener("click", () => {
 
 // ── RSS Feed ──────────────────────────────────────────────────────────────────
 
+function isGoogleUrl(url) {
+  try { const h = new URL(url).hostname; return h.endsWith("google.com") || h.endsWith("googleusercontent.com"); }
+  catch { return false; }
+}
+
 function timeAgo(dateStr) {
   if (!dateStr) return "";
   try {
@@ -1380,7 +1386,7 @@ async function redditFetch(path) {
 // Resolve real og:title + og:image for a Reddit item in one fetch
 async function resolveRedditMeta(item) {
   try {
-    const proxy = `https://api.allorigins.win/get?url=${encodeURIComponent(item.link)}`;
+    const proxy = `https://corsproxy.io/?${encodeURIComponent(item.link)}`;
     const r = await Promise.race([fetch(proxy), new Promise((_,rej) => setTimeout(rej, 5000))]);
     if (!r.ok) return item;
     const j = await r.json();
@@ -1572,7 +1578,7 @@ const LIVE_SOURCES = [
       const pick = pubs.sort(() => 0.5 - Math.random()).slice(0, 2);
       const results = await Promise.allSettled(pick.map(async slug => {
         const rssUrl = `https://${slug}.substack.com/feed`;
-        const r = await Promise.race([fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(rssUrl)}`), new Promise((_,rej)=>setTimeout(rej,5000))]);
+        const r = await Promise.race([fetch(`https://corsproxy.io/?${encodeURIComponent(rssUrl)}`), new Promise((_,rej)=>setTimeout(rej,5000))]);
         if (!r.ok) return [];
         const j = await r.json();
         if (!j.contents) return [];
@@ -1612,8 +1618,8 @@ const LIVE_SOURCES = [
 
       const fetchRss = async (feedUrl) => {
         for (const proxy of [
-          u => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,
           u => `https://corsproxy.io/?${encodeURIComponent(u)}`,
+          u => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,
         ]) {
           try {
             const r = await Promise.race([fetch(proxy(feedUrl)), new Promise((_,rej)=>setTimeout(rej,5000))]);
@@ -1716,7 +1722,7 @@ function decodeGoogleNewsUrl(gnUrl) {
   // This function is kept for legacy callers but resolution now happens
   // in fetchRssPaper via extractGoogleNewsRealUrl on the raw XML item.
   try {
-    if (!gnUrl.includes("news.google.com")) return gnUrl;
+    if (!gnUrl.includes("news.google.com") && !gnUrl.includes("w3.org") && gnUrl.startsWith("http")) return gnUrl;
     return null; // signal to caller to use item-level extraction instead
   } catch { return null; }
 }
@@ -1756,43 +1762,15 @@ function extractGoogleNewsRealUrl(item, preferDomain) {
     }
   }
 
-  // 2. Raw <link> text if it's a real URL (not a google news blob)
+  // 2. Raw <link> text if it's a real URL (not a google news blob, not a namespace URI)
   const rawLink = item.querySelector("link")?.textContent?.trim() || "";
-  if (rawLink && !rawLink.includes("news.google.com") && rawLink.startsWith("http")) return rawLink;
+  if (rawLink && rawLink.startsWith("http") && !rawLink.includes("news.google.com") && !rawLink.includes("w3.org")) return rawLink;
 
-  // 3. Return google news link as last resort — caller will try to follow it
-  return rawLink || null;
-}
-
-// Resolve a Google News redirect URL to the real article URL.
-// Google News RSS links are encoded blobs that redirect to the actual article.
-// We follow the redirect through corsproxy and extract the destination from
-// the page's <meta http-equiv="refresh"> or canonical link.
-async function resolveGoogleNewsUrl(gnUrl) {
-  if (!gnUrl.includes("news.google.com")) return gnUrl;
-  try {
-    // corsproxy follows redirects and returns the final page
-    const r = await Promise.race([
-      fetch(`https://corsproxy.io/?${encodeURIComponent(gnUrl)}`),
-      new Promise((_,rej) => setTimeout(rej, 8000))
-    ]);
-    if (!r.ok) return null;
-    const html = await r.text();
-    // Google News redirect pages contain a meta refresh or JS redirect to the real URL
-    const metaRefresh = html.match(/<meta[^>]+http-equiv=["']refresh["'][^>]+content=["'][^;]+;\s*url=([^"']+)["']/i);
-    if (metaRefresh) {
-      const u = metaRefresh[1].trim();
-      if (!u.includes("google.com")) return u;
-    }
-    // Also check for canonical link
-    const canonical = html.match(/<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)["']/i);
-    if (canonical && !canonical[1].includes("google.com")) return canonical[1];
-    // Check og:url
-    const ogUrl = html.match(/<meta[^>]+property=["']og:url["'][^>]+content=["']([^"']+)["']/i);
-    if (ogUrl && !ogUrl[1].includes("google.com")) return ogUrl[1];
-  } catch {}
+  // 3. Last resort: return google news blob so caller can async-resolve it
+  if (rawLink && rawLink.startsWith("http") && !rawLink.includes("w3.org")) return rawLink;
   return null;
 }
+
 
 const MARKET_CACHE_KEY = "marketData";
 const MARKET_TTL = 5 * 60 * 1000; // 5 minutes
@@ -1891,16 +1869,16 @@ async function fetchMarketData() {
     const tiles = (await Promise.allSettled(STOOQ.map(async ({id, sym}) => {
       // Build URL with literal ^ — do NOT encode the symbol part
       const url = "https://stooq.com/q/l/?s=" + sym + "&f=sd2t2ohlcv&h&e=csv";
-      // Try allorigins first (returns JSON wrapper), then corsproxy (raw text)
+      // Try corsproxy first (works from null origin), allorigins as fallback
       let csv = null;
       try {
-        const r = await race(fetch("https://api.allorigins.win/get?url=" + encodeURIComponent(url)));
-        if (r.ok) { const j = await r.json(); csv = j.contents || null; }
+        const r = await race(fetch("https://corsproxy.io/?" + encodeURIComponent(url)));
+        if (r.ok) csv = await r.text();
       } catch {}
       if (!csv) {
         try {
           const r = await race(fetch("https://corsproxy.io/?" + encodeURIComponent(url)));
-          if (r.ok) csv = await r.text();
+          if (r.ok) { csv = await r.text(); }
         } catch {}
       }
       if (!csv) throw new Error("no csv");
@@ -1924,13 +1902,13 @@ async function fetchMarketData() {
   } catch {}
 
   // ── 3. Yahoo Finance fallback — v6 bulk, symbols as plain text ────────────
-  // IMPORTANT: pass ^ literally in the URL string, not as %5E — allorigins
+  // IMPORTANT: pass ^ literally in the URL string, not as %5E — proxies
   // double-encodes %5E to %255E which Yahoo rejects.
   try {
     const url = "https://query1.finance.yahoo.com/v6/finance/quote?symbols=^DJI,^GSPC,^IXIC";
     let data = null;
     try {
-      const r = await race(fetch("https://api.allorigins.win/get?url=" + encodeURIComponent(url)));
+      const r = await race(fetch("https://corsproxy.io/?" + encodeURIComponent(url)));
       if (r.ok) { const j = await r.json(); data = JSON.parse(j.contents || "null"); }
     } catch {}
     if (!data) {
@@ -2127,6 +2105,7 @@ document.getElementById("feedContent").addEventListener("click", e => {
   const idx = parseInt(card.dataset.idx, 10);
   const item = ARTICLE_REGISTRY[idx];
   if (!item) return;
+  if (!item.link || isGoogleUrl(item.link)) return;
   urlInput.value = item.link;
   startRead(item.link);
 });
@@ -2180,7 +2159,7 @@ document.getElementById("feedContent").addEventListener("click", e => {
 async function fetchOgImage(url) {
   for (const proxy of [
     `https://corsproxy.io/?${encodeURIComponent(url)}`,
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+    `https://corsproxy.io/?${encodeURIComponent(url)}`,
   ]) {
     try {
       const r = await Promise.race([
@@ -2199,58 +2178,115 @@ async function fetchOgImage(url) {
 
 // ── Newspaper sources ─────────────────────────────────────────────────────────
 
-// Shared RSS parser for Papers tab
-// Resolve a Google News redirect URL to the real article URL.
-// Follows the redirect chain via corsproxy. Returns the real URL or the original.
-async function resolveGoogleNewsUrl(gnUrl) {
-  if (!gnUrl.includes("news.google.com")) return gnUrl;
-  // First try protobuf decode
-  const decoded = decodeGoogleNewsUrl(gnUrl);
-  if (decoded && !decoded.includes("news.google.com")) return decoded;
-  // Fall back: fetch the redirect page and extract the canonical URL
-  try {
-    for (const proxyFn of [
-      u => `https://corsproxy.io/?${encodeURIComponent(u)}`,
-      u => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,
-    ]) {
+// Resolve a Google News blob URL to the real article URL.
+// Google News RSS <link> elements are base64-encoded blobs that redirect to articles.
+// We fetch the blob URL through corsproxy and extract the destination from the response.
+async function resolveGoogleNewsUrlMulti(gnUrl) {
+  // Try multiple proxies — some follow the Google News redirect chain better than others
+  const proxies = [
+    u => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
+    u => `https://corsproxy.io/?${encodeURIComponent(u)}`,
+    u => `https://thingproxy.freeboard.io/fetch/${u}`,
+  ];
+  for (const proxyFn of proxies) {
+    try {
       const r = await Promise.race([
         fetch(proxyFn(gnUrl)),
         new Promise((_,rej) => setTimeout(rej, 6000))
       ]);
       if (!r.ok) continue;
-      let text;
-      if (proxyFn(gnUrl).includes("allorigins")) { const j = await r.json(); text = j.contents||""; }
-      else text = await r.text();
-      // Google News redirect pages contain a canonical <a href> or meta refresh to the real URL
-      const href = text.match(/href="(https?:\/\/(?!news\.google\.com)[^"]+)"/)?.[1]
-                || text.match(/url=(https?:\/\/(?!news\.google\.com)[^"&\s]+)/i)?.[1];
-      if (href) return decodeURIComponent(href);
+      const text = await r.text();
+      if (!text || text.length < 100) continue;
+      // Check if we landed on the real article (has og:url pointing to wsj.com)
+      const ogUrl = text.match(/<meta[^>]+property=["']og:url["'][^>]+content=["']([^"']+)["']/i)?.[1]
+                 || text.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:url["']/i)?.[1];
+      if (ogUrl && ogUrl.includes("wsj.com") && !ogUrl.includes("google.com")) return ogUrl;
+      const canonical = text.match(/<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)["']/i)?.[1];
+      if (canonical && canonical.includes("wsj.com")) return canonical;
+      // Look for wsj.com article URL anywhere in page
+      const wsjUrl = text.match(/https:\/\/(?:www\.)?wsj\.com\/articles\/[A-Za-z0-9_\-]+/)?.[0];
+      if (wsjUrl) return wsjUrl;
+    } catch {}
+  }
+  return null;
+}
+
+async function resolveGoogleNewsUrl(gnUrl) {
+  if (!gnUrl || !gnUrl.includes("news.google.com")) return gnUrl;
+
+  // Helper: reject URLs that are clearly not real articles
+  function isBadUrl(u) {
+    if (!u) return true;
+    if (isGoogleUrl(u)) return true;
+    try {
+      const p = new URL(u).pathname.toLowerCase();
+      if (p.endsWith(".js") || p.endsWith(".css") || p.endsWith(".json")) return true;
+    } catch { return true; }
+    if (u.includes("gstatic") || u.includes("googleapis") || u.includes("schema.org") || u.includes("w3.org")) return true;
+    if (u.includes("google-analytics") || u.includes("googletagmanager") || u.includes("doubleclick")) return true;
+    return false;
+  }
+
+  // corsproxy only — follows redirects, may return destination page directly
+  try {
+    const r = await Promise.race([
+      fetch(`https://corsproxy.io/?${encodeURIComponent(gnUrl)}`),
+      new Promise((_,rej) => setTimeout(rej, 8000))
+    ]);
+    if (r.ok) {
+      const text = await r.text();
+      const ogUrl = text.match(/<meta[^>]+property=["']og:url["'][^>]+content=["']([^"']+)["']/i)?.[1]
+                 || text.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:url["']/i)?.[1];
+      if (ogUrl && !isBadUrl(ogUrl)) return ogUrl;
+      const canonical = text.match(/<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)["']/i)?.[1];
+      if (canonical && !isBadUrl(canonical)) return canonical;
+      // Scan for first plausible article URL in page source
+      const urls = [...text.matchAll(/https?:\/\/(?!(?:www\.|news\.)?google\.com)[a-zA-Z0-9.-]+\.[a-z]{2,}\/[^\s"'<]{10,}/g)];
+      const found = urls.map(m => m[0]).find(u => !isBadUrl(u));
+      if (found) return found;
     }
   } catch {}
-  return gnUrl;
+
+  return null;
 }
 
 async function fetchRssPaper(feedUrl, after, sourceOverride) {
-  for (const proxy of [
-    u => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,
+  for (const proxyFn of [
     u => `https://corsproxy.io/?${encodeURIComponent(u)}`,
+    u => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,
   ]) {
     try {
-      const r = await Promise.race([fetch(proxy(feedUrl)), new Promise((_,rej)=>setTimeout(rej,10000))]);
+      const proxyUrl = proxyFn(feedUrl);
+      const r = await Promise.race([fetch(proxyUrl), new Promise((_,rej)=>setTimeout(rej,10000))]);
       if (!r.ok) continue;
       let text;
-      if (proxy(feedUrl).includes("allorigins")) { const j = await r.json(); text = j.contents; }
-      else { text = await r.text(); }
+      if (proxyUrl.includes("allorigins")) {
+        try { const j = await r.json(); text = j.contents; } catch { continue; }
+      } else { text = await r.text(); }
       if (!text?.includes("<item") && !text?.includes("<entry")) continue;
       const xml = new DOMParser().parseFromString(text, "text/xml");
       const items = [...xml.querySelectorAll("item, entry")];
-      return items.slice(after, after + 10).map(item => {
+      // Also keep raw text blocks per item for regex fallback (namespace-safe link extraction)
+      const rawItemTexts = [...text.matchAll(/<item[^>]*>([\s\S]*?)<\/item>|<entry[^>]*>([\s\S]*?)<\/entry>/g)]
+        .map(m => m[1] || m[2] || "");
+      return items.slice(after, after + 10).map((item, idx) => {
         const title = (item.querySelector("title")?.textContent || "").replace(/<!\[CDATA\[|\]\]>/g,"").trim();
-        const rawLink = item.querySelector("link")?.getAttribute("href") || item.querySelector("link")?.textContent?.trim() || "";
+        // Use regex on raw item text to extract <link> — avoids xmlns:xlink namespace pollution
+        // where DOMParser maps querySelector("link") to the xlink namespace declaration node
+        const rawItemText = rawItemTexts[after + idx] || "";
+        const linkFromRaw = (rawItemText.match(/<link>([^<]+)<\/link>/) || [])[1]?.trim() || "";
+        const linkEl = item.querySelector("link");
+        const linkHref = linkEl?.getAttribute("href") || "";
+        const rawLink = (linkFromRaw.startsWith("http") ? linkFromRaw : null)
+          || (linkHref.startsWith("http") && !linkHref.includes("w3.org") ? linkHref : null)
+          || (linkText.startsWith("http") && !linkText.includes("w3.org") ? linkText : null)
+          || "";
         const pubDate = item.querySelector("pubDate,published,updated")?.textContent?.trim() || "";
-        const thumb = item.querySelector("thumbnail,[medium='image']")?.getAttribute("url")
+        const rawThumb = item.querySelector("thumbnail,[medium='image']")?.getAttribute("url")
           || item.querySelector("enclosure[type^='image']")?.getAttribute("url")
           || ((item.querySelector("encoded")?.textContent||"").match(/<img[^>]+src=["']([^"']+)["']/i)||[])[1] || "";
+        // Strip Google-hosted thumbnails (lh3.googleusercontent.com, news.google.com images)
+        const thumb = (rawThumb && !rawThumb.includes("googleusercontent.com") && !rawThumb.includes("google.com")) ? rawThumb : "";
         const desc = (item.querySelector("description")?.textContent||"").replace(/<[^>]+>/g,"").trim().slice(0,200);
         if (!title) return null;
         const pd = pubDate ? new Date(pubDate).toISOString() : "";
@@ -2267,7 +2303,7 @@ async function fetchRssPaper(feedUrl, after, sourceOverride) {
             needsResolve = true;
           }
         }
-        if (!realLink) return null;
+        if (!realLink || !realLink.startsWith("http") || realLink.includes("w3.org")) return null;
         return { title, link: realLink, desc,
                  image: needsResolve ? "" : thumb,
                  pubDate: pd, age: pd ? timeAgo(pd) : "",
@@ -2282,33 +2318,122 @@ async function fetchRssPaper(feedUrl, after, sourceOverride) {
 
 const NEWSPAPERS = [
   { id:"ap", name:"AP", emoji:"📡",
-    fetch: async (after) => {
-      // AP blocks direct RSS scraping — use RSSHub (community RSS proxy) or GNews fallback
-      const feeds = [
-        "https://rsshub.app/apnews/topics/apf-topnews",
-        "https://rsshub.app/apnews/topics/ap-top-news",
-        "https://news.google.com/rss/search?q=when:24h+allinurl:apnews.com&hl=en-US&gl=US&ceid=US:en",
-      ];
-      for (const feedUrl of feeds) {
-        const items = await fetchRssPaper(feedUrl, after, "apnews.com");
-        if (items && items.length > 0) return items;
-      }
-      return [];
-    }
+    fetch: (after) => (  async (after, site, source) => {
+    try {
+      const siteQuery = site === "apnews.com" ? "site:apnews.com/article" :
+                         site === "reuters.com" ? "site:reuters.com/world OR site:reuters.com/business OR site:reuters.com/technology" :
+                         `site:${site}`;
+      const query = after === 0 ? siteQuery : `${siteQuery}&s=${after*10}&dc=${after*10+1}`;
+      const ddgUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+      const r = await Promise.race([
+        fetch(`https://corsproxy.io/?${encodeURIComponent(ddgUrl)}`),
+        new Promise((_,rej) => setTimeout(rej, 10000))
+      ]);
+      if (!r.ok) return [];
+      const html = await r.text();
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      return [...doc.querySelectorAll(".result")].map(el => {
+        const titleEl = el.querySelector(".result__title a, .result__a");
+        const snippetEl = el.querySelector(".result__snippet");
+        if (!titleEl) return null;
+        let link = titleEl.getAttribute("href") || "";
+        const uddg = link.match(/uddg=([^&]+)/)?.[1];
+        if (uddg) link = decodeURIComponent(uddg);
+        if (!link.includes(site)) return null;
+        // URL filtered by query specificity above
+        const title = titleEl.textContent.trim();
+        if (!title) return null;
+        const lowerTitle = title.toLowerCase();
+        if (lowerTitle.includes("subscri") || lowerTitle.includes("sign in")) return null;
+        return { title, link, desc: snippetEl?.textContent?.trim()||"", image:"", pubDate:"", age:"today", source };
+      }).filter(Boolean);
+    } catch { return []; }
+  })(after, "apnews.com", "apnews.com")
   },
   { id:"npr",      name:"NPR",       emoji:"📻", fetch: (after) => fetchRssPaper("https://feeds.npr.org/1001/rss.xml",                               after, "npr.org")           },
   { id:"reuters", name:"Reuters", emoji:"🌐",
-    fetch: (after) => fetchRssPaper("https://news.google.com/rss/search?q=when:24h+allinurl:reuters.com&hl=en-US&gl=US&ceid=US:en", after, "reuters.com")
+    fetch: (after) => (  async (after, site, source) => {
+    try {
+      const siteQuery = site === "apnews.com" ? "site:apnews.com/article" :
+                         site === "reuters.com" ? "site:reuters.com/world OR site:reuters.com/business OR site:reuters.com/technology" :
+                         `site:${site}`;
+      const query = after === 0 ? siteQuery : `${siteQuery}&s=${after*10}&dc=${after*10+1}`;
+      const ddgUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+      const r = await Promise.race([
+        fetch(`https://corsproxy.io/?${encodeURIComponent(ddgUrl)}`),
+        new Promise((_,rej) => setTimeout(rej, 10000))
+      ]);
+      if (!r.ok) return [];
+      const html = await r.text();
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      return [...doc.querySelectorAll(".result")].map(el => {
+        const titleEl = el.querySelector(".result__title a, .result__a");
+        const snippetEl = el.querySelector(".result__snippet");
+        if (!titleEl) return null;
+        let link = titleEl.getAttribute("href") || "";
+        const uddg = link.match(/uddg=([^&]+)/)?.[1];
+        if (uddg) link = decodeURIComponent(uddg);
+        if (!link.includes(site)) return null;
+        // URL filtered by query specificity above
+        const title = titleEl.textContent.trim();
+        if (!title) return null;
+        const lowerTitle = title.toLowerCase();
+        if (lowerTitle.includes("subscri") || lowerTitle.includes("sign in")) return null;
+        return { title, link, desc: snippetEl?.textContent?.trim()||"", image:"", pubDate:"", age:"today", source };
+      }).filter(Boolean);
+    } catch { return []; }
+  })(after, "reuters.com", "reuters.com")
   },
   { id:"nyt",      name:"NYT",       emoji:"📰", fetch: (after) => fetchRssPaper("https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml",        after, "nytimes.com")      },
   { id:"bbc",      name:"BBC",       emoji:"🇬🇧", fetch: (after) => fetchRssPaper("https://feeds.bbci.co.uk/news/world/rss.xml",                   after, "bbc.co.uk")        },
-  { id:"wsj", name:"WSJ", emoji:"📈", fetch: (after) => fetchRssPaper("https://news.google.com/rss/search?q=site:wsj.com&hl=en-US&gl=US&ceid=US:en", after, "wsj.com") },
+  { id:"wsj", name:"WSJ", emoji:"📈", fetch: async (after) => {
+    // DuckDuckGo HTML search for site:wsj.com — real URLs, fresh results, no API key needed
+    try {
+      const query = after === 0 ? "site:wsj.com/articles" : `site:wsj.com/articles&s=${after * 10}&dc=${after * 10 + 1}`;
+      const ddgUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+      const r = await Promise.race([
+        fetch(`https://corsproxy.io/?${encodeURIComponent(ddgUrl)}`),
+        new Promise((_,rej) => setTimeout(rej, 10000))
+      ]);
+      if (!r.ok) return [];
+      const html = await r.text();
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      const results = [...doc.querySelectorAll(".result")];
+      const items = results.map(el => {
+        const titleEl = el.querySelector(".result__title a, .result__a");
+        const snippetEl = el.querySelector(".result__snippet");
+        const urlEl = el.querySelector(".result__url");
+        if (!titleEl) return null;
+        // DDG wraps real URLs in redirects — extract from href or result__url
+        let link = titleEl.getAttribute("href") || "";
+        // DDG href is like //duckduckgo.com/l/?uddg=https%3A%2F%2Fwsj.com...
+        const uddg = link.match(/uddg=([^&]+)/)?.[1];
+        if (uddg) link = decodeURIComponent(uddg);
+        // Or get from the displayed URL text
+        if (!link.includes("wsj.com")) {
+          const urlText = urlEl?.textContent?.trim() || "";
+          if (urlText.includes("wsj.com")) link = "https://" + urlText.replace(/^https?:\/\//, "");
+        }
+        if (!link.includes("wsj.com")) return null;
+        const title = titleEl.textContent.trim();
+        const desc = snippetEl?.textContent?.trim() || "";
+        if (!title) return null;
+        // Filter out subscription/marketing pages
+        const lowerTitle = title.toLowerCase();
+        const lowerLink = link.toLowerCase();
+        if (lowerTitle.includes("subscri") || lowerTitle.includes("sign in") || lowerTitle.includes("become a") || lowerLink.includes("subscri") || lowerLink.includes("signin") || lowerLink.includes("login")) return null;
+        return { title, link, desc, image: "", pubDate: "", age: "today", source: "wsj.com" };
+      }).filter(Boolean);
+      if (items.length > 0) return items;
+    } catch {}
+    return [];
+  }},
   { id:"wapo",     name:"WaPo",      emoji:"🏛", fetch: (after) => fetchRssPaper("https://feeds.washingtonpost.com/rss/national",                    after, "washingtonpost.com")},
   { id:"cnn", name:"CNN", emoji:"🔴",
     fetch: async (after) => {
       // lite.cnn.com — CNN's text-only version, no JS, always current
       for (const proxy of [
-        `https://api.allorigins.win/get?url=${encodeURIComponent("https://lite.cnn.com/")}`,
+        `https://corsproxy.io/?${encodeURIComponent("https://lite.cnn.com/")}`,
         `https://corsproxy.io/?${encodeURIComponent("https://lite.cnn.com/")}`,
       ]) {
         try {
@@ -2362,6 +2487,15 @@ function selectPaper(id) {
   const ps = PAPER_STATE[id];
   const content = document.getElementById("paperContent");
 
+  // Strip any google-domain links before rendering
+  if (ps.items.length > 0) {
+    ps.items = ps.items.filter(item => {
+      try {
+        const h = new URL(item.link).hostname;
+        return !h.endsWith("google.com") && !h.endsWith("googleusercontent.com");
+      } catch { return false; }
+    });
+  }
   if (ps.items.length === 0 && !ps.loading) {
     content.innerHTML = `<div class="paper-loading">${Array(6).fill(0).map(()=>`
       <div style="display:flex;gap:12px;padding:0 16px">
@@ -2374,16 +2508,18 @@ function selectPaper(id) {
       </div>`).join("")}</div>`;
     ps.loading = true;
     NEWSPAPERS.find(p=>p.id===id).fetch(0).then(async items => {
-      if (items?.some(i => i._gnRedirect)) {
-        items = await Promise.all(items.map(async item => {
-          if (!item._gnRedirect) return item;
-          const real = await resolveGoogleNewsUrl(item.link);
-          return { ...item, link: real, source: item.source || sourceDomain(real), _gnRedirect: false };
-        }));
-      }
+      // Filter out google-domain links before storing
+      if (items) items = items.filter(item => item && item.title && item.link);
       ps.items = items || []; ps.page = 1; ps.loading = false;
-      renderPaperContent(id); setupPaperInfiniteScroll(id);
-    }).catch(() => { ps.loading = false; content.innerHTML = `<div class="feed-empty">Couldn't load right now.</div>`; });
+      try { renderPaperContent(id); setupPaperInfiniteScroll(id); }
+      catch(re) { console.error("[renderPaperContent] threw:", re?.message, re?.stack); throw re; }
+    }).catch((err) => { 
+      console.error("[selectPaper] fetch failed:", err?.message || err, err?.stack);
+      ps.loading = false;
+      // Show items if we have any despite partial error, else show error
+      if (ps.items.length > 0) { renderPaperContent(id); setupPaperInfiniteScroll(id); }
+      else content.innerHTML = `<div class="feed-empty">Couldn't load right now.</div>`; 
+    });
   } else {
     renderPaperContent(id); setupPaperInfiniteScroll(id);
   }
@@ -2393,15 +2529,18 @@ function renderPaperContent(id) {
   const ps = PAPER_STATE[id];
   const content = document.getElementById("paperContent");
   let html = `<div class="paper-content" id="paper-list-${id}">`;
-  ps.items.forEach((item, i) => {
+  let renderNum = 0;
+  ps.items.forEach((item) => {
+    const pending = isGoogleUrl(item.link) || item._gnResolve;
     const idx = ARTICLE_REGISTRY.length;
     ARTICLE_REGISTRY.push(item);
+    renderNum++;
     html += `
-      <div class="paper-article" data-idx="${idx}" style="cursor:pointer">
-        <div class="paper-article-num">${String(i+1).padStart(2,"0")}</div>
+      <div class="paper-article${pending ? " paper-pending" : ""}" data-idx="${idx}" style="cursor:${pending ? "default" : "pointer"}">
+        <div class="paper-article-num">${String(renderNum).padStart(2,"0")}</div>
         <div class="paper-article-body">
           <div class="paper-article-title">${escHtml(item.title)}</div>
-          <div class="paper-article-meta">${escHtml(item.source)} · ${escHtml(item.age)}</div>
+          <div class="paper-article-meta">${escHtml(item.source || "loading…")} · ${escHtml(item.age)}</div>
         </div>
         ${item.image?`<img class="paper-article-thumb" src="${escHtml(item.image)}" alt="" onerror="this.style.display='none'">`:""}
       </div>`;
@@ -2413,6 +2552,7 @@ function renderPaperContent(id) {
     el.addEventListener("click", () => {
       const item = ARTICLE_REGISTRY[parseInt(el.dataset.idx,10)];
       if (!item) return;
+      if (!item.link || isGoogleUrl(item.link)) return;
       urlInput.value = item.link; startRead(item.link);
     });
   });
@@ -2432,18 +2572,23 @@ async function resolveGoogleNewsPaperUrls(id) {
     const item = toResolve[i];
     setTimeout(async () => {
       const real = await resolveGoogleNewsUrl(item._gnResolve);
-      if (!real || real.includes("google.com")) return;
+      if (!real || isGoogleUrl(real)) {
+        // Resolution failed — leave card grey/unclickable, just clear the pending marker
+        item._gnResolve = null;
+        return;
+      }
       item.link = real;
       item.source = item.source || sourceDomain(real);
       item._gnResolve = null;
       item._skipEnrich = false;
-      // Update DOM card link if visible
+      // Update DOM card — remove pending state, make clickable
       const listEl = document.getElementById(`paper-list-${id}`);
       if (!listEl) return;
       listEl.querySelectorAll(".paper-article").forEach(card => {
         const idx = parseInt(card.dataset.idx, 10);
         if (ARTICLE_REGISTRY[idx] === item) {
-          // Update source label
+          card.classList.remove("paper-pending");
+          card.style.cursor = "pointer";
           const meta = card.querySelector(".paper-article-meta");
           if (meta) meta.textContent = `${item.source} · ${item.age}`;
         }
@@ -2455,7 +2600,7 @@ async function resolveGoogleNewsPaperUrls(id) {
 // Fetch og:image for paper articles that have no thumbnail
 async function enrichPaperImages(id) {
   // Skip enrichment for sources where og:image is useless (AP logo, CNN lite has none)
-  if (["ap","cnn"].includes(id)) return;
+  if (["ap","cnn","wsj"].includes(id)) return;
   const ps = PAPER_STATE[id];
   const noImg = ps.items.filter(item => !item.image && item.link && !item._skipEnrich && !item.link.includes("google.com"));
   // Up to 4, staggered — skip enrichment entirely if most items already have images
@@ -2466,6 +2611,8 @@ async function enrichPaperImages(id) {
       try {
         const ogImg = await fetchOgImage(item.link);
         if (!ogImg) return;
+        // Never store Google-hosted images
+        if (ogImg.includes("googleusercontent.com") || ogImg.includes("google.com/")) return;
         item.image = ogImg;
         // Update the DOM thumbnail if the card is still visible
         const listEl = document.getElementById(`paper-list-${id}`);
@@ -2511,12 +2658,16 @@ async function loadMorePaper(id) {
   if (spinner) spinner.classList.add("visible");
   try {
     let newItems = await NEWSPAPERS.find(p=>p.id===id).fetch(ps.page*10);
-    if (newItems?.some(i => i._gnRedirect)) {
-      newItems = await Promise.all(newItems.map(async item => {
-        if (!item._gnRedirect) return item;
-        const real = await resolveGoogleNewsUrl(item.link);
-        return { ...item, link: real, source: item.source || sourceDomain(real), _gnRedirect: false };
-      }));
+    // Clean up any items with unresolved google URLs — don't render them as clickable articles
+    if (newItems) {
+      newItems = newItems.filter(item => {
+        if (!item.link) return false;
+        try {
+          const h = new URL(item.link).hostname;
+          if (h.endsWith("google.com") || h.endsWith("googleusercontent.com")) return false;
+        } catch { return false; }
+        return true;
+      });
     }
     if (!newItems?.length) { ps.exhausted = true; document.getElementById(`paper-sentinel-${id}`)?.remove(); }
     else {
@@ -2924,7 +3075,12 @@ function toAmpUrl(url) {
     const u = new URL(url);
     const h = u.hostname;
     if (h.includes("reuters.com"))      return url.replace(/\/?(\?.*)?$/, "/amp$1");
-    if (h.includes("wsj.com"))          return url.replace("www.wsj.com", "amp.wsj.com");
+    if (h.includes("wsj.com")) {
+      // amp.wsj.com subdomain is dead (502). Use path-based AMP: www.wsj.com/amp/articles/...
+      const p = u.pathname; // e.g. /articles/some-slug
+      if (p.startsWith("/amp/")) return url; // already AMP path
+      return url.replace(u.origin + p, u.origin + "/amp" + p);
+    }
     if (h.includes("washingtonpost.com")) return url.replace(/\/?$/, "") + "?outputType=amp";
     if (!u.pathname.endsWith("/amp") && !u.pathname.endsWith("/amp/"))
       return url.replace(/\/?$/, "") + "/amp";
@@ -2972,7 +3128,7 @@ async function fetchMetaViaGoogle(url) {
     // Use Google News RSS to get description — first result for exact URL is usually the article
     const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent('"' + headline.split(" ").slice(0,6).join(" ") + '"')}&hl=en-US&gl=US&ceid=US:en`;
     const r = await Promise.race([
-      fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(rssUrl)}`),
+      fetch(`https://corsproxy.io/?${encodeURIComponent(rssUrl)}`),
       new Promise((_,rej) => setTimeout(rej, 7000))
     ]);
     if (!r.ok) return null;
@@ -3039,7 +3195,7 @@ async function fetchMetaOnly(url) {
   // Standard proxy approach for non-CF sites
   for (const proxyFn of [
     u => `https://corsproxy.io/?${encodeURIComponent(u)}`,
-    u => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,
+    u => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}&t=${Math.floor(Date.now()/300000)}`,
   ]) {
     try {
       const r = await Promise.race([
@@ -3194,6 +3350,29 @@ const FETCH_METHODS = [
     }
   },
   {
+    // Jina on AMP URL — Jina fetches amp.wsj.com as Googlebot server-side.
+    // WSJ can't block Googlebot without deindexing; AMP delivers full article HTML.
+    // This is the core technique archive.ph uses for WSJ.
+    name: "Jina+AMP",
+    fetch: async (url) => {
+      const ampUrl = toAmpUrl(url);
+      if (!ampUrl || ampUrl === url) throw new Error("No AMP URL available");
+      const r = await fetch(`https://r.jina.ai/${ampUrl}`, {
+        headers: {
+          "Accept": "text/plain",
+          "X-Return-Format": "markdown",
+          "X-User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+          "X-Referer": "https://www.google.com/search?q=" + encodeURIComponent(url.split("/").pop().replace(/-/g," ")),
+        }
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const t = await r.text();
+      if (t.includes("error 401") || t.includes("Unauthorized") || t.includes("CAPTCHA")) throw new Error("Blocked");
+      if (t.length < 500) throw new Error("Too short");
+      return { type: "markdown", text: t };
+    }
+  },
+  {
     // Jina via corsproxy — fallback if direct Jina hits CORS
     name: "Jina+proxy",
     fetch: async (url) => {
@@ -3208,48 +3387,27 @@ const FETCH_METHODS = [
     }
   },
   {
-    // Social referral bypass — WSJ allows full access to traffic appearing to come
-    // from Facebook/Twitter (for virality). Google referrer is largely blocked now.
-    // Try each social referrer in turn; first clean response wins.
-    name: "SocialRef",
+    // archive.ph via Jina — Jina fetches the archive.ph snapshot and returns clean markdown.
+    // archive.ph snapshots bypass paywalls because they were crawled when the article was free.
+    // Format confirmed working: archive.ph/{timestamp}/{url}
+    name: "ArchiveJina",
     fetch: async (url) => {
-      const referrers = [
-        "https://www.facebook.com/",
-        "https://t.co/",
-        "https://twitter.com/",
-        "https://www.google.com/",
-      ];
-      for (const referer of referrers) {
-        try {
-          const r = await fetch(`https://corsproxy.io/?${encodeURIComponent(url)}`, {
-            headers: {
-              "x-cors-headers": JSON.stringify({
-                "Referer": referer,
-                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-              })
-            }
-          });
-          if (!r.ok) continue;
-          const t = await r.text();
-          if (t.length < 800) continue;
-          if (/sign in to read|subscribe to read|subscription required|you have \d+ free article/i.test(t.slice(0, 5000))) continue;
-          return { type: "html", text: t };
-        } catch {}
-      }
-      throw new Error("All referrers blocked");
-    }
-  },
-  {
-    // removepaywall.com — archive-based paywall bypass with direct URL API
-    name: "RemovePaywall",
-    fetch: async (url) => {
-      const rpUrl = `https://www.removepaywall.com/search?url=${encodeURIComponent(url)}`;
-      const r = await fetch(`https://corsproxy.io/?${encodeURIComponent(rpUrl)}`);
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const t = await r.text();
-      if (t.length < 800) throw new Error("Too short");
-      if (/sign in|subscribe|log in|paywall/i.test(t.slice(0, 3000))) throw new Error("Paywall");
-      return { type: "html", text: t };
+      // Send archive.ph/newest/{url} directly to Jina — Jina follows the redirect
+      // to the timestamped snapshot and returns clean markdown. No corsproxy needed,
+      // which avoids the 429 rate limit corsproxy hits against archive.ph.
+      const newestUrl = `https://archive.ph/newest/${url}`;
+      const jinaR = await Promise.race([
+        fetch(`https://r.jina.ai/${newestUrl}`, {
+          headers: { "Accept": "text/plain", "X-Return-Format": "markdown" }
+        }),
+        new Promise((_,rej) => setTimeout(rej, 15000))
+      ]);
+      if (!jinaR.ok) throw new Error(`Jina HTTP ${jinaR.status}`);
+      const md = await jinaR.text();
+      if (md.length < 300) throw new Error("Too short");
+      // Reject if Jina returned a subscription wall instead of article content
+      if (md.includes("Subscribe now") && md.length < 1000) throw new Error("Paywall");
+      return { type: "markdown", text: md };
     }
   },
   {
@@ -3265,11 +3423,20 @@ const FETCH_METHODS = [
   {
     name: "AllOrigins",
     fetch: async (url) => {
-      const r = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}&timestamp=${Date.now()}`);
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const j = await r.json();
-      if (!j.contents || j.contents.length < 800) throw new Error("Too short");
-      return { type: "html", text: j.contents };
+      // Try corsproxy first (works from null/local origin), fall back to allorigins
+      for (const proxyUrl of [
+        `https://corsproxy.io/?${encodeURIComponent(url)}`,
+        `https://corsproxy.io/?${encodeURIComponent(url)}`,
+      ]) {
+        try {
+          const r = await fetch(proxyUrl);
+          if (!r.ok) continue;
+          const text = proxyUrl.includes("allorigins") ? (await r.json()).contents : await r.text();
+          if (!text || text.length < 800) continue;
+          return { type: "html", text };
+        } catch {}
+      }
+      throw new Error("All proxies failed");
     }
   },
   {
@@ -3277,7 +3444,11 @@ const FETCH_METHODS = [
     fetch: async (url) => {
       const ampUrl = toAmpUrl(url);
       if (!ampUrl || ampUrl === url + "/amp") throw new Error("No known AMP URL");
-      const r = await fetch(`https://corsproxy.io/?${encodeURIComponent(ampUrl)}`);
+      // Send Referer: google.com — WSJ/FT honor "First Click Free" for traffic arriving from Google.
+      // corsproxy forwards this header server-side, which a browser fetch() cannot do directly.
+      const r = await fetch(`https://corsproxy.io/?${encodeURIComponent(ampUrl)}`, {
+        headers: { "Referer": "https://www.google.com", "X-Forwarded-For": "66.249.66.1" }
+      });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const t = await r.text();
       if (t.length < 800) throw new Error("AMP too short");
@@ -3583,7 +3754,7 @@ async function searchGoogleNews(query) {
   try {
     const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=en-US&gl=US&ceid=US:en`;
     const r = await Promise.race([
-      fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(rssUrl)}`),
+      fetch(`https://corsproxy.io/?${encodeURIComponent(rssUrl)}`),
       new Promise((_,rej) => setTimeout(rej, 8000))
     ]);
     if (!r.ok) return null;
@@ -3619,43 +3790,18 @@ async function searchGoogleNews(query) {
 async function fetchReutersApi(url) {
   try {
     if (!url.includes("reuters.com")) return null;
-    // Extract article ID from Reuters URL path
-    // Reuters URLs: /world/us/some-slug-YYYY-MM-DD/ or /article/idXXXXX
-    const path = new URL(url).pathname;
-    // Try the Reuters article API - returns JSON with full article body
-    const articleId = path.match(/\/article\/(id[A-Z0-9]+)/)?.[1];
-    if (articleId) {
-      const apiUrl = `https://www.reuters.com/pf/api/v3/content/fetch/articles-by-id-v1?query=${encodeURIComponent(JSON.stringify({id: articleId}))}&d=199`;
-      const r = await Promise.race([
-        fetch(`https://corsproxy.io/?${encodeURIComponent(apiUrl)}`),
-        new Promise((_,rej) => setTimeout(rej, 8000))
-      ]);
-      if (r.ok) {
-        const j = await r.json();
-        const body = j?.result?.articles?.[0]?.body;
-        if (body && body.length > 200) return { type: "html", text: body };
-      }
-    }
-    // Fallback: try Reuters' Arc GraphQL/content API with slug
-    const slugMatch = path.match(/\/([^/]+)\/?$/);
-    if (slugMatch) {
-      const slug = slugMatch[1];
-      const arcUrl = `https://www.reuters.com/arc/outboundfeeds/v3/article/${slug}/?outputType=json`;
-      const r2 = await Promise.race([
-        fetch(`https://corsproxy.io/?${encodeURIComponent(arcUrl)}`),
-        new Promise((_,rej) => setTimeout(rej, 8000))
-      ]);
-      if (r2.ok) {
-        const j2 = await r2.json();
-        // Arc CMS format
-        const elements = j2?.content_elements || j2?.result?.content_elements || [];
-        const paras = elements.filter(e => e.type === "text").map(e => e.content).filter(Boolean);
-        if (paras.length > 2) {
-          const html = paras.map(p => `<p>${p}</p>`).join("");
-          return { type: "html", text: `<article>${html}</article>` };
-        }
-      }
-    }
+    // Jina fetches Reuters cleanly — Reuters is not in JINA_BLOCKED
+    const r = await Promise.race([
+      fetch(`https://r.jina.ai/${url}`, {
+        headers: { "Accept": "text/plain", "X-Return-Format": "markdown" }
+      }),
+      new Promise((_,rej) => setTimeout(rej, 12000))
+    ]);
+    if (!r.ok) return null;
+    const md = await r.text();
+    if (md.length < 300) return null;
+    if (md.includes("Subscribe") && md.length < 800) return null;
+    return { type: "markdown", text: md };
   } catch {}
   return null;
 }
@@ -3797,6 +3943,14 @@ async function raceFetch(url) {
 }
 
 async function fetchArticle(url, _isRetry = false) {
+  // Guard: never fetch Google URLs (images, news blobs, search pages) as articles
+  try {
+    const _gu = new URL(url);
+    if (_gu.hostname.endsWith("google.com") || _gu.hostname.endsWith("googleusercontent.com")) {
+      console.warn("[fetchArticle] blocked google URL:", url);
+      return null;
+    }
+  } catch {}
   const loadingSub = document.getElementById("loadingSub");
   const host = (() => { try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return ""; } })();
 
@@ -3819,65 +3973,25 @@ async function fetchArticle(url, _isRetry = false) {
 
   // ── Tier 3b: WSJ/Barron's ────────────────────────────────────────────────
   else if (inSet(JINA_BLOCKED)) {
-    // archive.ph newest snapshot — confirmed working for WSJ
-    // Format: archive.ph/{timestamp}/{url} — we get the latest via /newest/ redirect
-    loadingSub.textContent = "Trying archive.ph…";
-    logMethod("Archive.ph", "pending", "Looking up snapshot…");
-    try {
-      // Step 1: ask archive.ph for newest snapshot URL
-      const newestUrl = `https://archive.ph/newest/${url}`;
-      const r1 = await Promise.race([
-        fetch(`https://corsproxy.io/?${encodeURIComponent(newestUrl)}`),
-        new Promise((_,rej) => setTimeout(() => rej(new Error("Timeout")), 12000))
-      ]);
-      if (!r1.ok) throw new Error(`HTTP ${r1.status}`);
-      const html1 = await r1.text();
-      // Extract the canonical snapshot URL from the response
-      // archive.ph redirects to a URL like: https://archive.ph/AbCd1
-      // or embeds it in <link rel="canonical"> or <meta property="og:url">
-      let snapUrl = null;
-      const canonMatch = html1.match(/<link[^>]+rel=["']canonical["'][^>]+href=["'](https:\/\/archive\.ph\/[A-Za-z0-9]+)["']/i)
-                      || html1.match(/<meta[^>]+property=["']og:url["'][^>]+content=["'](https:\/\/archive\.ph\/[A-Za-z0-9]+)["']/i);
-      if (canonMatch) snapUrl = canonMatch[1];
-      // Also check for timestamped snapshot links like archive.ph/20260309021629/https://...
-      if (!snapUrl) {
-        const tsMatch = html1.match(/https:\/\/archive\.ph\/\d{14}\/https?:\/\/[^\s"'<]+/);
-        if (tsMatch) snapUrl = tsMatch[0];
-      }
-      // If the response itself is the article (corsproxy followed the redirect), use it directly
-      if (!snapUrl && html1.length > 2000 && !html1.includes("archive.ph/newest")) {
-        snapUrl = newestUrl; // treat the response we already have as valid
-      }
-      if (!snapUrl) throw new Error("No snapshot found");
-
-      // Step 2: fetch the snapshot (may already have it from step 1)
-      let snapHtml = html1;
-      if (snapUrl !== newestUrl) {
-        const r2 = await Promise.race([
-          fetch(`https://corsproxy.io/?${encodeURIComponent(snapUrl)}`),
-          new Promise((_,rej) => setTimeout(() => rej(new Error("Timeout")), 12000))
-        ]);
-        if (!r2.ok) throw new Error(`HTTP ${r2.status}`);
-        snapHtml = await r2.text();
-      }
-      if (snapHtml.length < 800) throw new Error("Snapshot too short");
-      const article = parseResult({ type: "html", text: snapHtml }, url);
-      if (article) { logMethod("Archive.ph", "ok", `${article.paragraphs.length} paragraphs`); return article; }
-      logMethod("Archive.ph", "fail", "No content extracted");
-    } catch(e) { logMethod("Archive.ph", "fail", e.message || "Network error"); }
-
-    // Fall back to Jina+gcache
-    loadingSub.textContent = "Trying Google Cache…";
-    logMethod("Jina+gcache", "pending", "Connecting…");
-    try {
-      const result = await Promise.race([
-        FETCH_METHODS.find(m => m.name === "Jina+gcache").fetch(url),
-        new Promise((_,rej) => setTimeout(() => rej(new Error("Timeout")), 15000))
-      ]);
-      const article = parseResult(result, url);
-      if (article) { logMethod("Jina+gcache", "ok", `${article.paragraphs.length} paragraphs`); return article; }
-      logMethod("Jina+gcache", "fail", "No content");
-    } catch(e) { logMethod("Jina+gcache", "fail", e.message || "Network error"); }
+    // Try archive.ph newest snapshot via Jina (Jina follows redirects cleanly)
+    // Then direct archive.ph via corsproxy, then Google Cache
+    for (const [name, label, fn, timeout] of [
+      ["ArchiveJina", "Trying archive (Jina)…",
+        () => FETCH_METHODS.find(m=>m.name==="ArchiveJina").fetch(url), 16000],
+      ["Archive.ph",  "Trying archive.ph…",
+        () => FETCH_METHODS.find(m=>m.name==="Archive.ph").fetch(url), 14000],
+      ["Jina+gcache", "Trying Google Cache…",
+        () => FETCH_METHODS.find(m=>m.name==="Jina+gcache").fetch(url), 15000],
+    ]) {
+      loadingSub.textContent = label;
+      logMethod(name, "pending", "Connecting…");
+      try {
+        const result = await Promise.race([fn(), new Promise((_,rej)=>setTimeout(()=>rej(new Error("Timeout")),timeout))]);
+        const article = parseResult(result, url);
+        if (article) { logMethod(name, "ok", `${article.paragraphs.length} paragraphs`); return article; }
+        logMethod(name, "fail", "No content");
+      } catch(e) { logMethod(name, "fail", e.message || "Network error"); }
+    }
   }
 
   // ── Reuters: Jina markdown → Jina+proxy → Wayback ───────────────────────
@@ -3994,6 +4108,7 @@ async function fetchArticle(url, _isRetry = false) {
 // ── Main read flow ────────────────────────────────────────────────────────────
 
 async function startRead(rawUrl, addToHistory = true) {
+  if (!rawUrl || isGoogleUrl(rawUrl)) return; // silently ignore unresolved google URLs
   let url = rawUrl.trim();
   if (!url) return;
   if (!url.startsWith("http")) url = "https://" + url;
@@ -4266,8 +4381,8 @@ async function runSearch(query) {
   const fetchFeed = async ({ url, source }) => {
     // Try allorigins then corsproxy — both handle CORS
     for (const proxyFn of [
-      u => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,
       u => `https://corsproxy.io/?${encodeURIComponent(u)}`,
+      u => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,
     ]) {
       try {
         const r = await Promise.race([
@@ -4368,6 +4483,64 @@ async function copyHeadlineLink() {
     if (btn) { const orig = btn.textContent; btn.textContent = "✓ Copied"; setTimeout(() => btn.textContent = orig, 1800); }
   } catch { window.prompt("Copy:", text); }
 }
+
+// WSJ DIAGNOSTIC — remove after testing
+async function wsjDiag() {
+  const results = [];
+  const tests = [
+    { label: "corsproxy + wsj.com/news/world HTML", 
+      fn: async () => {
+        const r = await fetch("https://corsproxy.io/?" + encodeURIComponent("https://www.wsj.com/news/world"), {signal: AbortSignal.timeout(10000)});
+        const t = await r.text();
+        return `HTTP ${r.status}, length ${t.length}, has articles: ${t.includes("wsj.com/articles")}`;
+      }
+    },
+    { label: "corsproxy + wsj.com sitemap",
+      fn: async () => {
+        const r = await fetch("https://corsproxy.io/?" + encodeURIComponent("https://www.wsj.com/news-sitemap.xml"), {signal: AbortSignal.timeout(10000)});
+        const t = await r.text();
+        return `HTTP ${r.status}, length ${t.length}, has loc: ${t.includes("<loc>")}`;
+      }
+    },
+    { label: "corsproxy + wsj.com/sitemap.xml",
+      fn: async () => {
+        const r = await fetch("https://corsproxy.io/?" + encodeURIComponent("https://www.wsj.com/sitemap.xml"), {signal: AbortSignal.timeout(10000)});
+        const t = await r.text();
+        return `HTTP ${r.status}, length ${t.length}, snippet: ${t.slice(0,200)}`;
+      }
+    },
+    { label: "corsproxy + wsj RSS v2 (paid)",
+      fn: async () => {
+        const r = await fetch("https://corsproxy.io/?" + encodeURIComponent("https://feeds.a.dj.com/rss/WSJcomUSBusiness.xml"), {signal: AbortSignal.timeout(10000)});
+        const t = await r.text();
+        const date = t.match(/<lastBuildDate>([^<]+)<\/lastBuildDate>/)?.[1] || "no date";
+        return `HTTP ${r.status}, lastBuildDate: ${date}`;
+      }
+    },
+    { label: "corsproxy + wsj.com/news page (mobile UA)",
+      fn: async () => {
+        const r = await fetch("https://corsproxy.io/?" + encodeURIComponent("https://www.wsj.com/news"), {signal: AbortSignal.timeout(10000)});
+        const t = await r.text();
+        return `HTTP ${r.status}, length ${t.length}, has wsj/articles: ${(t.match(/wsj\.com\/articles/g)||[]).length}`;
+      }
+    },
+    { label: "allorigins + wsj.com/news/world",
+      fn: async () => {
+        const r = await fetch("https://api.allorigins.win/get?url=" + encodeURIComponent("https://www.wsj.com/news/world"), {signal: AbortSignal.timeout(10000)});
+        const j = await r.json();
+        const t = j.contents || "";
+        return `HTTP ${r.status}, length ${t.length}, has articles: ${t.includes("wsj.com/articles")}`;
+      }
+    },
+  ];
+  for (const t of tests) {
+    try { results.push(t.label + ": " + await t.fn()); }
+    catch(e) { results.push(t.label + ": ERROR " + e.message); }
+  }
+  alert(results.join("\n\n"));
+}
+window._wsjDiag = wsjDiag;
+
 </script>
 </body>
 </html>
