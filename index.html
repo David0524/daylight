@@ -1709,49 +1709,47 @@ const CAT_ITEMS = {};
 
 // Decode a Google News RSS article URL (CBMi... format) to the real article URL
 function decodeGoogleNewsUrl(gnUrl) {
+  // Google News RSS <link> elements are base64-encoded protobuf blobs.
+  // Rather than fragile protobuf parsing, extract the real URL from the
+  // RSS item's <source url="..."> attribute or description href, which
+  // Google News always includes alongside the encoded link.
+  // This function is kept for legacy callers but resolution now happens
+  // in fetchRssPaper via extractGoogleNewsRealUrl on the raw XML item.
   try {
     if (!gnUrl.includes("news.google.com")) return gnUrl;
-    // Extract the base64 payload from the path
-    const match = gnUrl.match(/articles\/([A-Za-z0-9_-]+)/);
-    if (!match) return null;
-    // base64url → base64 standard
-    const b64 = match[1].replace(/-/g, "+").replace(/_/g, "/");
-    const pad = b64.length % 4 === 0 ? "" : "=".repeat(4 - b64.length % 4);
-    const binary = atob(b64 + pad);
-    // Walk the protobuf bytes to find a field containing a URL
-    // Field 1 (tag 0x0a = field 1, wire type 2 = length-delimited)
-    const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
-    let i = 0;
-    while (i < bytes.length) {
-      const tag = bytes[i++];
-      const fieldNum = tag >> 3;
-      const wireType = tag & 0x7;
-      if (wireType === 2) {
-        // length-delimited
-        let len = 0, shift = 0;
-        while (i < bytes.length) {
-          const b = bytes[i++];
-          len |= (b & 0x7f) << shift;
-          if (!(b & 0x80)) break;
-          shift += 7;
-        }
-        const strBytes = bytes.slice(i, i + len);
-        i += len;
-        const str = new TextDecoder().decode(strBytes);
-        if (str.startsWith("http://") || str.startsWith("https://")) {
-          if (!str.includes("news.google.com")) return str;
-        }
-      } else if (wireType === 0) {
-        // varint — skip
-        while (i < bytes.length && bytes[i++] & 0x80) {}
-      } else if (wireType === 5) {
-        i += 4;
-      } else if (wireType === 1) {
-        i += 8;
-      } else break;
-    }
-    return null;
+    return null; // signal to caller to use item-level extraction instead
   } catch { return null; }
+}
+
+// Extract the real article URL from a Google News RSS <item> element.
+// Google News encodes the link as a protobuf blob but always includes
+// the real URL in at least one of: <source url>, description <a href>,
+// or the title <a href> in CDATA content.
+function extractGoogleNewsRealUrl(item, preferDomain) {
+  // 1. <source url="https://..."> — most reliable
+  const sourceEl = item.querySelector("source");
+  if (sourceEl) {
+    const sourceUrl = sourceEl.getAttribute("url");
+    if (sourceUrl && !sourceUrl.includes("news.google.com")) return sourceUrl;
+  }
+
+  // 2. First <a href> in the description CDATA that matches preferDomain
+  const desc = item.querySelector("description")?.textContent || "";
+  const hrefMatches = [...desc.matchAll(/href=["']([^"']+)["']/gi)].map(m => m[1]);
+  for (const href of hrefMatches) {
+    if (!href.includes("news.google.com") && (!preferDomain || href.includes(preferDomain))) return href;
+  }
+  // Any non-google href
+  for (const href of hrefMatches) {
+    if (!href.includes("news.google.com")) return href;
+  }
+
+  // 3. Raw <link> text — sometimes Google News puts the real URL here directly
+  const rawLink = item.querySelector("link")?.textContent?.trim() || "";
+  if (rawLink && !rawLink.includes("news.google.com")) return rawLink;
+
+  // 4. Fallback — return the google news link itself; caller will handle
+  return rawLink || null;
 }
 
 const MARKET_CACHE_KEY = "marketData";
@@ -2206,24 +2204,22 @@ async function fetchRssPaper(feedUrl, after, sourceOverride) {
       const items = [...xml.querySelectorAll("item, entry")];
       return items.slice(after, after + 10).map(item => {
         const title = (item.querySelector("title")?.textContent || "").replace(/<!\[CDATA\[|\]\]>/g,"").trim();
-        const link  = item.querySelector("link")?.getAttribute("href") || item.querySelector("link")?.textContent?.trim() || "";
+        const rawLink = item.querySelector("link")?.getAttribute("href") || item.querySelector("link")?.textContent?.trim() || "";
         const pubDate = item.querySelector("pubDate,published,updated")?.textContent?.trim() || "";
         const thumb = item.querySelector("thumbnail,[medium='image']")?.getAttribute("url")
           || item.querySelector("enclosure[type^='image']")?.getAttribute("url")
           || ((item.querySelector("encoded")?.textContent||"").match(/<img[^>]+src=["']([^"']+)["']/i)||[])[1] || "";
         const desc = (item.querySelector("description")?.textContent||"").replace(/<[^>]+>/g,"").trim().slice(0,200);
-        if (!title || !link) return null;
+        if (!title) return null;
         const pd = pubDate ? new Date(pubDate).toISOString() : "";
-        // Decode Google News redirect URLs (CBMi... format) to real article URLs
-        let realLink = link;
-        if (link.includes("news.google.com")) {
-          realLink = decodeGoogleNewsUrl(link) || link;
-          // If still a google.com URL, mark for async resolution
-          if (realLink.includes("news.google.com")) realLink = link;
+        // For Google News RSS, extract the real article URL from the item
+        let realLink = rawLink;
+        if (rawLink.includes("news.google.com") || feedUrl.includes("news.google.com")) {
+          realLink = extractGoogleNewsRealUrl(item, sourceOverride) || rawLink;
         }
+        if (!realLink) return null;
         return { title, link: realLink, desc, image: thumb, pubDate: pd,
-                 age: pd ? timeAgo(pd) : "", source: sourceOverride || sourceDomain(realLink),
-                 _gnRedirect: realLink.includes("news.google.com") };
+                 age: pd ? timeAgo(pd) : "", source: sourceOverride || sourceDomain(realLink) };
       }).filter(Boolean);
     } catch {}
   }
@@ -2252,7 +2248,7 @@ const NEWSPAPERS = [
   },
   { id:"nyt",      name:"NYT",       emoji:"📰", fetch: (after) => fetchRssPaper("https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml",        after, "nytimes.com")      },
   { id:"bbc",      name:"BBC",       emoji:"🇬🇧", fetch: (after) => fetchRssPaper("https://feeds.bbci.co.uk/news/world/rss.xml",                   after, "bbc.co.uk")        },
-  { id:"wsj",      name:"WSJ",       emoji:"📈", fetch: (after) => fetchRssPaper("https://feeds.a.dj.com/rss/RSSWorldNews.xml",                      after, "wsj.com")          },
+  { id:"wsj", name:"WSJ", emoji:"📈", fetch: (after) => fetchRssPaper("https://news.google.com/rss/search?q=site:wsj.com&hl=en-US&gl=US&ceid=US:en", after, "wsj.com") },
   { id:"wapo",     name:"WaPo",      emoji:"🏛", fetch: (after) => fetchRssPaper("https://feeds.washingtonpost.com/rss/national",                    after, "washingtonpost.com")},
   { id:"cnn", name:"CNN", emoji:"🔴",
     fetch: async (after) => {
@@ -2267,7 +2263,7 @@ const NEWSPAPERS = [
           let html;
           if (proxy.includes("allorigins")) { const j = await r.json(); html = j.contents; }
           else html = await r.text();
-          if (!html?.includes("lite.cnn.com")) continue;
+          if (!html || html.length < 500) continue;
           const doc = new DOMParser().parseFromString(html, "text/html");
           const links = [...doc.querySelectorAll("a[href]")]
             .map(a => ({ href: a.getAttribute("href"), text: a.textContent.trim() }))
@@ -2681,6 +2677,84 @@ function extractArticle(html, url) {
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, "text/html");
 
+  // ── CNN-specific extraction ───────────────────────────────────────────────
+  try {
+    const host = new URL(url).hostname.replace(/^www\./,"");
+    if (host === "cnn.com" || host.endsWith(".cnn.com")) {
+      // Grab meta before nuking the DOM
+      const headline = doc.querySelector("meta[property='og:title']")?.content ||
+        doc.querySelector("h1")?.textContent?.trim() || doc.title || "";
+      const heroImage = doc.querySelector("meta[property='og:image']")?.content || "";
+      const date = doc.querySelector("meta[property='article:published_time']")?.content ||
+        doc.querySelector("time")?.getAttribute("datetime") || "";
+      const author = doc.querySelector("[class*='byline__name']")?.textContent?.trim() || "";
+
+      // Nuke everything that isn't article content
+      doc.querySelectorAll([
+        "script","style","noscript","iframe","form",
+        "header","footer","nav","aside",
+        "[class*='header']","[class*='footer']","[class*='navigation']","[class*='nav-']",
+        "[class*='sidebar']","[class*='related']","[class*='outbrain']","[class*='taboola']",
+        "[class*='ad-']","[class*='__ad']","[id*='ad-']","[class*='-ad']",
+        "[class*='social']","[class*='share']","[class*='follow']",
+        "[class*='video']","[class*='gallery']","[class*='carousel']",
+        "[class*='ticker']","[class*='breaking']","[class*='banner']",
+        "[class*='comment']","[class*='promo']","[class*='signup']",
+        "[class*='newsletter']","[class*='subscribe']","[class*='cookie']",
+        "[class*='consent']","[class*='overlay']","[class*='modal']",
+        "[class*='podcast']","[class*='app-']","[class*='-app']",
+        "[class*='qr-']","[aria-label='Advertisement']",
+      ].join(",")).forEach(el => el.remove());
+
+      // Find the article body — try specific selectors first, fall back to largest <p> cluster
+      let bodyEl =
+        doc.querySelector("[class*='article__content-container']") ||
+        doc.querySelector("[class*='article__content']") ||
+        doc.querySelector("[data-zone-label='Article Body']") ||
+        doc.querySelector("[data-editable='body']") ||
+        doc.querySelector("[class*='paragraph--type--text']") ||
+        doc.querySelector(".zn-body__paragraph");
+
+      // If none matched, find the div with the most <p> children
+      if (!bodyEl) {
+        let best = null, bestCount = 0;
+        doc.querySelectorAll("div,section,article").forEach(el => {
+          const n = el.querySelectorAll("p").length;
+          if (n > bestCount && el.closest("main, [role='main'], article, .layout__main, [class*='content']")) {
+            bestCount = n; best = el;
+          }
+        });
+        bodyEl = best;
+      }
+
+      if (bodyEl) {
+        // Patterns that indicate non-article text
+        const SKIP = /^(Sign up|Subscribe|Newsletter|Related:|Watch:|Read more:|Follow CNN|©|CNN Sans|Terms of Use|Privacy Policy|Manage Cookies|Ad Choices|Accessibility|Scan the QR|By clicking|Your CNN|TrumpFacts|Facts First|CNN Polls|Chasing Life|The Assignment|All There Is|How relevant|Did you encounter|Video player|Ad never|Ad prevented|Content moved|Your effort)/i;
+
+        const paragraphs = [];
+        const seen = new Set();
+        bodyEl.querySelectorAll("p,h2,h3").forEach(el => {
+          // Skip if inside any remaining junk containers
+          if (el.closest("ul.nav, [class*='footer'], [class*='legal'], [class*='terms'], [class*='feedback']")) return;
+          const text = el.textContent.trim().replace(/\s+/g," ");
+          if (!text || text.length < 25 || seen.has(text)) return;
+          if (SKIP.test(text)) return;
+          // Skip lines that are just a list of nav items (lots of bullets, short phrases)
+          if (text.split("·").length > 4 || text.split("*").length > 4) return;
+          seen.add(text);
+          paragraphs.push({ tag: el.tagName.toLowerCase() === "p" ? "p" : "h2", text });
+        });
+
+        if (paragraphs.length >= 2) {
+          const wordCount = paragraphs.reduce((n,p) => n + p.text.split(/\s+/).length, 0);
+          return { headline, author, date, heroImage, paragraphs, wordCount,
+                   readTime: Math.max(1, Math.round(wordCount/200)), url };
+        }
+      }
+    }
+  } catch {}
+  // ── end CNN ───────────────────────────────────────────────────────────────
+
   ["script","style","nav","header","footer","iframe","form","noscript",
    ".ad",".ads",".advertisement",".modal",".overlay",
    ".popup",".newsletter",".comments",
@@ -2692,6 +2766,12 @@ function extractArticle(html, url) {
    "[class*='GameStrip']","[class*='game-strip']","[class*='score-strip']",
    "[class*='standings']","[class*='Standings']",
    "[data-testid*='score']","[data-testid*='game']",
+   // Generic boilerplate patterns
+   "[class*='related-content']","[class*='more-stories']","[class*='recommended']",
+   "[class*='trending']","[class*='most-popular']","[class*='sponsored']",
+   "[class*='outbrain']","[class*='taboola']","[class*='zergnet']",
+   "[class*='share-bar']","[class*='social-share']","[class*='follow-us']",
+   "[aria-label='Advertisement']","[data-ad-placeholder]",
   ].forEach(s => { try { doc.querySelectorAll(s).forEach(el => el.remove()); } catch {} });
 
   const meta = (n) =>
@@ -3042,6 +3122,30 @@ const FETCH_METHODS = [
     }
   },
   {
+    // Google referral bypass — WSJ and some other paywalls allow full access
+    // when the request appears to come from a Google search result.
+    // corsproxy.io forwards the x-cors-headers we pass, which lets us inject
+    // a Referer header that the target server sees as coming from Google.
+    name: "GoogleRef",
+    fetch: async (url) => {
+      // corsproxy forwards headers specified in x-cors-headers as JSON
+      const r = await fetch(`https://corsproxy.io/?${encodeURIComponent(url)}`, {
+        headers: {
+          "x-cors-headers": JSON.stringify({
+            "Referer": "https://www.google.com/",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+          })
+        }
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const t = await r.text();
+      if (t.length < 800) throw new Error("Too short");
+      // If we got a paywall/login page, bail
+      if (/sign in|subscribe|log in|paywall|subscription required/i.test(t.slice(0, 3000))) throw new Error("Paywall");
+      return { type: "html", text: t };
+    }
+  },
+  {
     name: "corsproxy.io",
     fetch: async (url) => {
       const r = await fetch(`https://corsproxy.io/?${encodeURIComponent(url)}`);
@@ -3121,14 +3225,12 @@ function parseJinaMarkdown(text, url) {
   const seen = new Set();
   let headline = "", author = "", date = "", heroImage = "";
 
-  // Extract metadata from Jina header block
-  for (const line of lines.slice(0, 20)) {
+  // Extract metadata from Jina header block (first 40 lines)
+  for (const line of lines.slice(0, 40)) {
     const m = line.match(/^Title:\s*(.+)/i);
     if (m) {
       let t = m[1].trim();
-      // Strip trailing " | Site Name", " - Site Name", " · Site Name" patterns
       t = t.replace(/\s*[|\-–—·]\s*(by .+|.{2,30})\s*$/i, "");
-      // Strip Medium-style " | by Author | Month, Year | Medium"
       t = t.replace(/\s*\|\s*by .+$/i, "");
       headline = t.trim();
     }
@@ -3137,11 +3239,17 @@ function parseJinaMarkdown(text, url) {
     const img = line.match(/^Image:\s*(https?:\/\/\S+)/i); if (img) heroImage = img[1];
   }
 
-  // Find where markdown content starts (after the header block)
+  // Find where article body starts — skip ALL Jina header metadata and pre-article nav.
+  // Content starts AFTER the first # or ## heading (the article headline).
+  // Everything before that heading is metadata, nav, bullets, etc. — discard it all.
   let contentStart = 0;
   for (let i = 0; i < lines.length; i++) {
-    if (lines[i].match(/^#{1,2}\s/) && i > 3) { contentStart = i; break; }
     if (lines[i].trim() === "Markdown Content:") { contentStart = i + 1; break; }
+    // First proper heading after line 3 marks the article headline — capture it, then skip past
+    if (lines[i].match(/^#{1,2}\s/) && i > 3) {
+      if (!headline) headline = lines[i].replace(/^#+\s*/, "").trim();
+      contentStart = i + 1; break;
+    }
   }
 
   // Parse markdown into paragraphs
@@ -3204,6 +3312,21 @@ function parseJinaMarkdown(text, url) {
     if (/^When you visit our website or app, we store cookies/i.test(trimmed)) break;
     if (/^Give a little\. Get a lot\./i.test(trimmed)) break;
     if (/^Already have NPR\+/i.test(trimmed)) continue;
+    // CNN-specific cruft
+    if (/^(TrumpFacts|Facts First|CNN Polls|MoviesTelevision|Your CNN account|Sign in to your CNN)/i.test(trimmed)) continue;
+    if (/TrumpFacts.*CNN Polls|CNN Polls.*Elections|Elections.*Epstein/i.test(trimmed)) continue;
+    if (/^(Chasing Life|The Assignment|All There Is|Anderson Cooper|Sanjay Gupta|Audie Cornish)/i.test(trimmed)) continue;
+    if (/^(Facebook Tweet|TweetEmailLink|EmailLink Threads|People in entertainment)/i.test(trimmed)) continue;
+    if (/^(How relevant is this ad|\d\.\s*How relevant|\d\.\s*Did you encounter)/i.test(trimmed)) continue;
+    if (/^(Video player was slow|Ad never loaded|Ad prevented|Content moved|Ad was repetitive|Your effort and contribution)/i.test(trimmed)) continue;
+    if (/^(Video content never loaded|Ad froze|Video content did not start|Audio on ad|Other issues)/i.test(trimmed)) continue;
+    if (/Elections Calendar$|Elections Tracker$|Redistricting Tracker$|Epstein Files$/i.test(trimmed)) continue;
+    if (/^\d{4} Elections|^2026 Elections/i.test(trimmed)) continue;
+    // CNN footer — concatenated strings like "Terms of UsePrivacy PolicyManage Cookies..."
+    if (/Terms of Use.*Privacy Policy|Privacy Policy.*Manage Cookies|CNN Sans.*Cable News/i.test(trimmed)) break;
+    if (/^(Terms of Use|Privacy Policy|Manage Cookies|Ad Choices|Accessibility & CC|CNN Sans|Cable News Network)/i.test(trimmed)) break;
+    if (/^(Scan the QR code|By clicking Agree|By clicking "Agree"|For privacy options)/i.test(trimmed)) break;
+    if (/^↗https?:\/\//i.test(trimmed)) continue;
     // BBC-specific cruft
     if (/^The BBC is in multiple languages/i.test(trimmed)) break; // everything after this is footer
     if (/^Read the BBC (in your own language|in )/i.test(trimmed)) continue;
@@ -3589,6 +3712,17 @@ async function fetchArticle(url, _isRetry = false) {
 
   // ── Tier 3b: WSJ/Barron's ────────────────────────────────────────────────
   else if (inSet(JINA_BLOCKED)) {
+    // Try Google referral bypass first — faster than gcache when it works
+    loadingSub.textContent = "Trying Google referral…";
+    logMethod("GoogleRef", "pending", "Connecting…");
+    try {
+      const result = await Promise.race([FETCH_METHODS.find(m=>m.name==="GoogleRef").fetch(url), new Promise((_,rej)=>setTimeout(()=>rej(new Error("Timeout")),10000))]);
+      const article = parseResult(result, url);
+      if (article) { logMethod("GoogleRef", "ok", `${article.paragraphs.length} paragraphs`); return article; }
+      logMethod("GoogleRef", "fail", "No content");
+    } catch(e) { logMethod("GoogleRef", "fail", e.message || "Network error"); }
+
+    // Fall back to Google Cache via Jina
     loadingSub.textContent = "Trying Google Cache…";
     logMethod("Jina+gcache", "pending", "Connecting…");
     try {
@@ -3949,8 +4083,8 @@ async function runSearch(query) {
     { url: "https://feeds.bbci.co.uk/news/rss.xml",                                source: "bbc.co.uk" },
     { url: "https://feeds.bbci.co.uk/news/world/rss.xml",                          source: "bbc.co.uk" },
     { url: "https://feeds.npr.org/1001/rss.xml",                                    source: "npr.org" },
-    { url: "https://feeds.a.dj.com/rss/RSSWorldNews.xml",                          source: "wsj.com" },
-    { url: "https://feeds.a.dj.com/rss/RSSWSJD.xml",                               source: "wsj.com" },
+    { url: "https://feeds.content.dowjones.io/public/rss/WSJcomUSBusinessNews",                          source: "wsj.com" },
+    { url: "https://feeds.content.dowjones.io/public/rss/mw_topstories",                               source: "wsj.com" },
     // US news
     { url: "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml",            source: "nytimes.com" },
     { url: "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",               source: "nytimes.com" },
