@@ -994,6 +994,13 @@ darkToggle.addEventListener("click", () => {
 });
 // Apply initial theme
 applyTheme(state.theme);
+setTimeout(() => {
+  const btn = document.querySelector('.tab-btn');
+  const sub = getComputedStyle(document.documentElement).getPropertyValue('--sub');
+  const col = getComputedStyle(btn).color;
+  const cls = document.body.className;
+  alert('body class: "' + cls + '"\n--sub: "' + sub + '"\nbtn color: "' + col + '"');
+}, 500);
 
 // ── Font size ────────────────────────────────────────────────────────────────
 
