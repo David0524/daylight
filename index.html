@@ -2315,6 +2315,7 @@ async function fetchRssPaper(feedUrl, after, sourceOverride) {
         const linkFromRaw = (rawItemText.match(/<link>([^<]+)<\/link>/) || [])[1]?.trim() || "";
         const linkEl = item.querySelector("link");
         const linkHref = linkEl?.getAttribute("href") || "";
+        const linkText = linkEl?.textContent?.trim() || "";
         const rawLink = (linkFromRaw.startsWith("http") ? linkFromRaw : null)
           || (linkHref.startsWith("http") && !linkHref.includes("w3.org") ? linkHref : null)
           || (linkText.startsWith("http") && !linkText.includes("w3.org") ? linkText : null)
