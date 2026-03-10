@@ -3311,7 +3311,7 @@ const FETCH_METHODS = [
           if (t.includes("error 401") || t.includes("Unauthorized")) continue;
           // Check we got real content, not just the lede
           const contentLines = t.split("\n").filter(l => l.trim().length > 60).length;
-          if (contentLines < 3) continue;
+          if (contentLines < 2) continue;
           return { type: "markdown", text: t };
         } catch {}
       }
@@ -3586,6 +3586,8 @@ function parseJinaMarkdown(text, url) {
     // Generic site-footer signals — stop parsing
     if (/^(Terms of Service|Privacy Policy|Do Not Sell|Cookie Policy|©\s*20\d\d)/i.test(trimmed)) break;
     if (/^(Subscribe|Sign up|Get unlimited access|Try .+ for free|Already a subscriber)/i.test(trimmed) && paragraphs.length > 3) continue;
+    if (/^Thank you for your patience while we verify access/i.test(trimmed)) break;
+    if (/^Want all of The Times/i.test(trimmed)) break;
     // NPR-specific cruft — strip nav, cookie walls, station promos
     if (/^(News|Culture|Music|Podcasts & Shows)Expand\/collapse/i.test(trimmed)) continue;
     if (/^Keyboard shortcuts for audio/i.test(trimmed)) continue;
@@ -3966,7 +3968,21 @@ async function fetchArticle(url, _isRetry = false) {
 
   // ── Tier 3c: NYT ─────────────────────────────────────────────────────────
   if (inSet(NYT_DOMAINS)) {
-    for (const method of pick(["Jina+gift","Jina+googlebot","corsproxy.io","AllOrigins","Wayback","Archive.ph"])) {
+    // Try direct fetch first — uses user's own residential IP and cookies
+    // NYT serves full article to real users with free articles remaining
+    try {
+      loadingSub.textContent = "Fetching directly…";
+      const r = await Promise.race([
+        fetch(url, { credentials: "include", headers: { "Accept": "text/html" } }),
+        new Promise((_,rej) => setTimeout(rej, 12000))
+      ]);
+      if (r.ok) {
+        const html = await r.text();
+        const article = parseResult({ type: "html", text: html }, url);
+        if (article && article.paragraphs.length >= 5) return article;
+      }
+    } catch {}
+    for (const method of pick(["Jina+googlebot","Jina+gift","Wayback","Archive.ph"])) {
       loadingSub.textContent = `Trying ${method.name}…`;
       logMethod(method.name, "pending", "Connecting…");
       try {
