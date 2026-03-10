@@ -3000,6 +3000,64 @@ function extractArticle(html, url) {
   } catch {}
   // ── end CNN ───────────────────────────────────────────────────────────────
 
+  // ── NYT-specific extraction ───────────────────────────────────────────────
+  try {
+    const host = new URL(url).hostname.replace(/^www\./,"");
+    if (host === "nytimes.com" || host.endsWith(".nytimes.com")) {
+      const headline = doc.querySelector("meta[property='og:title']")?.content ||
+        doc.querySelector("h1")?.textContent?.trim() || doc.title || "";
+      const heroImage = doc.querySelector("meta[property='og:image']")?.content || "";
+      const date = doc.querySelector("meta[property='article:published_time']")?.content || "";
+      const author = [...doc.querySelectorAll("[itemprop='name'], [class*='byline'] [class*='name']")]
+        .map(el => el.textContent.trim()).filter(Boolean).join(", ") || "";
+
+      // Remove all non-article elements
+      doc.querySelectorAll([
+        "script","style","noscript","iframe","form",
+        "header","footer","nav","aside",
+        "[data-testid='inline-message']",
+        "[data-testid='story-ad']",
+        "[class*='StoryBodyCompanionColumn'] [class*='css-']",
+        "[class*='modal']","[class*='overlay']","[class*='paywall']",
+        "[class*='subscribe']","[class*='subscription']",
+        "[class*='newsletter']","[class*='RegiwallModal']",
+        "[class*='gateway']","[class*='bottom-wrapper']",
+        "[class*='share']","[class*='social']",
+        "[class*='RelatedLinks']","[class*='related']",
+        "[class*='promotions']","[class*='recirculation']",
+        "[aria-label='Advertisement']","[class*='ad-']",
+        "figcaption","figure",
+      ].join(",")).forEach(el => el.remove());
+
+      // NYT article body selector
+      const bodyEl =
+        doc.querySelector("[class*='StoryBodyCompanionColumn']") ||
+        doc.querySelector("[data-testid='article-body']") ||
+        doc.querySelector("[name='articleBody']") ||
+        doc.querySelector("article section") ||
+        doc.querySelector("article");
+
+      if (bodyEl) {
+        const SKIP = /^(Subscribe|Log in|Already a subscriber|Thank you for your patience|Want all of The Times|liveUpdates|Image \d+|©\s*20\d\d|Published|Updated|[A-Z][a-z]+ is a (Times|New York Times) (reporter|writer|correspondent))/i;
+        const paragraphs = [];
+        const seen = new Set();
+        bodyEl.querySelectorAll("p,h2,h3").forEach(el => {
+          const text = el.textContent.trim().replace(/\s+/g," ");
+          if (!text || text.length < 25 || seen.has(text)) return;
+          if (SKIP.test(text)) return;
+          seen.add(text);
+          paragraphs.push({ tag: el.tagName.toLowerCase() === "p" ? "p" : "h2", text });
+        });
+        if (paragraphs.length >= 3) {
+          const wordCount = paragraphs.reduce((n,p) => n + p.text.split(/\s+/).length, 0);
+          return { headline, author, date, heroImage, paragraphs, wordCount,
+                   readTime: Math.max(1, Math.round(wordCount/200)), url };
+        }
+      }
+    }
+  } catch {}
+  // ── end NYT ───────────────────────────────────────────────────────────────
+
   ["script","style","nav","header","footer","iframe","form","noscript",
    ".ad",".ads",".advertisement",".modal",".overlay",
    ".popup",".newsletter",".comments",
