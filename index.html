@@ -438,11 +438,13 @@ body.dark .warn-banner { background: #2A2410; border-color: #5A4010; color: #C99
 body.dim .warn-banner { background: #1A2A3A; border-color: #253341; color: #E2B96F; }
 
 /* Bottom nav */
+body { color: #1C1917; }
 .bottom-nav {
 display: flex; align-items: center; justify-content: space-around;
 padding: 10px 16px; padding-bottom: max(10px, env(safe-area-inset-bottom, 10px));
 border-top: 1px solid var(–border); background: var(–bg);
 flex-shrink: 0; transition: background 0.3s, border-color 0.3s; gap: 4px;
+color: var(–text);
 }
 .bottom-nav .icon-btn { flex: 1; display: flex; align-items: center; justify-content: center; padding: 8px 4px; font-size: 20px; border-radius: 10px; min-width: 0; }
 .bottom-nav .icon-btn:active { background: var(–border); }
@@ -913,6 +915,7 @@ body.dark .deep-card-featured-label { color: rgba(200,190,175,0.5); }
 </div>
 
 <script>
+window.onerror = (msg, src, line) => { alert('JS ERROR line ' + line + ': ' + msg); };
 // ── Config ──────────────────────────────────────────────────────────────────
 
 
