@@ -3616,6 +3616,12 @@ function parseJinaMarkdown(text, url) {
     if (/\/(AP|Reuters|Getty|AFP|EPA|Shutterstock|Alamy|NTB|Scanpix|UPI)/.test(trimmed) && trimmed.length < 120) continue;
     // Dividers
     if (/^[-*_]{3,}$/.test(trimmed)) continue;
+    // NYT-specific junk
+    if (/^liveUpdates/i.test(trimmed)) continue;
+    if (/^Subscribe for \$/i.test(trimmed)) continue;
+    if (/^Subscribe for .+Log in$/i.test(trimmed)) continue;
+    if (/^[A-Z][a-z]+ is a (Times|New York Times) (reporter|writer|correspondent|editor)/i.test(trimmed)) continue;
+    if (/^\* liveUpdates/i.test(trimmed)) continue;
     // NYT / news site ad markers
     if (/^advertisement$/i.test(trimmed)) continue;
     if (/^\[SKIP ADVERTISEMENT\]/i.test(trimmed)) continue;
