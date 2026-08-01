@@ -1226,6 +1226,19 @@ function timeAgo(dateStr) {
   } catch { return ""; }
 }
 
+// Global recency cutoff — Reddit's "hot" sort can surface posts that are
+// days or weeks old but still getting engagement, so every category applies
+// this filter on top of whatever sort order the source uses.
+const MAX_AGE_DAYS = 7;
+function isRecent(dateInput, maxDays = MAX_AGE_DAYS) {
+  if (!dateInput) return true; // don't drop items we can't date
+  try {
+    const t = typeof dateInput === "number" ? dateInput : new Date(dateInput).getTime();
+    if (Number.isNaN(t)) return true;
+    return (Date.now() - t) <= maxDays * 24 * 60 * 60 * 1000;
+  } catch { return true; }
+}
+
 function sourceDomain(url) {
   try {
     const h = new URL(url).hostname.replace(/^www\./, "");
@@ -1367,19 +1380,63 @@ function redditImage(post) {
   return "";
 }
 
-// Fetch Reddit JSON — tries direct first, falls back to corsproxy
+// Pulls hot posts from several subreddits for one category and merges them.
+// Using several subs (instead of just one) means a single dead/quiet sub,
+// or one rate-limited proxy call, no longer leaves the whole category
+// empty — and every item is checked against isRecent() regardless of
+// Reddit's "hot" sort order, which can surface posts that are days old.
+async function multiSubReddit(subs, perSub, cap) {
+  const results = await Promise.allSettled(subs.map(sub =>
+    redditFetch(`/r/${sub}/hot.json?limit=20`)
+  ));
+  const items = results.flatMap(r => {
+    if (r.status !== "fulfilled" || !r.value) return [];
+    return (r.value?.data?.children || []).map(c => c.data)
+      .filter(p => p.url && !p.url.includes("reddit.com") && isArticleUrl(p.url) && isRecent(p.created_utc * 1000))
+      .slice(0, perSub).map(p => ({
+        title:   p.title,
+        link:    p.url,
+        desc:    "",
+        image:   redditImage(p),
+        pubDate: new Date(p.created_utc * 1000).toISOString(),
+        age:     timeAgo(new Date(p.created_utc * 1000).toISOString()),
+        source:  sourceDomain(p.url),
+      }));
+  });
+  const seen = new Set();
+  const deduped = items
+    .filter(i => { if (seen.has(i.link)) return false; seen.add(i.link); return true; })
+    .sort((a,b) => new Date(b.pubDate) - new Date(a.pubDate))
+    .slice(0, cap);
+  return resolveRedditTitles(deduped);
+}
+
+// Fetch Reddit JSON — tries direct first, then corsproxy, then allorigins.
+// Three independent paths so one flaky/rate-limited proxy doesn't take out
+// an entire category (this was the main reason several categories were
+// coming back empty or with only a couple of items).
 async function redditFetch(path) {
   const direct = `https://www.reddit.com${path}`;
-  const proxied = `https://corsproxy.io/?${encodeURIComponent(direct)}`;
-  for (const url of [direct, proxied]) {
+  const attempts = [
+    { url: direct, kind: "direct" },
+    { url: `https://corsproxy.io/?${encodeURIComponent(direct)}`, kind: "direct" },
+    { url: `https://api.allorigins.win/get?url=${encodeURIComponent(direct)}`, kind: "allorigins" },
+  ];
+  for (const { url, kind } of attempts) {
     try {
       const r = await Promise.race([
         fetch(url, { headers: { "Accept": "application/json" } }),
         new Promise((_,rej) => setTimeout(rej, 8000))
       ]);
       if (!r.ok) continue;
-      const j = await r.json();
-      if (j?.data?.children) return j;
+      if (kind === "allorigins") {
+        const wrapper = await r.json();
+        const j = JSON.parse(wrapper.contents);
+        if (j?.data?.children) return j;
+      } else {
+        const j = await r.json();
+        if (j?.data?.children) return j;
+      }
     } catch {}
   }
   return null;
@@ -1418,18 +1475,20 @@ const LIVE_SOURCES = [
     cat: "Technology",
     fetch: async () => {
       const ids = await fetch("https://hacker-news.firebaseio.com/v0/topstories.json").then(r => r.json());
-      const stories = await Promise.all(ids.slice(0, 15).map(id =>
+      const stories = await Promise.all(ids.slice(0, 25).map(id =>
         fetch(`https://hacker-news.firebaseio.com/v0/item/${id}.json`).then(r => r.json()).catch(() => null)
       ));
-      return stories.filter(s => s && s.url && s.title && isArticleUrl(s.url)).slice(0, 12).map(s => ({
-        title:   s.title,
-        link:    s.url,
-        desc:    `${s.score} points · ${s.descendants || 0} comments`,
-        image:   "",
-        pubDate: new Date(s.time * 1000).toISOString(),
-        age:     timeAgo(new Date(s.time * 1000).toISOString()),
-        source:  sourceDomain(s.url),
-      }));
+      return stories
+        .filter(s => s && s.url && s.title && isArticleUrl(s.url) && isRecent(s.time * 1000))
+        .slice(0, 12).map(s => ({
+          title:   s.title,
+          link:    s.url,
+          desc:    `${s.score} points · ${s.descendants || 0} comments`,
+          image:   "",
+          pubDate: new Date(s.time * 1000).toISOString(),
+          age:     timeAgo(new Date(s.time * 1000).toISOString()),
+          source:  sourceDomain(s.url),
+        }));
     }
   },
   // Hacker News — AI/ML filtered
@@ -1442,7 +1501,7 @@ const LIVE_SOURCES = [
       ));
       const AI_KEYWORDS = ["ai","llm","gpt","claude","gemini","openai","anthropic","model","neural","machine learning","deep learning","transformer","diffusion","agent","inference","llama","mistral","groq","perplexity","copilot","midjourney","stable diffusion","chatbot","rag","finetuning","fine-tuning","embedding"];
       return stories
-        .filter(s => s && s.url && s.title && isArticleUrl(s.url) && AI_KEYWORDS.some(k => s.title.toLowerCase().includes(k)))
+        .filter(s => s && s.url && s.title && isArticleUrl(s.url) && isRecent(s.time * 1000) && AI_KEYWORDS.some(k => s.title.toLowerCase().includes(k)))
         .slice(0, 12).map(s => ({
           title:   s.title,
           link:    s.url,
@@ -1458,14 +1517,14 @@ const LIVE_SOURCES = [
   {
     cat: "AI",
     fetch: async () => {
-      const subs = ["artificial","MachineLearning","LocalLLaMA","AINews","technology"];
+      const subs = ["artificial","MachineLearning","LocalLLaMA","AINews","technology","singularity"];
       const results = await Promise.allSettled(subs.map(sub =>
-        redditFetch(`/r/${sub}/hot.json?limit=12`)
+        redditFetch(`/r/${sub}/hot.json?limit=15`)
       ));
       const items = results.flatMap(r => {
         if (r.status !== "fulfilled" || !r.value) return [];
         return (r.value?.data?.children || []).map(c => c.data)
-          .filter(p => p.url && !p.url.includes("reddit.com") && isArticleUrl(p.url))
+          .filter(p => p.url && !p.url.includes("reddit.com") && isArticleUrl(p.url) && isRecent(p.created_utc * 1000))
           .slice(0, 4).map(p => ({
             title: p.title, link: p.url, desc: "", image: redditImage(p),
             pubDate: new Date(p.created_utc*1000).toISOString(),
@@ -1478,96 +1537,11 @@ const LIVE_SOURCES = [
       return resolveRedditTitles(deduped);
     }
   },
-  {
-    cat: "World",
-    fetch: async () => {
-      const d = await redditFetch("/r/worldnews/hot.json?limit=20");
-      const items = (d?.data?.children || []).map(c => c.data)
-        .filter(p => p.url && !p.url.includes("reddit.com") && isArticleUrl(p.url))
-        .slice(0, 6).map(p => ({
-          title:   p.title,
-          link:    p.url,
-          desc:    "",
-          image:   redditImage(p),
-          pubDate: new Date(p.created_utc * 1000).toISOString(),
-          age:     timeAgo(new Date(p.created_utc * 1000).toISOString()),
-          source:  sourceDomain(p.url),
-        }));
-      return resolveRedditTitles(items);
-    }
-  },
-  {
-    cat: "Technology",
-    fetch: async () => {
-      const d = await redditFetch("/r/technology/hot.json?limit=20");
-      const items = (d?.data?.children || []).map(c => c.data)
-        .filter(p => p.url && !p.url.includes("reddit.com") && isArticleUrl(p.url))
-        .slice(0, 5).map(p => ({
-          title:   p.title,
-          link:    p.url,
-          desc:    "",
-          image:   redditImage(p),
-          pubDate: new Date(p.created_utc * 1000).toISOString(),
-          age:     timeAgo(new Date(p.created_utc * 1000).toISOString()),
-          source:  sourceDomain(p.url),
-        }));
-      return resolveRedditTitles(items);
-    }
-  },
-  {
-    cat: "Politics",
-    fetch: async () => {
-      const d = await redditFetch("/r/politics/hot.json?limit=20");
-      const items = (d?.data?.children || []).map(c => c.data)
-        .filter(p => p.url && !p.url.includes("reddit.com") && isArticleUrl(p.url))
-        .slice(0, 6).map(p => ({
-          title:   p.title,
-          link:    p.url,
-          desc:    "",
-          image:   redditImage(p),
-          pubDate: new Date(p.created_utc * 1000).toISOString(),
-          age:     timeAgo(new Date(p.created_utc * 1000).toISOString()),
-          source:  sourceDomain(p.url),
-        }));
-      return resolveRedditTitles(items);
-    }
-  },
-  {
-    cat: "Business",
-    fetch: async () => {
-      const d = await redditFetch("/r/business/hot.json?limit=20");
-      const items = (d?.data?.children || []).map(c => c.data)
-        .filter(p => p.url && !p.url.includes("reddit.com") && isArticleUrl(p.url))
-        .slice(0, 6).map(p => ({
-          title:   p.title,
-          link:    p.url,
-          desc:    "",
-          image:   redditImage(p),
-          pubDate: new Date(p.created_utc * 1000).toISOString(),
-          age:     timeAgo(new Date(p.created_utc * 1000).toISOString()),
-          source:  sourceDomain(p.url),
-        }));
-      return resolveRedditTitles(items);
-    }
-  },
-  {
-    cat: "Science",
-    fetch: async () => {
-      const d = await redditFetch("/r/science/hot.json?limit=20");
-      const items = (d?.data?.children || []).map(c => c.data)
-        .filter(p => p.url && !p.url.includes("reddit.com") && isArticleUrl(p.url))
-        .slice(0, 6).map(p => ({
-          title:   p.title,
-          link:    p.url,
-          desc:    "",
-          image:   redditImage(p),
-          pubDate: new Date(p.created_utc * 1000).toISOString(),
-          age:     timeAgo(new Date(p.created_utc * 1000).toISOString()),
-          source:  sourceDomain(p.url),
-        }));
-      return resolveRedditTitles(items);
-    }
-  },
+  { cat: "World",      fetch: () => multiSubReddit(["worldnews","news"],                       6, 12) },
+  { cat: "Technology", fetch: () => multiSubReddit(["technology","gadgets"],                    5, 10) },
+  { cat: "Politics",   fetch: () => multiSubReddit(["politics","PoliticalDiscussion"],           6, 12) },
+  { cat: "Business",   fetch: () => multiSubReddit(["business","economy","Economics"],           5, 12) },
+  { cat: "Science",    fetch: () => multiSubReddit(["science","EverythingScience","askscience"], 5, 12) },
   // Substack — rotating curated publications via RSS
   {
     cat: "Ideas",
@@ -1648,7 +1622,7 @@ const LIVE_SOURCES = [
       // Reddit hot (not top/week) for community-surfaced stories
       const redditHot = redditFetch('/r/finance+investing+economics+financialnews/hot.json?limit=25')
         .then(j => (j?.data?.children || []).map(c => c.data)
-          .filter(p => p.url && !p.url.includes('reddit.com') && isArticleUrl(p.url))
+          .filter(p => p.url && !p.url.includes('reddit.com') && isArticleUrl(p.url) && isRecent(p.created_utc * 1000))
           .slice(0, 6).map(p => ({
             title: p.title, link: p.url, desc: '', image: redditImage(p),
             pubDate: new Date(p.created_utc * 1000).toISOString(),
@@ -1667,6 +1641,7 @@ const LIVE_SOURCES = [
       const seen = new Set();
       return all
         .filter(i => { if (!i?.link || seen.has(i.link)) return false; seen.add(i.link); return true; })
+        .filter(i => isRecent(i.pubDate))
         .sort((a,b) => { try { return new Date(b.pubDate)-new Date(a.pubDate); } catch { return 0; } })
         .slice(0, 12);
     }
@@ -2750,11 +2725,18 @@ function applyFilters(catMap) {
 async function loadFeed() {
   const catMap = {};
 
-  const promises = LIVE_SOURCES.map(src =>
-    Promise.race([
-      src.fetch(),
-      new Promise((_,rej) => setTimeout(() => rej(new Error("Timeout")), 8000))
-    ]).then(items => {
+  // Stagger source starts — firing all 11+ sources (several of which hit
+  // 2-6 subreddits each) at once was bursting corsproxy.io hard enough to
+  // trip its rate limit, which is why several categories were coming back
+  // empty. Spacing starts out ~300ms apart keeps concurrent proxy calls low
+  // without meaningfully slowing the overall load.
+  const promises = LIVE_SOURCES.map((src, i) =>
+    new Promise(resolve => setTimeout(resolve, i * 300)).then(() =>
+      Promise.race([
+        src.fetch(),
+        new Promise((_,rej) => setTimeout(() => rej(new Error("Timeout")), 10000))
+      ])
+    ).then(items => {
       if (!items?.length) return;
       if (!catMap[src.cat]) catMap[src.cat] = [];
       const existing = new Set(catMap[src.cat].map(x => x.link));
