@@ -1417,35 +1417,48 @@ async function multiSubReddit(subs, perSub, cap) {
 // coming back empty or with only a couple of items).
 async function redditFetch(path) {
   const direct = `https://www.reddit.com${path}`;
+
+  const withTimeout = (p, ms) => Promise.race([
+    p,
+    new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))
+  ]);
+
+  const tryUrl = async (url, kind) => {
+    const r = await fetch(url, { headers: { "Accept": "application/json" } });
+    if (!r.ok) throw new Error("status " + r.status);
+    if (kind === "allorigins") {
+      const wrapper = await r.json();
+      const j = JSON.parse(wrapper.contents);
+      if (!j?.data?.children) throw new Error("bad payload");
+      return j;
+    }
+    const j = await r.json();
+    if (!j?.data?.children) throw new Error("bad payload");
+    return j;
+  };
+
+  // Fire every path at once and take whichever resolves first — trying
+  // proxies one after another meant a slow/hanging corsproxy.io could eat
+  // the whole per-source timeout before the fallback ever got a chance to
+  // run, which was silently starving nearly every Reddit-sourced category.
   const attempts = [
-    { url: direct, kind: "direct" },
-    { url: `https://corsproxy.io/?${encodeURIComponent(direct)}`, kind: "direct" },
-    { url: `https://api.allorigins.win/get?url=${encodeURIComponent(direct)}`, kind: "allorigins" },
+    withTimeout(tryUrl(direct, "direct"), 4000),
+    withTimeout(tryUrl(`https://corsproxy.io/?url=${encodeURIComponent(direct)}`, "direct"), 7000),
+    withTimeout(tryUrl(`https://api.allorigins.win/get?url=${encodeURIComponent(direct)}`, "allorigins"), 7000),
+    withTimeout(tryUrl(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(direct)}`, "direct"), 7000),
   ];
-  for (const { url, kind } of attempts) {
-    try {
-      const r = await Promise.race([
-        fetch(url, { headers: { "Accept": "application/json" } }),
-        new Promise((_,rej) => setTimeout(rej, 8000))
-      ]);
-      if (!r.ok) continue;
-      if (kind === "allorigins") {
-        const wrapper = await r.json();
-        const j = JSON.parse(wrapper.contents);
-        if (j?.data?.children) return j;
-      } else {
-        const j = await r.json();
-        if (j?.data?.children) return j;
-      }
-    } catch {}
+
+  try {
+    return await Promise.any(attempts);
+  } catch {
+    return null;
   }
-  return null;
 }
 
 // Resolve real og:title + og:image for a Reddit item in one fetch
 async function resolveRedditMeta(item) {
   try {
-    const proxy = `https://corsproxy.io/?${encodeURIComponent(item.link)}`;
+    const proxy = `https://corsproxy.io/?url=${encodeURIComponent(item.link)}`;
     const r = await Promise.race([fetch(proxy), new Promise((_,rej) => setTimeout(rej, 5000))]);
     if (!r.ok) return item;
     const j = await r.json();
@@ -1552,14 +1565,40 @@ const LIVE_SOURCES = [
       ];
       // Pick 3 random pubs each load for variety
       const pick = pubs.sort(() => 0.5 - Math.random()).slice(0, 2);
+
+      const withTimeout = (p, ms) => Promise.race([p, new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")), ms))]);
+
+      // Race corsproxy (raw XML passthrough) / allorigins (JSON-wrapped) /
+      // codetabs (raw XML passthrough) in parallel. Previously this only
+      // tried corsproxy and called r.json() on the XML body, which always
+      // threw — so Ideas silently returned nothing regardless of proxy health.
+      const fetchXml = async (rssUrl) => {
+        const tryText = async (url) => {
+          const r = await fetch(url);
+          if (!r.ok) throw new Error("status " + r.status);
+          const text = await r.text();
+          if (!text?.includes("<item")) throw new Error("no items");
+          return text;
+        };
+        const tryAllorigins = async (url) => {
+          const r = await fetch(url);
+          if (!r.ok) throw new Error("status " + r.status);
+          const j = await r.json();
+          if (!j.contents?.includes("<item")) throw new Error("no items");
+          return j.contents;
+        };
+        return Promise.any([
+          withTimeout(tryText(`https://corsproxy.io/?url=${encodeURIComponent(rssUrl)}`), 6000),
+          withTimeout(tryAllorigins(`https://api.allorigins.win/get?url=${encodeURIComponent(rssUrl)}`), 6000),
+          withTimeout(tryText(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(rssUrl)}`), 6000),
+        ]);
+      };
+
       const results = await Promise.allSettled(pick.map(async slug => {
         const rssUrl = `https://${slug}.substack.com/feed`;
-        const r = await Promise.race([fetch(`https://corsproxy.io/?${encodeURIComponent(rssUrl)}`), new Promise((_,rej)=>setTimeout(rej,5000))]);
-        if (!r.ok) return [];
-        const j = await r.json();
-        if (!j.contents) return [];
+        const xmlText = await fetchXml(rssUrl);
         const parser = new DOMParser();
-        const xml = parser.parseFromString(j.contents, "text/xml");
+        const xml = parser.parseFromString(xmlText, "text/xml");
         const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000; // 30 days
         return Array.from(xml.querySelectorAll("item")).slice(0, 5).map(item => {
           const title   = item.querySelector("title")?.textContent?.replace(/<!\[CDATA\[|\]\]>/g,"").trim() || "";
@@ -1593,30 +1632,41 @@ const LIVE_SOURCES = [
       ];
 
       const fetchRss = async (feedUrl) => {
-        for (const proxy of [
-          u => `https://corsproxy.io/?${encodeURIComponent(u)}`,
-          u => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,
-        ]) {
-          try {
-            const r = await Promise.race([fetch(proxy(feedUrl)), new Promise((_,rej)=>setTimeout(rej,5000))]);
-            if (!r.ok) continue;
-            let text;
-            if (proxy(feedUrl).includes('allorigins')) { const j = await r.json(); text = j.contents; }
-            else { text = await r.text(); }
-            if (!text?.includes('<item')) continue;
-            const doc = new DOMParser().parseFromString(text, 'text/xml');
-            return [...doc.querySelectorAll('item')].slice(0, 6).map(item => {
-              const link = item.querySelector('link')?.textContent?.trim() ||
-                           item.querySelector('guid')?.textContent?.trim() || '';
-              const title = item.querySelector('title')?.textContent?.trim() || '';
-              const desc = item.querySelector('description')?.textContent?.replace(/<[^>]+>/g,'').trim() || '';
-              const pubDate = item.querySelector('pubDate')?.textContent?.trim() || new Date().toISOString();
-              if (!link || !isArticleUrl(link)) return null;
-              return { title, link, desc, image: '', pubDate, age: timeAgo(pubDate), source: sourceDomain(link) };
-            }).filter(Boolean);
-          } catch {}
-        }
-        return [];
+        const withTimeout = (p, ms) => Promise.race([p, new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")), ms))]);
+        const parse = (text) => {
+          if (!text?.includes('<item')) throw new Error("no items");
+          const doc = new DOMParser().parseFromString(text, 'text/xml');
+          return [...doc.querySelectorAll('item')].slice(0, 6).map(item => {
+            const link = item.querySelector('link')?.textContent?.trim() ||
+                         item.querySelector('guid')?.textContent?.trim() || '';
+            const title = item.querySelector('title')?.textContent?.trim() || '';
+            const desc = item.querySelector('description')?.textContent?.replace(/<[^>]+>/g,'').trim() || '';
+            const pubDate = item.querySelector('pubDate')?.textContent?.trim() || new Date().toISOString();
+            if (!link || !isArticleUrl(link)) return null;
+            return { title, link, desc, image: '', pubDate, age: timeAgo(pubDate), source: sourceDomain(link) };
+          }).filter(Boolean);
+        };
+        const tryText = async (url) => {
+          const r = await fetch(url);
+          if (!r.ok) throw new Error("status " + r.status);
+          return parse(await r.text());
+        };
+        const tryAllorigins = async (url) => {
+          const r = await fetch(url);
+          if (!r.ok) throw new Error("status " + r.status);
+          const j = await r.json();
+          return parse(j.contents);
+        };
+        try {
+          // Race proxies in parallel — sequential retries were letting a
+          // slow/hanging corsproxy.io eat the whole budget before the
+          // fallback ever ran.
+          return await Promise.any([
+            withTimeout(tryText(`https://corsproxy.io/?url=${encodeURIComponent(feedUrl)}`), 6000),
+            withTimeout(tryAllorigins(`https://api.allorigins.win/get?url=${encodeURIComponent(feedUrl)}`), 6000),
+            withTimeout(tryText(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(feedUrl)}`), 6000),
+          ]);
+        } catch { return []; }
       };
 
       // Reddit hot (not top/week) for community-surfaced stories
@@ -1849,12 +1899,12 @@ async function fetchMarketData() {
       // Try corsproxy first (works from null origin), allorigins as fallback
       let csv = null;
       try {
-        const r = await race(fetch("https://corsproxy.io/?" + encodeURIComponent(url)));
+        const r = await race(fetch("https://corsproxy.io/?url=" + encodeURIComponent(url)));
         if (r.ok) csv = await r.text();
       } catch {}
       if (!csv) {
         try {
-          const r = await race(fetch("https://corsproxy.io/?" + encodeURIComponent(url)));
+          const r = await race(fetch("https://corsproxy.io/?url=" + encodeURIComponent(url)));
           if (r.ok) { csv = await r.text(); }
         } catch {}
       }
@@ -1885,11 +1935,11 @@ async function fetchMarketData() {
     const url = "https://query1.finance.yahoo.com/v6/finance/quote?symbols=^DJI,^GSPC,^IXIC";
     let data = null;
     try {
-      const r = await race(fetch("https://corsproxy.io/?" + encodeURIComponent(url)));
+      const r = await race(fetch("https://corsproxy.io/?url=" + encodeURIComponent(url)));
       if (r.ok) { const j = await r.json(); data = JSON.parse(j.contents || "null"); }
     } catch {}
     if (!data) {
-      const r = await race(fetch("https://corsproxy.io/?" + encodeURIComponent(url)));
+      const r = await race(fetch("https://corsproxy.io/?url=" + encodeURIComponent(url)));
       if (r.ok) data = await r.json();
     }
     const quotes = data?.quoteResponse?.result;
@@ -2135,8 +2185,8 @@ document.getElementById("feedContent").addEventListener("click", e => {
 // Fetch og:image for a URL, trying two proxies
 async function fetchOgImage(url) {
   for (const proxy of [
-    `https://corsproxy.io/?${encodeURIComponent(url)}`,
-    `https://corsproxy.io/?${encodeURIComponent(url)}`,
+    `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
+    `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
   ]) {
     try {
       const r = await Promise.race([
@@ -2162,7 +2212,7 @@ async function resolveGoogleNewsUrlMulti(gnUrl) {
   // Try multiple proxies — some follow the Google News redirect chain better than others
   const proxies = [
     u => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
-    u => `https://corsproxy.io/?${encodeURIComponent(u)}`,
+    u => `https://corsproxy.io/?url=${encodeURIComponent(u)}`,
     u => `https://thingproxy.freeboard.io/fetch/${u}`,
   ];
   for (const proxyFn of proxies) {
@@ -2207,7 +2257,7 @@ async function resolveGoogleNewsUrl(gnUrl) {
   // corsproxy only — follows redirects, may return destination page directly
   try {
     const r = await Promise.race([
-      fetch(`https://corsproxy.io/?${encodeURIComponent(gnUrl)}`),
+      fetch(`https://corsproxy.io/?url=${encodeURIComponent(gnUrl)}`),
       new Promise((_,rej) => setTimeout(rej, 8000))
     ]);
     if (r.ok) {
@@ -2234,7 +2284,7 @@ async function fetchDDG(after, query, source) {
     let html = null;
     for (const proxyUrl of [
       `https://wsj.drudd524.workers.dev/?action=ddg&q=${encodeURIComponent(pagedQuery)}&url=ddg`,
-      `https://corsproxy.io/?${encodeURIComponent(ddgUrl)}`,
+      `https://corsproxy.io/?url=${encodeURIComponent(ddgUrl)}`,
     ]) {
       try {
         const r = await Promise.race([
@@ -2265,7 +2315,7 @@ async function fetchDDG(after, query, source) {
 
 async function fetchRssPaper(feedUrl, after, sourceOverride) {
   for (const proxyFn of [
-    u => `https://corsproxy.io/?${encodeURIComponent(u)}`,
+    u => `https://corsproxy.io/?url=${encodeURIComponent(u)}`,
     u => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,
   ]) {
     try {
@@ -2366,7 +2416,7 @@ const NEWSPAPERS = [
       let html = null;
       for (const proxyUrl of [
         `https://wsj.drudd524.workers.dev/?action=ddg&q=${encodeURIComponent(query)}&url=ddg`,
-        `https://corsproxy.io/?${encodeURIComponent(ddgUrl)}`,
+        `https://corsproxy.io/?url=${encodeURIComponent(ddgUrl)}`,
       ]) {
         try {
           const r = await Promise.race([fetch(proxyUrl), new Promise((_,rej)=>setTimeout(rej,12000))]);
@@ -2410,8 +2460,8 @@ const NEWSPAPERS = [
     fetch: async (after) => {
       // lite.cnn.com — CNN's text-only version, no JS, always current
       for (const proxy of [
-        `https://corsproxy.io/?${encodeURIComponent("https://lite.cnn.com/")}`,
-        `https://corsproxy.io/?${encodeURIComponent("https://lite.cnn.com/")}`,
+        `https://corsproxy.io/?url=${encodeURIComponent("https://lite.cnn.com/")}`,
+        `https://corsproxy.io/?url=${encodeURIComponent("https://lite.cnn.com/")}`,
       ]) {
         try {
           const r = await Promise.race([fetch(proxy), new Promise((_,rej)=>setTimeout(rej,10000))]);
@@ -3170,7 +3220,7 @@ async function fetchMetaViaGoogle(url) {
     // Use Google News RSS to get description — first result for exact URL is usually the article
     const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent('"' + headline.split(" ").slice(0,6).join(" ") + '"')}&hl=en-US&gl=US&ceid=US:en`;
     const r = await Promise.race([
-      fetch(`https://corsproxy.io/?${encodeURIComponent(rssUrl)}`),
+      fetch(`https://corsproxy.io/?url=${encodeURIComponent(rssUrl)}`),
       new Promise((_,rej) => setTimeout(rej, 7000))
     ]);
     if (!r.ok) return null;
@@ -3236,7 +3286,7 @@ async function fetchMetaOnly(url) {
 
   // Standard proxy approach for non-CF sites
   for (const proxyFn of [
-    u => `https://corsproxy.io/?${encodeURIComponent(u)}`,
+    u => `https://corsproxy.io/?url=${encodeURIComponent(u)}`,
     u => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}&t=${Math.floor(Date.now()/300000)}`,
   ]) {
     try {
@@ -3419,7 +3469,7 @@ const FETCH_METHODS = [
     name: "Jina+proxy",
     fetch: async (url) => {
       const jinaUrl = `https://r.jina.ai/${url}`;
-      const r = await fetch(`https://corsproxy.io/?${encodeURIComponent(jinaUrl)}`);
+      const r = await fetch(`https://corsproxy.io/?url=${encodeURIComponent(jinaUrl)}`);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const t = await r.text();
       if (t.includes("error 401") || t.includes("CAPTCHA") || t.includes("Unauthorized"))
@@ -3455,7 +3505,7 @@ const FETCH_METHODS = [
   {
     name: "corsproxy.io",
     fetch: async (url) => {
-      const r = await fetch(`https://corsproxy.io/?${encodeURIComponent(url)}`);
+      const r = await fetch(`https://corsproxy.io/?url=${encodeURIComponent(url)}`);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const t = await r.text();
       if (t.length < 800) throw new Error("Too short");
@@ -3467,8 +3517,8 @@ const FETCH_METHODS = [
     fetch: async (url) => {
       // Try corsproxy first (works from null/local origin), fall back to allorigins
       for (const proxyUrl of [
-        `https://corsproxy.io/?${encodeURIComponent(url)}`,
-        `https://corsproxy.io/?${encodeURIComponent(url)}`,
+        `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
+        `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
       ]) {
         try {
           const r = await fetch(proxyUrl);
@@ -3488,7 +3538,7 @@ const FETCH_METHODS = [
       if (!ampUrl || ampUrl === url + "/amp") throw new Error("No known AMP URL");
       // Send Referer: google.com — WSJ/FT honor "First Click Free" for traffic arriving from Google.
       // corsproxy forwards this header server-side, which a browser fetch() cannot do directly.
-      const r = await fetch(`https://corsproxy.io/?${encodeURIComponent(ampUrl)}`, {
+      const r = await fetch(`https://corsproxy.io/?url=${encodeURIComponent(ampUrl)}`, {
         headers: { "Referer": "https://www.google.com", "X-Forwarded-For": "66.249.66.1" }
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -3514,7 +3564,7 @@ const FETCH_METHODS = [
         snapUrl = av?.archived_snapshots?.closest?.url?.replace("/http","id_/http");
       }
       if (!snapUrl) throw new Error("No snapshot");
-      const r = await fetch(`https://corsproxy.io/?${encodeURIComponent(snapUrl)}`);
+      const r = await fetch(`https://corsproxy.io/?url=${encodeURIComponent(snapUrl)}`);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const raw = stripWaybackToolbar(await r.text());
       if (raw.length < 800) throw new Error("Snapshot too short");
@@ -3524,12 +3574,12 @@ const FETCH_METHODS = [
   {
     name: "Archive.ph",
     fetch: async (url) => {
-      const r1 = await fetch(`https://corsproxy.io/?${encodeURIComponent("https://archive.ph/newest/" + url)}`);
+      const r1 = await fetch(`https://corsproxy.io/?url=${encodeURIComponent("https://archive.ph/newest/" + url)}`);
       if (!r1.ok) throw new Error(`HTTP ${r1.status}`);
       const html1 = await r1.text();
       const snapMatch = html1.match(/https:\/\/archive\.ph\/[A-Za-z0-9]{4,}/);
       if (!snapMatch) throw new Error("No snapshot URL");
-      const r2 = await fetch(`https://corsproxy.io/?${encodeURIComponent(snapMatch[0])}`);
+      const r2 = await fetch(`https://corsproxy.io/?url=${encodeURIComponent(snapMatch[0])}`);
       if (!r2.ok) throw new Error(`HTTP ${r2.status}`);
       const t = await r2.text();
       if (t.length < 800) throw new Error("Snapshot empty");
@@ -3804,7 +3854,7 @@ async function searchGoogleNews(query) {
   try {
     const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=en-US&gl=US&ceid=US:en`;
     const r = await Promise.race([
-      fetch(`https://corsproxy.io/?${encodeURIComponent(rssUrl)}`),
+      fetch(`https://corsproxy.io/?url=${encodeURIComponent(rssUrl)}`),
       new Promise((_,rej) => setTimeout(rej, 8000))
     ]);
     if (!r.ok) return null;
@@ -3914,7 +3964,7 @@ async function searchYahooFinance(query) {
   try {
     const searchUrl = `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(query)}&newsCount=6&enableFuzzyQuery=false`;
     const r = await Promise.race([
-      fetch(`https://corsproxy.io/?${encodeURIComponent(searchUrl)}`),
+      fetch(`https://corsproxy.io/?url=${encodeURIComponent(searchUrl)}`),
       new Promise((_,rej) => setTimeout(rej, 6000))
     ]);
     if (!r.ok) return null;
@@ -4430,7 +4480,7 @@ async function runSearch(query) {
   const fetchFeed = async ({ url, source }) => {
     // Try allorigins then corsproxy — both handle CORS
     for (const proxyFn of [
-      u => `https://corsproxy.io/?${encodeURIComponent(u)}`,
+      u => `https://corsproxy.io/?url=${encodeURIComponent(u)}`,
       u => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,
     ]) {
       try {
@@ -4539,28 +4589,28 @@ async function wsjDiag() {
   const tests = [
     { label: "corsproxy + wsj.com/news/world HTML", 
       fn: async () => {
-        const r = await fetch("https://corsproxy.io/?" + encodeURIComponent("https://www.wsj.com/news/world"), {signal: AbortSignal.timeout(10000)});
+        const r = await fetch("https://corsproxy.io/?url=" + encodeURIComponent("https://www.wsj.com/news/world"), {signal: AbortSignal.timeout(10000)});
         const t = await r.text();
         return `HTTP ${r.status}, length ${t.length}, has articles: ${t.includes("wsj.com/articles")}`;
       }
     },
     { label: "corsproxy + wsj.com sitemap",
       fn: async () => {
-        const r = await fetch("https://corsproxy.io/?" + encodeURIComponent("https://www.wsj.com/news-sitemap.xml"), {signal: AbortSignal.timeout(10000)});
+        const r = await fetch("https://corsproxy.io/?url=" + encodeURIComponent("https://www.wsj.com/news-sitemap.xml"), {signal: AbortSignal.timeout(10000)});
         const t = await r.text();
         return `HTTP ${r.status}, length ${t.length}, has loc: ${t.includes("<loc>")}`;
       }
     },
     { label: "corsproxy + wsj.com/sitemap.xml",
       fn: async () => {
-        const r = await fetch("https://corsproxy.io/?" + encodeURIComponent("https://www.wsj.com/sitemap.xml"), {signal: AbortSignal.timeout(10000)});
+        const r = await fetch("https://corsproxy.io/?url=" + encodeURIComponent("https://www.wsj.com/sitemap.xml"), {signal: AbortSignal.timeout(10000)});
         const t = await r.text();
         return `HTTP ${r.status}, length ${t.length}, snippet: ${t.slice(0,200)}`;
       }
     },
     { label: "corsproxy + wsj RSS v2 (paid)",
       fn: async () => {
-        const r = await fetch("https://corsproxy.io/?" + encodeURIComponent("https://feeds.a.dj.com/rss/WSJcomUSBusiness.xml"), {signal: AbortSignal.timeout(10000)});
+        const r = await fetch("https://corsproxy.io/?url=" + encodeURIComponent("https://feeds.a.dj.com/rss/WSJcomUSBusiness.xml"), {signal: AbortSignal.timeout(10000)});
         const t = await r.text();
         const date = t.match(/<lastBuildDate>([^<]+)<\/lastBuildDate>/)?.[1] || "no date";
         return `HTTP ${r.status}, lastBuildDate: ${date}`;
@@ -4568,7 +4618,7 @@ async function wsjDiag() {
     },
     { label: "corsproxy + wsj.com/news page (mobile UA)",
       fn: async () => {
-        const r = await fetch("https://corsproxy.io/?" + encodeURIComponent("https://www.wsj.com/news"), {signal: AbortSignal.timeout(10000)});
+        const r = await fetch("https://corsproxy.io/?url=" + encodeURIComponent("https://www.wsj.com/news"), {signal: AbortSignal.timeout(10000)});
         const t = await r.text();
         return `HTTP ${r.status}, length ${t.length}, has wsj/articles: ${(t.match(/wsj\.com\/articles/g)||[]).length}`;
       }
