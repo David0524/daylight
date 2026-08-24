@@ -1411,10 +1411,118 @@ async function multiSubReddit(subs, perSub, cap) {
   return resolveRedditTitles(deduped);
 }
 
-// Fetch Reddit JSON — tries direct first, then corsproxy, then allorigins.
-// Three independent paths so one flaky/rate-limited proxy doesn't take out
-// an entire category (this was the main reason several categories were
-// coming back empty or with only a couple of items).
+// Concurrency limiter for rss2json.com calls. On a full page load every
+// category's feeds all try rss2json first, in parallel — that's 15-20+
+// simultaneous requests to a free-tier service, which reliably trips its
+// rate limit and comes back as a wall of 429s (confirmed via console log:
+// nearly every rss2json call in a full-load trace returned 429). This caps
+// how many rss2json requests are in flight at once; the rest queue and run
+// as slots free up, instead of all firing at once and getting rate-limited.
+const RSS2JSON_MAX_CONCURRENT = 4;
+let rss2jsonActive = 0;
+const rss2jsonQueue = [];
+
+function runRss2JsonQueue() {
+  while (rss2jsonActive < RSS2JSON_MAX_CONCURRENT && rss2jsonQueue.length) {
+    const { task, resolve, reject } = rss2jsonQueue.shift();
+    rss2jsonActive++;
+    task().then(resolve, reject).finally(() => {
+      rss2jsonActive--;
+      runRss2JsonQueue();
+    });
+  }
+}
+
+function queueRss2Json(task) {
+  return new Promise((resolve, reject) => {
+    rss2jsonQueue.push({ task, resolve, reject });
+    runRss2JsonQueue();
+  });
+}
+
+// Fetch + parse one RSS/Atom feed. rss2json.com is tried first — it's a
+// purpose-built RSS→JSON service with its own CORS headers (no proxy layer
+// needed on top), returns clean pre-parsed JSON, and isn't the kind of
+// generic CORS-bypass tool that ends up on anti-scraping blocklists the
+// way corsproxy.io/allorigins/etc. increasingly are. Falls back to raw-XML
+// fetch via the proxy chain if rss2json is ever unavailable. Calls to
+// rss2json go through queueRss2Json() so a full page load doesn't blow
+// through its free-tier rate limit (see comment above).
+async function fetchRssItems(feedUrl, limit = 8) {
+  const withTimeout = (p, ms) => Promise.race([p, new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")), ms))]);
+
+  const tryRss2Json = async () => {
+    const r = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feedUrl)}`);
+    if (!r.ok) throw new Error("status " + r.status);
+    const j = await r.json();
+    if (j.status !== "ok" || !j.items?.length) throw new Error("bad payload");
+    return j.items.slice(0, limit).map(item => {
+      const link = item.link || "";
+      const title = (item.title || "").trim();
+      const desc = (item.description || "").replace(/<[^>]+>/g,"").trim();
+      const thumb = item.thumbnail || item.enclosure?.link || "";
+      if (!title || !link.startsWith("http") || !isArticleUrl(link)) return null;
+      const iso = item.pubDate ? new Date(item.pubDate.replace(" ", "T") + "Z").toISOString() : new Date().toISOString();
+      return { title, link, desc, image: thumb, pubDate: iso, age: timeAgo(iso), source: sourceDomain(link) };
+    }).filter(Boolean);
+  };
+
+  const parse = (text) => {
+    if (!text || (!text.includes("<item") && !text.includes("<entry"))) throw new Error("no items");
+    const doc = new DOMParser().parseFromString(text, "text/xml");
+    let nodes = [...doc.querySelectorAll("item")];
+    if (!nodes.length) nodes = [...doc.querySelectorAll("entry")]; // Atom feeds
+    return nodes.slice(0, limit).map(item => {
+      const title = item.querySelector("title")?.textContent?.replace(/<!\[CDATA\[|\]\]>/g,"").trim() || "";
+      let link = item.querySelector("link")?.textContent?.trim() || "";
+      if (!link) link = item.querySelector("link")?.getAttribute("href") || "";
+      const pubDate = item.querySelector("pubDate")?.textContent?.trim()
+                    || item.querySelector("published")?.textContent?.trim()
+                    || item.querySelector("updated")?.textContent?.trim() || "";
+      const desc = (item.querySelector("description")?.textContent || item.querySelector("summary")?.textContent || "")
+                     .replace(/<[^>]+>/g,"").trim();
+      if (!title || !link.startsWith("http") || !isArticleUrl(link)) return null;
+      const iso = pubDate ? new Date(pubDate).toISOString() : new Date().toISOString();
+      return { title, link, desc, image: "", pubDate: iso, age: timeAgo(iso), source: sourceDomain(link) };
+    }).filter(Boolean);
+  };
+  const tryText = async (url) => {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error("status " + r.status);
+    return parse(await r.text());
+  };
+  const tryWrapped = async (url) => {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error("status " + r.status);
+    const j = await r.json();
+    return parse(j.contents);
+  };
+  try {
+    return await Promise.any([
+      withTimeout(queueRss2Json(tryRss2Json), 12000),
+      withTimeout(tryText(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(feedUrl)}`), 7000),
+      withTimeout(tryWrapped(`https://api.allorigins.win/get?url=${encodeURIComponent(feedUrl)}`), 7000),
+      withTimeout(tryWrapped(`https://whateverorigin.org/get?url=${encodeURIComponent(feedUrl)}`), 7000),
+    ]);
+  } catch { return []; }
+}
+
+// Merge several RSS feeds for one category, dedupe, filter to recent, cap.
+async function multiRss(urls, perFeed, cap) {
+  const results = await Promise.allSettled(urls.map(u => fetchRssItems(u, perFeed)));
+  const items = results.flatMap(r => r.status === "fulfilled" ? r.value : []);
+  const seen = new Set();
+  return items
+    .filter(i => isRecent(i.pubDate))
+    .filter(i => { if (seen.has(i.link)) return false; seen.add(i.link); return true; })
+    .sort((a,b) => new Date(b.pubDate) - new Date(a.pubDate))
+    .slice(0, cap);
+}
+
+// Fetch Reddit JSON — races direct, codetabs, allorigins, and
+// whateverorigin.org in parallel so one flaky/blocked proxy doesn't take
+// out an entire category (this was the main reason several categories
+// were coming back empty or with only a couple of items).
 async function redditFetch(path) {
   const direct = `https://www.reddit.com${path}`;
 
@@ -1423,29 +1531,34 @@ async function redditFetch(path) {
     new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))
   ]);
 
-  const tryUrl = async (url, kind) => {
+  const tryUrl = async (url) => {
     const r = await fetch(url, { headers: { "Accept": "application/json" } });
     if (!r.ok) throw new Error("status " + r.status);
-    if (kind === "allorigins") {
-      const wrapper = await r.json();
-      const j = JSON.parse(wrapper.contents);
-      if (!j?.data?.children) throw new Error("bad payload");
-      return j;
-    }
     const j = await r.json();
     if (!j?.data?.children) throw new Error("bad payload");
     return j;
   };
 
+  const tryWrapped = async (url) => {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error("status " + r.status);
+    const wrapper = await r.json();
+    const j = JSON.parse(wrapper.contents);
+    if (!j?.data?.children) throw new Error("bad payload");
+    return j;
+  };
+
   // Fire every path at once and take whichever resolves first — trying
-  // proxies one after another meant a slow/hanging corsproxy.io could eat
-  // the whole per-source timeout before the fallback ever got a chance to
-  // run, which was silently starving nearly every Reddit-sourced category.
+  // proxies one after another meant a slow/hanging proxy could eat the
+  // whole per-source timeout before the fallback ever got a chance to run,
+  // which was silently starving nearly every Reddit-sourced category.
+  // Note: corsproxy.io's free tier is now restricted to localhost only and
+  // will 403 on any deployed domain, so it's deliberately not used here.
   const attempts = [
-    withTimeout(tryUrl(direct, "direct"), 4000),
-    withTimeout(tryUrl(`https://corsproxy.io/?url=${encodeURIComponent(direct)}`, "direct"), 7000),
-    withTimeout(tryUrl(`https://api.allorigins.win/get?url=${encodeURIComponent(direct)}`, "allorigins"), 7000),
-    withTimeout(tryUrl(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(direct)}`, "direct"), 7000),
+    withTimeout(tryUrl(direct), 4000),
+    withTimeout(tryUrl(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(direct)}`), 7000),
+    withTimeout(tryWrapped(`https://api.allorigins.win/get?url=${encodeURIComponent(direct)}`), 7000),
+    withTimeout(tryWrapped(`https://whateverorigin.org/get?url=${encodeURIComponent(direct)}`), 7000),
   ];
 
   try {
@@ -1458,7 +1571,7 @@ async function redditFetch(path) {
 // Resolve real og:title + og:image for a Reddit item in one fetch
 async function resolveRedditMeta(item) {
   try {
-    const proxy = `https://corsproxy.io/?url=${encodeURIComponent(item.link)}`;
+    const proxy = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(item.link)}`;
     const r = await Promise.race([fetch(proxy), new Promise((_,rej) => setTimeout(rej, 5000))]);
     if (!r.ok) return item;
     const j = await r.json();
@@ -1550,152 +1663,96 @@ const LIVE_SOURCES = [
       return resolveRedditTitles(deduped);
     }
   },
+  // Reddit as a bonus source — kept in case it starts working again, but no
+  // longer the sole source for any category (see multiRss entries below).
   { cat: "World",      fetch: () => multiSubReddit(["worldnews","news"],                       6, 12) },
   { cat: "Technology", fetch: () => multiSubReddit(["technology","gadgets"],                    5, 10) },
   { cat: "Politics",   fetch: () => multiSubReddit(["politics","PoliticalDiscussion"],           6, 12) },
   { cat: "Business",   fetch: () => multiSubReddit(["business","economy","Economics"],           5, 12) },
   { cat: "Science",    fetch: () => multiSubReddit(["science","EverythingScience","askscience"], 5, 12) },
+  // Publisher RSS feeds — the real primary source for these categories.
+  // Reddit's JSON API appears to be blocking known CORS-proxy IP ranges
+  // outright, so these categories can't depend on Reddit alone; RSS feeds
+  // aren't subject to that block and go through the same proxy chain fine.
+  { cat: "World",    fetch: () => multiRss([
+      "https://feeds.npr.org/1004/rss.xml",
+      "http://feeds.bbci.co.uk/news/world/rss.xml",
+      "https://www.aljazeera.com/xml/rss/all.xml",
+      "https://www.reddit.com/r/worldnews/.rss",
+      "https://www.reddit.com/r/news/.rss",
+    ], 5, 14) },
+  { cat: "Politics", fetch: () => multiRss([
+      "https://feeds.npr.org/1014/rss.xml",
+      "https://rss.politico.com/politicopicks.xml",
+      "https://thehill.com/homenews/feed/",
+      "https://www.reddit.com/r/politics/.rss",
+    ], 5, 14) },
+  { cat: "Business", fetch: () => multiRss([
+      "https://www.cnbc.com/id/10001147/device/rss/rss.html",
+      "https://feeds.content.dowjones.io/public/rss/mw_topstories",
+      "https://feeds.npr.org/1006/rss.xml",
+      "https://www.reddit.com/r/business/.rss",
+      "https://www.reddit.com/r/economy/.rss",
+    ], 5, 14) },
+  { cat: "Science",  fetch: () => multiRss([
+      "https://www.sciencedaily.com/rss/all.xml",
+      "https://feeds.npr.org/1007/rss.xml",
+      "https://www.space.com/feeds/all",
+      "https://www.reddit.com/r/science/.rss",
+    ], 5, 14) },
+  { cat: "Technology", fetch: () => multiRss([
+      "https://www.reddit.com/r/technology/.rss",
+      "https://www.reddit.com/r/gadgets/.rss",
+    ], 6, 12) },
+  { cat: "AI", fetch: () => multiRss([
+      "https://www.reddit.com/r/artificial/.rss",
+      "https://www.reddit.com/r/MachineLearning/.rss",
+      "https://www.reddit.com/r/LocalLLaMA/.rss",
+      "https://www.reddit.com/r/singularity/.rss",
+    ], 5, 12) },
   // Substack — rotating curated publications via RSS
   {
     cat: "Ideas",
     fetch: async () => {
       const pubs = [
-        "noahpinion","persuasion","slowboring","mattstoller","leeramseyfriedman",
-        "byrnehobart","astralcodexten","simonowens","platformer","thediff"
+        // Dropped "leeramseyfriedman" (confirmed 404 in an earlier console
+        // log) and "platformer" (Casey Newton moved Platformer off Substack
+        // to its own Ghost-based site back in 2024, so that feed is stale).
+        "noahpinion","persuasion","slowboring","mattstoller",
+        "byrnehobart","astralcodexten","simonowens","thediff"
       ];
       // Pick 3 random pubs each load for variety
-      const pick = pubs.sort(() => 0.5 - Math.random()).slice(0, 2);
+      const pick = pubs.sort(() => 0.5 - Math.random()).slice(0, 3);
 
-      const withTimeout = (p, ms) => Promise.race([p, new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")), ms))]);
-
-      // Race corsproxy (raw XML passthrough) / allorigins (JSON-wrapped) /
-      // codetabs (raw XML passthrough) in parallel. Previously this only
-      // tried corsproxy and called r.json() on the XML body, which always
-      // threw — so Ideas silently returned nothing regardless of proxy health.
-      const fetchXml = async (rssUrl) => {
-        const tryText = async (url) => {
-          const r = await fetch(url);
-          if (!r.ok) throw new Error("status " + r.status);
-          const text = await r.text();
-          if (!text?.includes("<item")) throw new Error("no items");
-          return text;
-        };
-        const tryAllorigins = async (url) => {
-          const r = await fetch(url);
-          if (!r.ok) throw new Error("status " + r.status);
-          const j = await r.json();
-          if (!j.contents?.includes("<item")) throw new Error("no items");
-          return j.contents;
-        };
-        return Promise.any([
-          withTimeout(tryText(`https://corsproxy.io/?url=${encodeURIComponent(rssUrl)}`), 6000),
-          withTimeout(tryAllorigins(`https://api.allorigins.win/get?url=${encodeURIComponent(rssUrl)}`), 6000),
-          withTimeout(tryText(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(rssUrl)}`), 6000),
-        ]);
-      };
-
-      const results = await Promise.allSettled(pick.map(async slug => {
-        const rssUrl = `https://${slug}.substack.com/feed`;
-        const xmlText = await fetchXml(rssUrl);
-        const parser = new DOMParser();
-        const xml = parser.parseFromString(xmlText, "text/xml");
-        const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000; // 30 days
-        return Array.from(xml.querySelectorAll("item")).slice(0, 5).map(item => {
-          const title   = item.querySelector("title")?.textContent?.replace(/<!\[CDATA\[|\]\]>/g,"").trim() || "";
-          const link    = item.querySelector("link")?.textContent?.trim() || "";
-          const pubDate = item.querySelector("pubDate")?.textContent?.trim() || "";
-          const enclosure = item.querySelector("enclosure");
-          const image   = enclosure?.getAttribute("url") || "";
-          if (!title || !link.startsWith("http")) return null;
-          const pub = pubDate ? new Date(pubDate) : null;
-          if (pub && pub.getTime() < cutoff) return null; // skip stale posts
-          return {
-            title, link, desc: "", image,
-            pubDate: pubDate ? new Date(pubDate).toISOString() : "",
-            age:     pubDate ? timeAgo(new Date(pubDate).toISOString()) : "",
-            source:  new URL(link).hostname.replace("www.",""),
-          };
-        }).filter(Boolean);
-      }));
-      return results.flatMap(r => r.status === "fulfilled" ? r.value : []).slice(0, 6);
+      // Now built on the same fetchRssItems pipeline (rss2json.com primary,
+      // raw-XML proxy fallback) that's working for every other category —
+      // this previously had its own separate, codetabs-only implementation
+      // that never got that upgrade, which is why it kept coming back empty.
+      const results = await Promise.allSettled(pick.map(slug =>
+        fetchRssItems(`https://${slug}.substack.com/feed`, 5)
+      ));
+      const cutoffMs = 30 * 24 * 60 * 60 * 1000; // essays post less often than news, so use a longer window than the 7-day default
+      return results
+        .flatMap(r => r.status === "fulfilled" ? r.value : [])
+        .filter(i => isRecent(i.pubDate, 30))
+        .slice(0, 6);
     }
   },
 
-  // Finance — real-time RSS from Yahoo Finance, MarketWatch, CNBC + Reddit hot
-  {
-    cat: "Finance",
-    fetch: async () => {
-      // Real-time RSS feeds — update every few minutes
-      const rssFeeds = [
-        "https://www.cnbc.com/id/100003114/device/rss/rss.html",
-        "https://feeds.content.dowjones.io/public/rss/mw_realtimeheadlines",
-      ];
+  // Finance — now on the same fetchRssItems pipeline (rss2json.com primary)
+  // as every other category. This previously had its own separate
+  // implementation that never got that upgrade, plus a Reddit-JSON-API
+  // call with no fallback beyond redditFetch — which is why it kept
+  // coming back empty along with Sports/Ideas while everything already
+  // migrated to multiRss worked fine.
+  { cat: "Finance", fetch: () => multiRss([
+      "https://www.cnbc.com/id/100003114/device/rss/rss.html",
+      "https://feeds.content.dowjones.io/public/rss/mw_realtimeheadlines",
+      "https://www.reddit.com/r/finance/.rss",
+      "https://www.reddit.com/r/investing/.rss",
+      "https://www.reddit.com/r/economics/.rss",
+    ], 5, 14) },
 
-      const fetchRss = async (feedUrl) => {
-        const withTimeout = (p, ms) => Promise.race([p, new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")), ms))]);
-        const parse = (text) => {
-          if (!text?.includes('<item')) throw new Error("no items");
-          const doc = new DOMParser().parseFromString(text, 'text/xml');
-          return [...doc.querySelectorAll('item')].slice(0, 6).map(item => {
-            const link = item.querySelector('link')?.textContent?.trim() ||
-                         item.querySelector('guid')?.textContent?.trim() || '';
-            const title = item.querySelector('title')?.textContent?.trim() || '';
-            const desc = item.querySelector('description')?.textContent?.replace(/<[^>]+>/g,'').trim() || '';
-            const pubDate = item.querySelector('pubDate')?.textContent?.trim() || new Date().toISOString();
-            if (!link || !isArticleUrl(link)) return null;
-            return { title, link, desc, image: '', pubDate, age: timeAgo(pubDate), source: sourceDomain(link) };
-          }).filter(Boolean);
-        };
-        const tryText = async (url) => {
-          const r = await fetch(url);
-          if (!r.ok) throw new Error("status " + r.status);
-          return parse(await r.text());
-        };
-        const tryAllorigins = async (url) => {
-          const r = await fetch(url);
-          if (!r.ok) throw new Error("status " + r.status);
-          const j = await r.json();
-          return parse(j.contents);
-        };
-        try {
-          // Race proxies in parallel — sequential retries were letting a
-          // slow/hanging corsproxy.io eat the whole budget before the
-          // fallback ever ran.
-          return await Promise.any([
-            withTimeout(tryText(`https://corsproxy.io/?url=${encodeURIComponent(feedUrl)}`), 6000),
-            withTimeout(tryAllorigins(`https://api.allorigins.win/get?url=${encodeURIComponent(feedUrl)}`), 6000),
-            withTimeout(tryText(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(feedUrl)}`), 6000),
-          ]);
-        } catch { return []; }
-      };
-
-      // Reddit hot (not top/week) for community-surfaced stories
-      const redditHot = redditFetch('/r/finance+investing+economics+financialnews/hot.json?limit=25')
-        .then(j => (j?.data?.children || []).map(c => c.data)
-          .filter(p => p.url && !p.url.includes('reddit.com') && isArticleUrl(p.url) && isRecent(p.created_utc * 1000))
-          .slice(0, 6).map(p => ({
-            title: p.title, link: p.url, desc: '', image: redditImage(p),
-            pubDate: new Date(p.created_utc * 1000).toISOString(),
-            age: timeAgo(new Date(p.created_utc * 1000).toISOString()),
-            source: sourceDomain(p.url),
-          }))
-        ).catch(() => []);
-
-      const [rssResults, reddit] = await Promise.allSettled([
-        Promise.all(rssFeeds.map(fetchRss)).then(r => r.flat()),
-        redditHot,
-      ]);
-
-      const rawAll = [...(rssResults.value||[]), ...(reddit.value||[])];
-      const all = await Promise.all(rawAll.map(async i => i._resolveTitle ? resolveRedditMeta(i) : i));
-      const seen = new Set();
-      return all
-        .filter(i => { if (!i?.link || seen.has(i.link)) return false; seen.add(i.link); return true; })
-        .filter(i => isRecent(i.pubDate))
-        .sort((a,b) => { try { return new Date(b.pubDate)-new Date(a.pubDate); } catch { return 0; } })
-        .slice(0, 12);
-    }
-  },
   // Sports — Reddit for URLs, real titles resolved from og:title
   {
     cat: "Sports",
@@ -1729,6 +1786,15 @@ const LIVE_SOURCES = [
       return resolveRedditTitles(deduped);
     }
   },
+  // ESPN/CBS/Yahoo RSS — the real primary source; see note above multiRss.
+  { cat: "Sports", fetch: () => multiRss([
+      "http://feeds.bbci.co.uk/sport/rss.xml",
+      "https://sports.yahoo.com/rss/",
+      "https://www.espn.com/espn/rss/news",
+      "https://www.reddit.com/r/sports/.rss",
+      "https://www.reddit.com/r/nba/.rss",
+      "https://www.reddit.com/r/nfl/.rss",
+    ], 4, 14) },
 ];
 
 // Global article registry — avoids inline onclick URL escaping issues entirely
@@ -1899,12 +1965,12 @@ async function fetchMarketData() {
       // Try corsproxy first (works from null origin), allorigins as fallback
       let csv = null;
       try {
-        const r = await race(fetch("https://corsproxy.io/?url=" + encodeURIComponent(url)));
+        const r = await race(fetch("https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(url)));
         if (r.ok) csv = await r.text();
       } catch {}
       if (!csv) {
         try {
-          const r = await race(fetch("https://corsproxy.io/?url=" + encodeURIComponent(url)));
+          const r = await race(fetch("https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(url)));
           if (r.ok) { csv = await r.text(); }
         } catch {}
       }
@@ -1935,11 +2001,11 @@ async function fetchMarketData() {
     const url = "https://query1.finance.yahoo.com/v6/finance/quote?symbols=^DJI,^GSPC,^IXIC";
     let data = null;
     try {
-      const r = await race(fetch("https://corsproxy.io/?url=" + encodeURIComponent(url)));
+      const r = await race(fetch("https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(url)));
       if (r.ok) { const j = await r.json(); data = JSON.parse(j.contents || "null"); }
     } catch {}
     if (!data) {
-      const r = await race(fetch("https://corsproxy.io/?url=" + encodeURIComponent(url)));
+      const r = await race(fetch("https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(url)));
       if (r.ok) data = await r.json();
     }
     const quotes = data?.quoteResponse?.result;
@@ -2185,8 +2251,8 @@ document.getElementById("feedContent").addEventListener("click", e => {
 // Fetch og:image for a URL, trying two proxies
 async function fetchOgImage(url) {
   for (const proxy of [
-    `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
-    `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
+    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
   ]) {
     try {
       const r = await Promise.race([
@@ -2212,7 +2278,7 @@ async function resolveGoogleNewsUrlMulti(gnUrl) {
   // Try multiple proxies — some follow the Google News redirect chain better than others
   const proxies = [
     u => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
-    u => `https://corsproxy.io/?url=${encodeURIComponent(u)}`,
+    u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
     u => `https://thingproxy.freeboard.io/fetch/${u}`,
   ];
   for (const proxyFn of proxies) {
@@ -2257,7 +2323,7 @@ async function resolveGoogleNewsUrl(gnUrl) {
   // corsproxy only — follows redirects, may return destination page directly
   try {
     const r = await Promise.race([
-      fetch(`https://corsproxy.io/?url=${encodeURIComponent(gnUrl)}`),
+      fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(gnUrl)}`),
       new Promise((_,rej) => setTimeout(rej, 8000))
     ]);
     if (r.ok) {
@@ -2284,7 +2350,7 @@ async function fetchDDG(after, query, source) {
     let html = null;
     for (const proxyUrl of [
       `https://wsj.drudd524.workers.dev/?action=ddg&q=${encodeURIComponent(pagedQuery)}&url=ddg`,
-      `https://corsproxy.io/?url=${encodeURIComponent(ddgUrl)}`,
+      `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(ddgUrl)}`,
     ]) {
       try {
         const r = await Promise.race([
@@ -2315,7 +2381,7 @@ async function fetchDDG(after, query, source) {
 
 async function fetchRssPaper(feedUrl, after, sourceOverride) {
   for (const proxyFn of [
-    u => `https://corsproxy.io/?url=${encodeURIComponent(u)}`,
+    u => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
     u => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,
   ]) {
     try {
@@ -2416,7 +2482,7 @@ const NEWSPAPERS = [
       let html = null;
       for (const proxyUrl of [
         `https://wsj.drudd524.workers.dev/?action=ddg&q=${encodeURIComponent(query)}&url=ddg`,
-        `https://corsproxy.io/?url=${encodeURIComponent(ddgUrl)}`,
+        `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(ddgUrl)}`,
       ]) {
         try {
           const r = await Promise.race([fetch(proxyUrl), new Promise((_,rej)=>setTimeout(rej,12000))]);
@@ -2460,8 +2526,8 @@ const NEWSPAPERS = [
     fetch: async (after) => {
       // lite.cnn.com — CNN's text-only version, no JS, always current
       for (const proxy of [
-        `https://corsproxy.io/?url=${encodeURIComponent("https://lite.cnn.com/")}`,
-        `https://corsproxy.io/?url=${encodeURIComponent("https://lite.cnn.com/")}`,
+        `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent("https://lite.cnn.com/")}`,
+        `https://api.allorigins.win/get?url=${encodeURIComponent("https://lite.cnn.com/")}`,
       ]) {
         try {
           const r = await Promise.race([fetch(proxy), new Promise((_,rej)=>setTimeout(rej,10000))]);
@@ -3220,7 +3286,7 @@ async function fetchMetaViaGoogle(url) {
     // Use Google News RSS to get description — first result for exact URL is usually the article
     const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent('"' + headline.split(" ").slice(0,6).join(" ") + '"')}&hl=en-US&gl=US&ceid=US:en`;
     const r = await Promise.race([
-      fetch(`https://corsproxy.io/?url=${encodeURIComponent(rssUrl)}`),
+      fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(rssUrl)}`),
       new Promise((_,rej) => setTimeout(rej, 7000))
     ]);
     if (!r.ok) return null;
@@ -3286,7 +3352,7 @@ async function fetchMetaOnly(url) {
 
   // Standard proxy approach for non-CF sites
   for (const proxyFn of [
-    u => `https://corsproxy.io/?url=${encodeURIComponent(u)}`,
+    u => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
     u => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}&t=${Math.floor(Date.now()/300000)}`,
   ]) {
     try {
@@ -3469,7 +3535,7 @@ const FETCH_METHODS = [
     name: "Jina+proxy",
     fetch: async (url) => {
       const jinaUrl = `https://r.jina.ai/${url}`;
-      const r = await fetch(`https://corsproxy.io/?url=${encodeURIComponent(jinaUrl)}`);
+      const r = await fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(jinaUrl)}`);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const t = await r.text();
       if (t.includes("error 401") || t.includes("CAPTCHA") || t.includes("Unauthorized"))
@@ -3503,9 +3569,9 @@ const FETCH_METHODS = [
     }
   },
   {
-    name: "corsproxy.io",
+    name: "codetabs",
     fetch: async (url) => {
-      const r = await fetch(`https://corsproxy.io/?url=${encodeURIComponent(url)}`);
+      const r = await fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const t = await r.text();
       if (t.length < 800) throw new Error("Too short");
@@ -3515,15 +3581,15 @@ const FETCH_METHODS = [
   {
     name: "AllOrigins",
     fetch: async (url) => {
-      // Try corsproxy first (works from null/local origin), fall back to allorigins
+      // Real second path this time — was previously two identical URLs
       for (const proxyUrl of [
-        `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
-        `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
+        `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
+        `https://whateverorigin.org/get?url=${encodeURIComponent(url)}`,
       ]) {
         try {
           const r = await fetch(proxyUrl);
           if (!r.ok) continue;
-          const text = proxyUrl.includes("allorigins") ? (await r.json()).contents : await r.text();
+          const text = (await r.json()).contents;
           if (!text || text.length < 800) continue;
           return { type: "html", text };
         } catch {}
@@ -3538,7 +3604,7 @@ const FETCH_METHODS = [
       if (!ampUrl || ampUrl === url + "/amp") throw new Error("No known AMP URL");
       // Send Referer: google.com — WSJ/FT honor "First Click Free" for traffic arriving from Google.
       // corsproxy forwards this header server-side, which a browser fetch() cannot do directly.
-      const r = await fetch(`https://corsproxy.io/?url=${encodeURIComponent(ampUrl)}`, {
+      const r = await fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(ampUrl)}`, {
         headers: { "Referer": "https://www.google.com", "X-Forwarded-For": "66.249.66.1" }
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -3564,7 +3630,7 @@ const FETCH_METHODS = [
         snapUrl = av?.archived_snapshots?.closest?.url?.replace("/http","id_/http");
       }
       if (!snapUrl) throw new Error("No snapshot");
-      const r = await fetch(`https://corsproxy.io/?url=${encodeURIComponent(snapUrl)}`);
+      const r = await fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(snapUrl)}`);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const raw = stripWaybackToolbar(await r.text());
       if (raw.length < 800) throw new Error("Snapshot too short");
@@ -3574,12 +3640,12 @@ const FETCH_METHODS = [
   {
     name: "Archive.ph",
     fetch: async (url) => {
-      const r1 = await fetch(`https://corsproxy.io/?url=${encodeURIComponent("https://archive.ph/newest/" + url)}`);
+      const r1 = await fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent("https://archive.ph/newest/" + url)}`);
       if (!r1.ok) throw new Error(`HTTP ${r1.status}`);
       const html1 = await r1.text();
       const snapMatch = html1.match(/https:\/\/archive\.ph\/[A-Za-z0-9]{4,}/);
       if (!snapMatch) throw new Error("No snapshot URL");
-      const r2 = await fetch(`https://corsproxy.io/?url=${encodeURIComponent(snapMatch[0])}`);
+      const r2 = await fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(snapMatch[0])}`);
       if (!r2.ok) throw new Error(`HTTP ${r2.status}`);
       const t = await r2.text();
       if (t.length < 800) throw new Error("Snapshot empty");
@@ -3854,7 +3920,7 @@ async function searchGoogleNews(query) {
   try {
     const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=en-US&gl=US&ceid=US:en`;
     const r = await Promise.race([
-      fetch(`https://corsproxy.io/?url=${encodeURIComponent(rssUrl)}`),
+      fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(rssUrl)}`),
       new Promise((_,rej) => setTimeout(rej, 8000))
     ]);
     if (!r.ok) return null;
@@ -3964,7 +4030,7 @@ async function searchYahooFinance(query) {
   try {
     const searchUrl = `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(query)}&newsCount=6&enableFuzzyQuery=false`;
     const r = await Promise.race([
-      fetch(`https://corsproxy.io/?url=${encodeURIComponent(searchUrl)}`),
+      fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(searchUrl)}`),
       new Promise((_,rej) => setTimeout(rej, 6000))
     ]);
     if (!r.ok) return null;
@@ -4018,7 +4084,7 @@ function parseResult(result, url) {
 // Race corsproxy and Jina simultaneously — take whichever returns valid content first.
 // Both run with a 12s timeout. Used for CF-protected / ambiguous domains (Tier 2).
 async function raceFetch(url) {
-  const proxy  = FETCH_METHODS.find(m => m.name === "corsproxy.io");
+  const proxy  = FETCH_METHODS.find(m => m.name === "codetabs");
   const jina   = FETCH_METHODS.find(m => m.name === "Jina");
   const allori = FETCH_METHODS.find(m => m.name === "AllOrigins");
   const TIMEOUT = 12000;
@@ -4072,7 +4138,7 @@ async function fetchArticle(url, _isRetry = false) {
         if (article && article.paragraphs.length >= 5) return article;
       }
     } catch {}
-    for (const method of pick(["Jina+googlebot","Jina+gift","Wayback","Archive.ph"])) {
+    for (const method of pick(["Archive.ph","Wayback","Jina+googlebot","Jina+gift"])) {
       loadingSub.textContent = `Trying ${method.name}…`;
       logMethod(method.name, "pending", "Connecting…");
       try {
@@ -4126,13 +4192,13 @@ async function fetchArticle(url, _isRetry = false) {
   // ── Tier 2: Race (CF-protected / ambiguous) ──────────────────────────────
   else if (inSet(RACE_DOMAINS)) {
     loadingSub.textContent = "Fetching…";
-    logMethod("corsproxy.io + Jina", "pending", "Racing…");
+    logMethod("codetabs + Jina", "pending", "Racing…");
     const raceResult = await raceFetch(url);
     if (raceResult) {
       logMethod(raceResult.method, "ok", `${raceResult.article.paragraphs.length} paragraphs`);
       return raceResult.article;
     }
-    logMethod("corsproxy.io + Jina", "fail", "Both failed");
+    logMethod("codetabs + Jina", "fail", "Both failed");
     // Fall through to Wayback/Archive as last resort
     for (const method of pick(["Wayback","Archive.ph"])) {
       loadingSub.textContent = `Trying ${method.name}…`;
@@ -4150,8 +4216,8 @@ async function fetchArticle(url, _isRetry = false) {
   // ── Tier 1: Proxy-only (open sites) + unknown domains ───────────────────
   else {
     const methods = inSet(PROXY_ONLY)
-      ? pick(["corsproxy.io","AllOrigins","AMP","Wayback","Archive.ph"])
-      : pick(["corsproxy.io","AllOrigins","AMP","Wayback","Archive.ph","Jina","Jina+proxy"]);
+      ? pick(["codetabs","AllOrigins","AMP","Wayback","Archive.ph"])
+      : pick(["codetabs","AllOrigins","AMP","Wayback","Archive.ph","Jina","Jina+proxy"]);
     for (const method of methods) {
       loadingSub.textContent = `Trying ${method.name}…`;
       logMethod(method.name, "pending", "Connecting…");
@@ -4480,7 +4546,7 @@ async function runSearch(query) {
   const fetchFeed = async ({ url, source }) => {
     // Try allorigins then corsproxy — both handle CORS
     for (const proxyFn of [
-      u => `https://corsproxy.io/?url=${encodeURIComponent(u)}`,
+      u => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
       u => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,
     ]) {
       try {
@@ -4589,28 +4655,28 @@ async function wsjDiag() {
   const tests = [
     { label: "corsproxy + wsj.com/news/world HTML", 
       fn: async () => {
-        const r = await fetch("https://corsproxy.io/?url=" + encodeURIComponent("https://www.wsj.com/news/world"), {signal: AbortSignal.timeout(10000)});
+        const r = await fetch("https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent("https://www.wsj.com/news/world"), {signal: AbortSignal.timeout(10000)});
         const t = await r.text();
         return `HTTP ${r.status}, length ${t.length}, has articles: ${t.includes("wsj.com/articles")}`;
       }
     },
     { label: "corsproxy + wsj.com sitemap",
       fn: async () => {
-        const r = await fetch("https://corsproxy.io/?url=" + encodeURIComponent("https://www.wsj.com/news-sitemap.xml"), {signal: AbortSignal.timeout(10000)});
+        const r = await fetch("https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent("https://www.wsj.com/news-sitemap.xml"), {signal: AbortSignal.timeout(10000)});
         const t = await r.text();
         return `HTTP ${r.status}, length ${t.length}, has loc: ${t.includes("<loc>")}`;
       }
     },
     { label: "corsproxy + wsj.com/sitemap.xml",
       fn: async () => {
-        const r = await fetch("https://corsproxy.io/?url=" + encodeURIComponent("https://www.wsj.com/sitemap.xml"), {signal: AbortSignal.timeout(10000)});
+        const r = await fetch("https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent("https://www.wsj.com/sitemap.xml"), {signal: AbortSignal.timeout(10000)});
         const t = await r.text();
         return `HTTP ${r.status}, length ${t.length}, snippet: ${t.slice(0,200)}`;
       }
     },
     { label: "corsproxy + wsj RSS v2 (paid)",
       fn: async () => {
-        const r = await fetch("https://corsproxy.io/?url=" + encodeURIComponent("https://feeds.a.dj.com/rss/WSJcomUSBusiness.xml"), {signal: AbortSignal.timeout(10000)});
+        const r = await fetch("https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent("https://feeds.a.dj.com/rss/WSJcomUSBusiness.xml"), {signal: AbortSignal.timeout(10000)});
         const t = await r.text();
         const date = t.match(/<lastBuildDate>([^<]+)<\/lastBuildDate>/)?.[1] || "no date";
         return `HTTP ${r.status}, lastBuildDate: ${date}`;
@@ -4618,7 +4684,7 @@ async function wsjDiag() {
     },
     { label: "corsproxy + wsj.com/news page (mobile UA)",
       fn: async () => {
-        const r = await fetch("https://corsproxy.io/?url=" + encodeURIComponent("https://www.wsj.com/news"), {signal: AbortSignal.timeout(10000)});
+        const r = await fetch("https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent("https://www.wsj.com/news"), {signal: AbortSignal.timeout(10000)});
         const t = await r.text();
         return `HTTP ${r.status}, length ${t.length}, has wsj/articles: ${(t.match(/wsj\.com\/articles/g)||[]).length}`;
       }
