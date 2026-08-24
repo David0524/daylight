@@ -1411,26 +1411,37 @@ async function multiSubReddit(subs, perSub, cap) {
   return resolveRedditTitles(deduped);
 }
 
-// Concurrency limiter for rss2json.com calls. On a full page load every
-// category's feeds all try rss2json first, in parallel — that's 15-20+
-// simultaneous requests to a free-tier service, which reliably trips its
-// rate limit and comes back as a wall of 429s (confirmed via console log:
-// nearly every rss2json call in a full-load trace returned 429). This caps
-// how many rss2json requests are in flight at once; the rest queue and run
-// as slots free up, instead of all firing at once and getting rate-limited.
-const RSS2JSON_MAX_CONCURRENT = 4;
+// Concurrency + pacing limiter for rss2json.com calls. A fresh console log
+// from the real deployed origin (david0524.github.io) shows: (a) codetabs,
+// allorigins, and whateverorigin are now dead as CORS proxies entirely —
+// every call to any of them, for every source, comes back as a browser CORS
+// error, not just from Reddit — so rss2json is effectively the only path
+// left; and (b) even at 4-concurrent, nearly every rss2json call still came
+// back 429 (rate limited) or 500. That combination — failures persisting
+// despite a concurrency cap — points to a rate-*over-time* limit, not a
+// concurrency limit, so capping concurrency alone doesn't help: a burst of
+// 4-at-once still blows through it in the first second. This dispatcher
+// instead runs requests one at a time with a minimum gap between each,
+// spreading ~30 feed calls out over the load instead of bursting them.
+const RSS2JSON_MAX_CONCURRENT = 2;
+const RSS2JSON_MIN_GAP_MS = 500;
 let rss2jsonActive = 0;
+let rss2jsonLastStart = 0;
 const rss2jsonQueue = [];
 
 function runRss2JsonQueue() {
-  while (rss2jsonActive < RSS2JSON_MAX_CONCURRENT && rss2jsonQueue.length) {
+  if (rss2jsonActive >= RSS2JSON_MAX_CONCURRENT || !rss2jsonQueue.length) return;
+  const wait = Math.max(0, RSS2JSON_MIN_GAP_MS - (Date.now() - rss2jsonLastStart));
+  setTimeout(() => {
+    if (rss2jsonActive >= RSS2JSON_MAX_CONCURRENT || !rss2jsonQueue.length) return;
     const { task, resolve, reject } = rss2jsonQueue.shift();
     rss2jsonActive++;
+    rss2jsonLastStart = Date.now();
     task().then(resolve, reject).finally(() => {
       rss2jsonActive--;
       runRss2JsonQueue();
     });
-  }
+  }, wait);
 }
 
 function queueRss2Json(task) {
@@ -1445,9 +1456,11 @@ function queueRss2Json(task) {
 // needed on top), returns clean pre-parsed JSON, and isn't the kind of
 // generic CORS-bypass tool that ends up on anti-scraping blocklists the
 // way corsproxy.io/allorigins/etc. increasingly are. Falls back to raw-XML
-// fetch via the proxy chain if rss2json is ever unavailable. Calls to
-// rss2json go through queueRss2Json() so a full page load doesn't blow
-// through its free-tier rate limit (see comment above).
+// fetch via the proxy chain if rss2json is ever unavailable — though as of
+// the last real console log, codetabs/allorigins/whateverorigin are all
+// dead as CORS proxies on the deployed origin, so that fallback chain
+// currently contributes nothing; it's left in place in case any of them
+// recovers, but rss2json (paced via queueRss2Json below) is the real path.
 async function fetchRssItems(feedUrl, limit = 8) {
   const withTimeout = (p, ms) => Promise.race([p, new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")), ms))]);
 
@@ -1499,7 +1512,7 @@ async function fetchRssItems(feedUrl, limit = 8) {
   };
   try {
     return await Promise.any([
-      withTimeout(queueRss2Json(tryRss2Json), 12000),
+      withTimeout(queueRss2Json(tryRss2Json), 25000),
       withTimeout(tryText(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(feedUrl)}`), 7000),
       withTimeout(tryWrapped(`https://api.allorigins.win/get?url=${encodeURIComponent(feedUrl)}`), 7000),
       withTimeout(tryWrapped(`https://whateverorigin.org/get?url=${encodeURIComponent(feedUrl)}`), 7000),
