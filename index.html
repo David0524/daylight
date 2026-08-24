@@ -1704,38 +1704,44 @@ const LIVE_SOURCES = [
       "https://feeds.npr.org/1004/rss.xml",
       "http://feeds.bbci.co.uk/news/world/rss.xml",
       "https://www.aljazeera.com/xml/rss/all.xml",
+      "https://www.theguardian.com/world/rss",
       "https://www.reddit.com/r/worldnews/.rss",
       "https://www.reddit.com/r/news/.rss",
-    ], 5, 14) },
+    ], 8, 24) },
   { cat: "Politics", fetch: () => multiRss([
       "https://feeds.npr.org/1014/rss.xml",
       "https://rss.politico.com/politicopicks.xml",
       "https://thehill.com/homenews/feed/",
+      "https://www.theguardian.com/us-news/rss",
       "https://www.reddit.com/r/politics/.rss",
-    ], 5, 14) },
+    ], 8, 22) },
   { cat: "Business", fetch: () => multiRss([
       "https://www.cnbc.com/id/10001147/device/rss/rss.html",
       "https://feeds.content.dowjones.io/public/rss/mw_topstories",
       "https://feeds.npr.org/1006/rss.xml",
+      "https://www.theguardian.com/business/rss",
       "https://www.reddit.com/r/business/.rss",
       "https://www.reddit.com/r/economy/.rss",
-    ], 5, 14) },
+    ], 8, 22) },
   { cat: "Science",  fetch: () => multiRss([
       "https://www.sciencedaily.com/rss/all.xml",
       "https://feeds.npr.org/1007/rss.xml",
       "https://www.space.com/feeds/all",
+      "https://www.theguardian.com/science/rss",
       "https://www.reddit.com/r/science/.rss",
-    ], 5, 14) },
+    ], 8, 22) },
   { cat: "Technology", fetch: () => multiRss([
+      "https://www.theverge.com/rss/index.xml",
+      "https://feeds.arstechnica.com/arstechnica/index",
       "https://www.reddit.com/r/technology/.rss",
       "https://www.reddit.com/r/gadgets/.rss",
-    ], 6, 12) },
+    ], 8, 20) },
   { cat: "AI", fetch: () => multiRss([
       "https://www.reddit.com/r/artificial/.rss",
       "https://www.reddit.com/r/MachineLearning/.rss",
       "https://www.reddit.com/r/LocalLLaMA/.rss",
       "https://www.reddit.com/r/singularity/.rss",
-    ], 5, 12) },
+    ], 8, 20) },
   // Substack — rotating curated publications via RSS
   {
     cat: "Ideas",
@@ -1747,21 +1753,21 @@ const LIVE_SOURCES = [
         "noahpinion","persuasion","slowboring","mattstoller",
         "byrnehobart","astralcodexten","simonowens","thediff"
       ];
-      // Pick 3 random pubs each load for variety
-      const pick = pubs.sort(() => 0.5 - Math.random()).slice(0, 3);
+      // Pick 5 random pubs each load for variety (was 3 — too thin a pool)
+      const pick = pubs.sort(() => 0.5 - Math.random()).slice(0, 5);
 
       // Now built on the same fetchRssItems pipeline (rss2json.com primary,
       // raw-XML proxy fallback) that's working for every other category —
       // this previously had its own separate, codetabs-only implementation
       // that never got that upgrade, which is why it kept coming back empty.
       const results = await Promise.allSettled(pick.map(slug =>
-        fetchRssItems(`https://${slug}.substack.com/feed`, 5)
+        fetchRssItems(`https://${slug}.substack.com/feed`, 8)
       ));
       const cutoffMs = 30 * 24 * 60 * 60 * 1000; // essays post less often than news, so use a longer window than the 7-day default
       return results
         .flatMap(r => r.status === "fulfilled" ? r.value : [])
         .filter(i => isRecent(i.pubDate, 30))
-        .slice(0, 6);
+        .slice(0, 15);
     }
   },
 
@@ -1774,10 +1780,11 @@ const LIVE_SOURCES = [
   { cat: "Finance", fetch: () => multiRss([
       "https://www.cnbc.com/id/100003114/device/rss/rss.html",
       "https://feeds.content.dowjones.io/public/rss/mw_realtimeheadlines",
+      "https://www.theguardian.com/business/rss",
       "https://www.reddit.com/r/finance/.rss",
       "https://www.reddit.com/r/investing/.rss",
       "https://www.reddit.com/r/economics/.rss",
-    ], 5, 14) },
+    ], 8, 22) },
 
   // Sports — Reddit for URLs, real titles resolved from og:title
   {
@@ -1815,12 +1822,13 @@ const LIVE_SOURCES = [
   // ESPN/CBS/Yahoo RSS — the real primary source; see note above multiRss.
   { cat: "Sports", fetch: () => multiRss([
       "http://feeds.bbci.co.uk/sport/rss.xml",
+      "https://www.theguardian.com/sport/rss",
       "https://sports.yahoo.com/rss/",
       "https://www.espn.com/espn/rss/news",
       "https://www.reddit.com/r/sports/.rss",
       "https://www.reddit.com/r/nba/.rss",
       "https://www.reddit.com/r/nfl/.rss",
-    ], 4, 14) },
+    ], 8, 22) },
 ];
 
 // Global article registry — avoids inline onclick URL escaping issues entirely
