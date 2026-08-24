@@ -1423,8 +1423,17 @@ async function multiSubReddit(subs, perSub, cap) {
 // 4-at-once still blows through it in the first second. This dispatcher
 // instead runs requests one at a time with a minimum gap between each,
 // spreading ~30 feed calls out over the load instead of bursting them.
-const RSS2JSON_MAX_CONCURRENT = 2;
-const RSS2JSON_MIN_GAP_MS = 500;
+// Free rss2json.com API key. Without a key, the anonymous tier isn't a
+// simple rate-per-time limit — it caps how many *distinct new feed URLs*
+// can be converted in a short window before demanding a key (confirmed via
+// the exact error other apps hit: "You are converting new feeds in a very
+// short period, please use an API key"). Daylight requests ~38 distinct
+// feeds per load, so no amount of client-side pacing could avoid tripping
+// this. With a key attached, the free tier jumps to a real daily quota.
+const RSS2JSON_API_KEY = "bm3dbj9dbzaphulnltcu7ey1yjjzzhdqxb0cmwxc";
+
+const RSS2JSON_MAX_CONCURRENT = 6;
+const RSS2JSON_MIN_GAP_MS = 150;
 let rss2jsonActive = 0;
 let rss2jsonLastStart = 0;
 const rss2jsonQueue = [];
@@ -1465,7 +1474,7 @@ async function fetchRssItems(feedUrl, limit = 8) {
   const withTimeout = (p, ms) => Promise.race([p, new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")), ms))]);
 
   const tryRss2Json = async () => {
-    const r = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feedUrl)}`);
+    const r = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feedUrl)}&api_key=${RSS2JSON_API_KEY}`);
     if (!r.ok) throw new Error("status " + r.status);
     const j = await r.json();
     if (j.status !== "ok" || !j.items?.length) throw new Error("bad payload");
@@ -1512,7 +1521,7 @@ async function fetchRssItems(feedUrl, limit = 8) {
   };
   try {
     return await Promise.any([
-      withTimeout(queueRss2Json(tryRss2Json), 25000),
+      withTimeout(queueRss2Json(tryRss2Json), 12000),
       withTimeout(tryText(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(feedUrl)}`), 7000),
       withTimeout(tryWrapped(`https://api.allorigins.win/get?url=${encodeURIComponent(feedUrl)}`), 7000),
       withTimeout(tryWrapped(`https://whateverorigin.org/get?url=${encodeURIComponent(feedUrl)}`), 7000),
@@ -3615,15 +3624,21 @@ const FETCH_METHODS = [
     fetch: async (url) => {
       const ampUrl = toAmpUrl(url);
       if (!ampUrl || ampUrl === url + "/amp") throw new Error("No known AMP URL");
-      // Send Referer: google.com — WSJ/FT honor "First Click Free" for traffic arriving from Google.
-      // corsproxy forwards this header server-side, which a browser fetch() cannot do directly.
-      const r = await fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(ampUrl)}`, {
-        headers: { "Referer": "https://www.google.com", "X-Forwarded-For": "66.249.66.1" }
+      // Was routed through codetabs to set a custom Referer/X-Forwarded-For
+      // server-side — codetabs is dead as a CORS proxy now, so this always
+      // failed. Jina supports the same server-side header override via
+      // X-Referer, so this switches to that instead (same technique the
+      // Jina+AMP method already uses successfully).
+      const r = await fetch(`https://r.jina.ai/${ampUrl}`, {
+        headers: {
+          "Accept": "text/plain", "X-Return-Format": "markdown",
+          "X-Referer": "https://www.google.com/",
+        }
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const t = await r.text();
       if (t.length < 800) throw new Error("AMP too short");
-      return { type: "html", text: t };
+      return { type: "markdown", text: t };
     }
   },
   {
@@ -3643,26 +3658,35 @@ const FETCH_METHODS = [
         snapUrl = av?.archived_snapshots?.closest?.url?.replace("/http","id_/http");
       }
       if (!snapUrl) throw new Error("No snapshot");
-      const r = await fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(snapUrl)}`);
+      // Fetch the snapshot itself via Jina, not codetabs — codetabs is dead
+      // as a CORS proxy, which made this always fail even after finding a
+      // valid snapshot URL.
+      const r = await fetch(`https://r.jina.ai/${snapUrl}`, {
+        headers: { "Accept": "text/plain", "X-Return-Format": "markdown" }
+      });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const raw = stripWaybackToolbar(await r.text());
-      if (raw.length < 800) throw new Error("Snapshot too short");
-      return { type: "html", text: raw };
+      const md = await r.text();
+      if (md.length < 800) throw new Error("Snapshot too short");
+      return { type: "markdown", text: md };
     }
   },
   {
+    // archive.ph via Jina — was previously two codetabs calls (regex-scrape the
+    // snapshot URL, then fetch it), both of which now fail since codetabs is
+    // dead as a CORS proxy. Jina can follow the archive.ph/newest/{url}
+    // redirect directly to the timestamped snapshot in one request, same
+    // technique as the ArchiveJina method below — no proxy needed at all.
     name: "Archive.ph",
     fetch: async (url) => {
-      const r1 = await fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent("https://archive.ph/newest/" + url)}`);
-      if (!r1.ok) throw new Error(`HTTP ${r1.status}`);
-      const html1 = await r1.text();
-      const snapMatch = html1.match(/https:\/\/archive\.ph\/[A-Za-z0-9]{4,}/);
-      if (!snapMatch) throw new Error("No snapshot URL");
-      const r2 = await fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(snapMatch[0])}`);
-      if (!r2.ok) throw new Error(`HTTP ${r2.status}`);
-      const t = await r2.text();
-      if (t.length < 800) throw new Error("Snapshot empty");
-      return { type: "html", text: t };
+      const newestUrl = `https://archive.ph/newest/${url}`;
+      const r = await fetch(`https://r.jina.ai/${newestUrl}`, {
+        headers: { "Accept": "text/plain", "X-Return-Format": "markdown" }
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const md = await r.text();
+      if (md.length < 800) throw new Error("Snapshot too short");
+      if (md.includes("Subscribe now") && md.length < 1000) throw new Error("Paywall");
+      return { type: "markdown", text: md };
     }
   },
 ];
@@ -4099,7 +4123,10 @@ function parseResult(result, url) {
 async function raceFetch(url) {
   const proxy  = FETCH_METHODS.find(m => m.name === "codetabs");
   const jina   = FETCH_METHODS.find(m => m.name === "Jina");
-  const allori = FETCH_METHODS.find(m => m.name === "AllOrigins");
+  // AllOrigins is dead as a CORS proxy (confirmed via console log), so it's
+  // no longer a useful tiebreaker — ArchiveJina (Jina fetching an archive.ph
+  // snapshot, no proxy involved) actually has a chance of succeeding.
+  const tiebreaker = FETCH_METHODS.find(m => m.name === "ArchiveJina");
   const TIMEOUT = 12000;
 
   const attempt = (method) => Promise.race([
@@ -4112,12 +4139,11 @@ async function raceFetch(url) {
   });
 
   // Promise.any resolves as soon as the FIRST attempt succeeds — true race.
-  // If both fail, fall through to AllOrigins as tiebreaker.
+  // If both fail, fall through to ArchiveJina as tiebreaker.
   try {
     return await Promise.any([attempt(proxy), attempt(jina)]);
   } catch {}
-  // Both failed — try AllOrigins as tiebreaker
-  try { return await attempt(allori); } catch {}
+  try { return await attempt(tiebreaker); } catch {}
   return null;
 }
 
@@ -4228,9 +4254,15 @@ async function fetchArticle(url, _isRetry = false) {
 
   // ── Tier 1: Proxy-only (open sites) + unknown domains ───────────────────
   else {
+    // codetabs and AllOrigins are dead as CORS proxies (confirmed via console
+    // log — every call to either comes back as a browser CORS error on the
+    // deployed origin), so they're kept only in case either recovers, but
+    // moved after the methods that actually work right now. PROXY_ONLY
+    // previously had no non-codetabs fallback at all, so those domains could
+    // never open an article; Jina is added here as a real fallback.
     const methods = inSet(PROXY_ONLY)
-      ? pick(["codetabs","AllOrigins","AMP","Wayback","Archive.ph"])
-      : pick(["codetabs","AllOrigins","AMP","Wayback","Archive.ph","Jina","Jina+proxy"]);
+      ? pick(["Jina","AMP","Wayback","Archive.ph","codetabs","AllOrigins"])
+      : pick(["Jina","Jina+proxy","AMP","Wayback","Archive.ph","codetabs","AllOrigins"]);
     for (const method of methods) {
       loadingSub.textContent = `Trying ${method.name}…`;
       logMethod(method.name, "pending", "Connecting…");
