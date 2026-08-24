@@ -2406,6 +2406,42 @@ async function fetchDDG(after, query, source) {
 }
 
 async function fetchRssPaper(feedUrl, after, sourceOverride) {
+  // rss2json (paced, API-keyed) as primary — the raw-XML proxy chain below
+  // depends entirely on codetabs/allorigins, both dead as CORS proxies, so
+  // it was always timing out or returning nothing. This is why Papers took
+  // forever to load or never loaded at all. rss2json can't do the special
+  // Google News item-XML extraction the raw path does, but Google News links
+  // still get flagged for the existing async _gnResolve fallback, so they
+  // resolve on click same as before.
+  try {
+    const items = await queueRss2Json(async () => {
+      const r = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feedUrl)}&api_key=${RSS2JSON_API_KEY}&count=${Math.min(after + 10, 50)}`);
+      if (!r.ok) throw new Error("status " + r.status);
+      const j = await r.json();
+      if (j.status !== "ok" || !j.items?.length) throw new Error("bad payload");
+      return j.items;
+    });
+    const sliced = items.slice(after, after + 10).map(item => {
+      const title = (item.title || "").trim();
+      const link = item.link || "";
+      const isGN = link.includes("news.google.com") || feedUrl.includes("news.google.com");
+      const rawThumb = item.thumbnail || item.enclosure?.link || "";
+      const thumb = (rawThumb && !rawThumb.includes("googleusercontent.com") && !rawThumb.includes("google.com")) ? rawThumb : "";
+      const desc = (item.description || "").replace(/<[^>]+>/g,"").trim().slice(0,200);
+      if (!title || !link.startsWith("http") || link.includes("w3.org")) return null;
+      const pd = item.pubDate ? new Date(item.pubDate.replace(" ","T") + "Z").toISOString() : "";
+      return { title, link, desc,
+               image: isGN ? "" : thumb,
+               pubDate: pd, age: pd ? timeAgo(pd) : "",
+               source: sourceOverride || (isGN ? "" : sourceDomain(link)),
+               _gnResolve: isGN ? link : null,
+               _skipEnrich: isGN };
+    }).filter(Boolean);
+    if (sliced.length) return sliced;
+  } catch {}
+
+  // Fallback: raw-XML via proxy chain — kept in case codetabs/allorigins
+  // ever recover, but currently never succeeds on its own.
   for (const proxyFn of [
     u => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
     u => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,
@@ -2899,8 +2935,14 @@ async function loadFeed() {
   }
 }
 
-// Kick off feed load immediately
-loadFeed();
+// Kick off feed load immediately, then preload Papers in the background once
+// it settles, so the tab is already populated (or well underway) by the time
+// it's clicked instead of starting a fresh, slow fetch only at click time.
+// Papers waits for the main feed rather than running in parallel so it
+// doesn't compete with it for the rss2json queue's slots during initial load.
+loadFeed().then(() => {
+  if (!state.papersLoaded) initPapers();
+});
 
 // ── Render reader ─────────────────────────────────────────────────────────────
 
@@ -4593,7 +4635,34 @@ async function runSearch(query) {
   const words = q.split(/\s+/).filter(w => w.length > 2);
 
   const fetchFeed = async ({ url, source }) => {
-    // Try allorigins then corsproxy — both handle CORS
+    // rss2json (paced, API-keyed) primary — codetabs/allorigins are dead as
+    // CORS proxies, so this was silently failing for essentially all 25
+    // sources here, not just some. Whatever occasionally came through before
+    // was luck, not design; this fetches every source the same way.
+    try {
+      const items = await queueRss2Json(async () => {
+        const r = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(url)}&api_key=${RSS2JSON_API_KEY}`);
+        if (!r.ok) throw new Error("status " + r.status);
+        const j = await r.json();
+        if (j.status !== "ok" || !j.items?.length) throw new Error("bad payload");
+        return j.items;
+      });
+      const scored = items.map(item => {
+        const title = (item.title || "").trim();
+        const link = item.link || "";
+        const pub = item.pubDate || "";
+        if (!title || !link) return null;
+        const desc = (item.description || "").toLowerCase();
+        const titleLower = title.toLowerCase();
+        const score = words.reduce((s,w) => s + (titleLower.includes(w) ? 2 : 0) + (desc.includes(w) ? 1 : 0), 0);
+        if (score === 0) return null;
+        return { title, link, source, pub, score };
+      }).filter(Boolean);
+      if (scored.length) return scored;
+    } catch {}
+
+    // Fallback: raw-XML via proxy chain — kept in case codetabs/allorigins
+    // ever recover, but currently never succeeds on its own.
     for (const proxyFn of [
       u => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
       u => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,
