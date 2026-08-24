@@ -1253,7 +1253,11 @@ const BLOCKED_DOMAINS = new Set([
   "instagram.com","threads.net","threads.com","snapchat.com",
   "twitch.tv","streamable.com","streamja.com","streamff.com","clippituser.tv",
   "imgur.com","i.imgur.com","gfycat.com","redgifs.com",
-  "v.redd.it","i.redd.it","preview.redd.it",
+  // reddit.com itself (not just v.redd.it/i.redd.it) — Reddit's own .rss
+  // feeds link each item back to the reddit.com comments page rather than
+  // the external article, so without this an item can pass isArticleUrl()
+  // and show "reddit.com" as its source instead of being filtered out.
+  "reddit.com","old.reddit.com","v.redd.it","i.redd.it","preview.redd.it",
   "tiktok.com","facebook.com","fb.com","fb.watch",
   "giphy.com","tenor.com","medal.tv","clipsit.net",
   "oddshot.tv","plays.tv","outplayed.tv","highlights.ph",
