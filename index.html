@@ -2563,7 +2563,13 @@ async function fetchDDG(after, query, source) {
   } catch { return []; }
 }
 
-async function fetchRssPaper(feedUrl, after, sourceOverride) {
+async function fetchRssPaper(feedUrl, after, sourceOverride, paperId) {
+  // Prebuilt first — same reasoning as the feed, and it means the Papers tab
+  // fills instantly instead of fetching on every tab switch.
+  if (paperId && PREBUILT_PAPERS?.[paperId]?.items?.length) {
+    return PREBUILT_PAPERS[paperId].items.slice(after, after + 10);
+  }
+
   // Feed XML via the worker (or a public proxy as fallback). This used to go
   // through rss2json, whose shared key is now returning 429 "using all the
   // available feeds" — which is why Papers took forever or never loaded.
@@ -2659,6 +2665,7 @@ async function fetchRssPaper(feedUrl, after, sourceOverride) {
 
 const NEWSPAPERS = [
   { id:"ap", name:"AP", emoji:"📡", fetch: async (after) => {
+    if (PREBUILT_PAPERS?.["ap"]?.items?.length) return PREBUILT_PAPERS["ap"].items.slice(after, after + 10);
     // All three of AP's feeds are gone or blocked: the feedburner one returns
     // no items, apnews.com/hub 403s datacenter IPs, and the rsshub mirror is
     // unreachable. They are kept in case any comes back; DDG carries this tab.
@@ -2673,8 +2680,9 @@ const NEWSPAPERS = [
     }
     return fetchDDG(after, "site:apnews.com/article", "apnews.com");
   }},
-  { id:"npr",      name:"NPR",       emoji:"📻", fetch: (after) => fetchRssPaper("https://feeds.npr.org/1001/rss.xml",                               after, "npr.org")           },
+  { id:"npr",      name:"NPR",       emoji:"📻", fetch: (after) => fetchRssPaper("https://feeds.npr.org/1001/rss.xml", after, "npr.org", "npr")           },
   { id:"reuters", name:"Reuters", emoji:"🌐", fetch: async (after) => {
+    if (PREBUILT_PAPERS?.["reuters"]?.items?.length) return PREBUILT_PAPERS["reuters"].items.slice(after, after + 10);
     const feeds = [
       "https://feeds.reuters.com/reuters/topNews",
       "https://feeds.reuters.com/Reuters/worldNews",
@@ -2687,13 +2695,15 @@ const NEWSPAPERS = [
     return fetchDDG(after, "site:reuters.com/world OR site:reuters.com/business", "reuters.com");
   }},
   { id:"nyt", name:"NYT", emoji:"📰", fetch: async (after) => {
+    if (PREBUILT_PAPERS?.["nyt"]?.items?.length) return PREBUILT_PAPERS["nyt"].items.slice(after, after + 10);
     const items = await fetchRssPaper("https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml", after, "nytimes.com");
     if (items && items.length) return items;
     return fetchDDG(after, "site:nytimes.com", "nytimes.com");
   }},
 
-  { id:"bbc",      name:"BBC",       emoji:"🇬🇧", fetch: (after) => fetchRssPaper("https://feeds.bbci.co.uk/news/world/rss.xml",                   after, "bbc.co.uk")        },
+  { id:"bbc",      name:"BBC",       emoji:"🇬🇧", fetch: (after) => fetchRssPaper("https://feeds.bbci.co.uk/news/world/rss.xml", after, "bbc.co.uk", "bbc")        },
   { id:"wsj", name:"WSJ", emoji:"📈", fetch: async (after) => {
+    if (PREBUILT_PAPERS?.["wsj"]?.items?.length) return PREBUILT_PAPERS["wsj"].items.slice(after, after + 10);
     // WSJ's own feeds work and give real article URLs with real timestamps.
     // This used to scrape DuckDuckGo for "site:wsj.com/articles", which
     // returned no pubDate at all (every item was stamped "today") and was
@@ -2710,7 +2720,7 @@ const NEWSPAPERS = [
     }
     return fetchDDG(after, "site:wsj.com/articles", "wsj.com");
   }},
-  { id:"wapo",     name:"WaPo",      emoji:"🏛", fetch: (after) => fetchRssPaper("https://feeds.washingtonpost.com/rss/national",                    after, "washingtonpost.com")},
+  { id:"wapo",     name:"WaPo",      emoji:"🏛", fetch: (after) => fetchRssPaper("https://feeds.washingtonpost.com/rss/national", after, "washingtonpost.com", "wapo")},
   { id:"cnn", name:"CNN", emoji:"🔴",
     fetch: async (after) => {
       // lite.cnn.com — CNN's text-only version, no JS, always current
@@ -2742,12 +2752,12 @@ const NEWSPAPERS = [
       return [];
     }
   },
-  { id:"bloomberg",name:"Bloomberg", emoji:"💹", fetch: (after) => fetchRssPaper("https://news.google.com/rss/search?q=bloomberg+markets+finance&hl=en-US&gl=US&ceid=US:en",                     after, "bloomberg.com")    },
-  { id:"cnbc",     name:"CNBC",      emoji:"📊", fetch: (after) => fetchRssPaper("https://www.cnbc.com/id/100003114/device/rss/rss.html",             after, "cnbc.com")         },
-  { id:"techcrunch", name:"TechCrunch", emoji:"◭", fetch: (after) => fetchRssPaper("https://techcrunch.com/feed/",                                     after, "techcrunch.com")   },
-  { id:"latimes",  name:"LA Times",  emoji:"🌴", fetch: (after) => fetchRssPaper("https://www.latimes.com/rss2.0.xml",                                after, "latimes.com")      },
-  { id:"guardian", name:"Guardian",  emoji:"🛡", fetch: (after) => fetchRssPaper("https://www.theguardian.com/world/rss",                             after, "theguardian.com")  },
-  { id:"politico", name:"Politico",  emoji:"🏛", fetch: (after) => fetchRssPaper("https://rss.politico.com/politics-news.xml",                        after, "politico.com")     },
+  { id:"bloomberg",name:"Bloomberg", emoji:"💹", fetch: (after) => fetchRssPaper("https://news.google.com/rss/search?q=bloomberg+markets+finance&hl=en-US&gl=US&ceid=US:en", after, "bloomberg.com", "bloomberg")    },
+  { id:"cnbc",     name:"CNBC",      emoji:"📊", fetch: (after) => fetchRssPaper("https://www.cnbc.com/id/100003114/device/rss/rss.html", after, "cnbc.com", "cnbc")         },
+  { id:"techcrunch", name:"TechCrunch", emoji:"◭", fetch: (after) => fetchRssPaper("https://techcrunch.com/feed/", after, "techcrunch.com", "techcrunch")   },
+  { id:"latimes",  name:"LA Times",  emoji:"🌴", fetch: (after) => fetchRssPaper("https://www.latimes.com/rss2.0.xml", after, "latimes.com", "latimes")      },
+  { id:"guardian", name:"Guardian",  emoji:"🛡", fetch: (after) => fetchRssPaper("https://www.theguardian.com/world/rss", after, "theguardian.com", "guardian")  },
+  { id:"politico", name:"Politico",  emoji:"🏛", fetch: (after) => fetchRssPaper("https://rss.politico.com/politics-news.xml", after, "politico.com", "politico")     },
 ];
 
 // ── Papers tab ────────────────────────────────────────────────────────────────
@@ -3070,7 +3080,78 @@ function applyFilters(catMap) {
   return out;
 }
 
+// ── Prebuilt feed ────────────────────────────────────────────────────────────
+//
+// A scheduled GitHub Action fetches every source on GitHub's servers and
+// publishes the result to the repo's `data` branch. The page reads that here.
+//
+// This exists because a browser cannot fetch the major papers at all: measured
+// from a real browser origin against the NYT, WaPo and WSJ feeds, every public
+// CORS proxy timed out, returned 401, or failed outright — one usable response
+// in eighteen attempts. Fetching server-side and publishing JSON sidesteps CORS
+// completely, needs no third-party proxy, and makes the feed load at once
+// instead of after ~30s of per-source fetching.
+const FEED_DATA_BASE =
+  "https://raw.githubusercontent.com/David0524/daylight/data";
+
+// Anything older than this and we prefer refetching live over showing staleness
+// (the Action runs every 30 minutes, so this only trips if it has been failing).
+const PREBUILT_MAX_AGE_MS = 6 * 60 * 60 * 1000;
+
+let PREBUILT_ARTICLES = null;
+let PREBUILT_PAPERS = null;
+
+async function loadPrebuiltFeed() {
+  try {
+    // Cache-bust per half hour so a republished feed is picked up promptly
+    // without defeating caching entirely.
+    const bust = Math.floor(Date.now() / (30 * 60 * 1000));
+    const r = await withTimeout(fetch(`${FEED_DATA_BASE}/feed.json?v=${bust}`), 12000, "prebuilt timeout");
+    if (!r.ok) return null;
+    const data = await r.json();
+    if (!data?.categories || !Object.keys(data.categories).length) return null;
+
+    const age = Date.now() - new Date(data.generatedAt).getTime();
+    if (!(age < PREBUILT_MAX_AGE_MS)) {
+      console.warn("[feed] prebuilt data is stale:", data.generatedAt);
+      return null;
+    }
+
+    // Fill in the display fields the builder leaves out.
+    Object.values(data.categories).forEach(items =>
+      items.forEach(i => { i.age = timeAgo(i.pubDate); })
+    );
+    Object.values(data.papers || {}).forEach(p =>
+      p.items.forEach(i => { i.age = timeAgo(i.pubDate); })
+    );
+    return data;
+  } catch { return null; }
+}
+
+// Prefetched article text, loaded lazily — it is the larger file and is only
+// needed once something is actually opened.
+async function loadPrebuiltArticles() {
+  if (PREBUILT_ARTICLES) return PREBUILT_ARTICLES;
+  try {
+    const bust = Math.floor(Date.now() / (30 * 60 * 1000));
+    const r = await withTimeout(fetch(`${FEED_DATA_BASE}/articles.json?v=${bust}`), 12000, "articles timeout");
+    PREBUILT_ARTICLES = r.ok ? await r.json() : {};
+  } catch { PREBUILT_ARTICLES = {}; }
+  return PREBUILT_ARTICLES;
+}
+
 async function loadFeed() {
+  // Prefer the prebuilt feed; fall back to fetching live if it is missing or
+  // stale (the Action has not run yet, or has been failing).
+  const prebuilt = await loadPrebuiltFeed();
+  if (prebuilt) {
+    PREBUILT_PAPERS = prebuilt.papers || {};
+    renderFeed(prebuilt.categories);
+    document.getElementById("feedNotice")?.remove();
+    setTimeout(() => enrichFeedMeta(prebuilt.categories), 200);
+    return;
+  }
+
   const catMap = {};
 
   // Stagger source starts so we do not open ~40 sockets at once. 300ms x 18
@@ -3105,7 +3186,7 @@ async function loadFeed() {
   } else {
     document.getElementById("feedContent").innerHTML = HAS_WORKER
       ? `<div class="feed-empty">Couldn't load feeds right now.<br>Paste any URL above to start reading.</div>`
-      : `<div class="feed-empty">No sources could be reached.<br>Add your worker URL under the ⋯ tab.</div>`;
+      : `<div class="feed-empty">No feed published yet.<br>Run the <b>Build feed</b> action, or add a fetch service under ⋯.</div>`;
     showWorkerNotice();
   }
 }
@@ -3115,11 +3196,6 @@ async function loadFeed() {
 // it's clicked instead of starting a fresh, slow fetch only at click time.
 // Papers waits for the main feed rather than running in parallel so it
 // doesn't compete with it for fetch bandwidth during the initial load.
-// Raise the "no worker" notice immediately rather than after loadFeed has
-// spent its full source budget failing — otherwise the first thing a new
-// visitor sees is a blank page for half a minute with no explanation.
-if (!HAS_WORKER) showWorkerNotice();
-
 loadFeed().then(() => {
   if (!state.papersLoaded) initPapers();
 });
@@ -4443,6 +4519,22 @@ async function fetchArticle(url, _isRetry = false) {
   const loadingSub = document.getElementById("loadingSub");
   const host = (() => { try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return ""; } })();
 
+  // ── Prefetched text ──────────────────────────────────────────────────────
+  // The build Action resolves the top stories ahead of time using a key that
+  // lives in repo secrets and never reaches the browser. When it has the
+  // article already, opening it costs nothing and paywalled pieces are
+  // resolved without the page hitting a rate limit or a bot wall.
+  try {
+    const cached = (await loadPrebuiltArticles())[canonicalUrl(url)];
+    if (cached?.text) {
+      const article = parseResult(cached, url);
+      if (article) {
+        logMethod("prefetched", "ok", `${article.paragraphs.length} paragraphs`);
+        return article;
+      }
+    }
+  } catch {}
+
   // ── Worker first ─────────────────────────────────────────────────────────
   // The worker runs the whole extraction ladder server-side with real browser
   // headers and an authenticated Jina key. That matters: anonymous Jina is now
@@ -4901,17 +4993,18 @@ function showWorkerNotice() {
   if (HAS_WORKER || DB.get("hideWorkerNotice", false)) return;
   const wrap = document.getElementById("feedContent");
   if (!wrap || document.getElementById("feedNotice")) return;
-  // renderFeed replaces innerHTML wholesale, so re-raise the notice afterwards
-  // if this ran first.
   const el = document.createElement("div");
   el.className = "feed-notice";
   el.id = "feedNotice";
-  el.innerHTML = `<div><b>Limited sources.</b> The NYT, Washington Post, WSJ and
-    Guardian can't be fetched straight from a browser. Add your worker URL under
-    the ⋯ tab to turn them on.</div>
+  // Only reached when the prebuilt feed was unavailable too, so this is about
+  // the build having not run rather than about the worker being missing.
+  el.innerHTML = `<div><b>No published feed yet.</b> The <i>Build feed</i>
+    action publishes sources every 30 minutes — check the Actions tab, or run it
+    once manually. A fetch service URL under the ⋯ tab also works as a fallback.</div>
     <button onclick="DB.set('hideWorkerNotice',true);this.parentElement.remove()">Dismiss</button>`;
   wrap.prepend(el);
 }
+
 
 // ── Search ────────────────────────────────────────────────────────────────────
 

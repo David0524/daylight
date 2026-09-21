@@ -36,9 +36,13 @@ http.createServer(async (req, res) => {
 
 // Page on :8080
 const page = readFileSync(new URL("../index.html", import.meta.url), "utf8")
-  // Left exactly as shipped: WORKER_BASE_DEFAULT stays empty so the runtime
-  // configuration flow (Fetch service box under the ⋯ tab) is what gets tested.
-  ;
+  // FEED_DATA_BASE can be overridden to test against a locally built feed:
+  //   node scripts/build-feed.mjs dist && npx serve dist -p 8899
+  //   FEED_DATA_BASE=http://localhost:8899 node test/serve.mjs
+  .replace(/const FEED_DATA_BASE =\s*\n?\s*"[^"]*";/,
+           process.env.FEED_DATA_BASE
+             ? `const FEED_DATA_BASE = "${process.env.FEED_DATA_BASE}";`
+             : "$&");
 http.createServer((req, res) => {
   res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
   res.end(page);

@@ -1,0 +1,67 @@
+name: Build feed
+
+# The app is a static page, so in a browser it can only fetch what publishers
+# serve cross-origin — which, for the major papers, is nothing. Fetching here
+# instead sidesteps CORS entirely: GitHub's runners have an ordinary TLS stack
+# and unblocked addresses, so the papers answer normally, and the result is
+# published as plain JSON the page reads directly.
+#
+# Output goes to the `data` branch, force-pushed to a single commit, so the
+# repository never accumulates history from these runs.
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"      # every 30 minutes
+  workflow_dispatch:             # and on demand, from the Actions tab
+  push:
+    branches: [main]
+    paths: ["sources.json", "scripts/build-feed.mjs", ".github/workflows/build-feed.yml"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-feed
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Build feed
+        env:
+          # Optional. Set it under Settings -> Secrets -> Actions to also
+          # prefetch article text, which makes the reader open instantly and
+          # resolves paywalled pieces ahead of time. The key stays here and is
+          # never served to the browser.
+          JINA_API_KEY: ${{ secrets.JINA_API_KEY }}
+        run: node scripts/build-feed.mjs dist
+
+      - name: Publish to the data branch
+        run: |
+          set -euo pipefail
+          cd dist
+          git init -q
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -q -b data
+          git add -A
+          git commit -q -m "Feed built $(date -u +'%Y-%m-%d %H:%M UTC')"
+          # Force-push a single commit: the data branch is a snapshot, not a
+          # history, so the repository does not grow with every run.
+          git push -q --force "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" data
+
+      - name: Summary
+        run: |
+          node -e '
+            const f = require("./dist/feed.json");
+            const c = f.counts;
+            console.log(`${c.items} items across ${c.categories} categories, ${c.papers} papers, ${c.articles} articles prefetched`);
+          ' >> $GITHUB_STEP_SUMMARY

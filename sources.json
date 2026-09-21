@@ -1,0 +1,229 @@
+{
+  "categories": {
+    "World": {
+      "feeds": [
+        "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
+        "https://feeds.washingtonpost.com/rss/world",
+        "https://feeds.content.dowjones.io/public/rss/RSSWorldNews",
+        "https://www.theguardian.com/world/rss",
+        "https://feeds.bbci.co.uk/news/world/rss.xml",
+        "https://www.aljazeera.com/xml/rss/all.xml",
+        "https://feeds.npr.org/1004/rss.xml",
+        "https://www.cbsnews.com/latest/rss/world"
+      ],
+      "perFeed": 8,
+      "cap": 28
+    },
+    "Politics": {
+      "feeds": [
+        "https://rss.nytimes.com/services/xml/rss/nyt/Politics.xml",
+        "https://feeds.washingtonpost.com/rss/politics",
+        "https://rss.politico.com/politics-news.xml",
+        "https://rss.nytimes.com/services/xml/rss/nyt/US.xml",
+        "https://thehill.com/homenews/feed/",
+        "https://feeds.npr.org/1014/rss.xml",
+        "https://www.cbsnews.com/latest/rss/politics"
+      ],
+      "perFeed": 8,
+      "cap": 26
+    },
+    "Business": {
+      "feeds": [
+        "https://feeds.content.dowjones.io/public/rss/WSJcomUSBusiness",
+        "https://rss.nytimes.com/services/xml/rss/nyt/Business.xml",
+        "https://feeds.washingtonpost.com/rss/business",
+        "https://www.cnbc.com/id/10001147/device/rss/rss.html",
+        "https://feeds.content.dowjones.io/public/rss/mw_topstories",
+        "https://fortune.com/feed/",
+        "https://feeds.npr.org/1006/rss.xml"
+      ],
+      "perFeed": 8,
+      "cap": 26
+    },
+    "Science": {
+      "feeds": [
+        "https://rss.nytimes.com/services/xml/rss/nyt/Science.xml",
+        "https://www.theguardian.com/science/rss",
+        "https://www.sciencedaily.com/rss/all.xml",
+        "https://phys.org/rss-feed/",
+        "https://www.livescience.com/feeds/all",
+        "https://feeds.npr.org/1007/rss.xml"
+      ],
+      "perFeed": 8,
+      "cap": 24
+    },
+    "Technology": {
+      "feeds": [
+        "https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml",
+        "https://feeds.content.dowjones.io/public/rss/RSSWSJD",
+        "https://www.latimes.com/business/technology/rss2.0.xml",
+        "https://techcrunch.com/feed/",
+        "https://www.engadget.com/rss.xml",
+        "https://www.cnbc.com/id/19854910/device/rss/rss.html"
+      ],
+      "perFeed": 8,
+      "cap": 24
+    },
+    "AI": {
+      "feeds": [
+        "https://www.technologyreview.com/feed/",
+        "https://www.economist.com/science-and-technology/rss.xml",
+        "https://www.theatlantic.com/feed/all/"
+      ],
+      "perFeed": 8,
+      "cap": 20
+    },
+    "Finance": {
+      "feeds": [
+        "https://feeds.content.dowjones.io/public/rss/RSSMarketsMain",
+        "https://www.bloomberg.com/feeds/markets/news.rss",
+        "https://www.ft.com/world?format=rss",
+        "https://www.cnbc.com/id/100003114/device/rss/rss.html",
+        "https://feeds.content.dowjones.io/public/rss/mw_topstories"
+      ],
+      "perFeed": 8,
+      "cap": 24
+    },
+    "Sports": {
+      "feeds": [
+        "https://feeds.washingtonpost.com/rss/sports",
+        "https://feeds.bbci.co.uk/sport/rss.xml",
+        "https://sports.yahoo.com/rss/",
+        "https://www.cbssports.com/rss/headlines/",
+        "https://sports.yahoo.com/nfl/rss/"
+      ],
+      "perFeed": 8,
+      "cap": 24
+    },
+    "Ideas": {
+      "feeds": [
+        "https://noahpinion.substack.com/feed",
+        "https://persuasion.substack.com/feed",
+        "https://slowboring.substack.com/feed",
+        "https://mattstoller.substack.com/feed",
+        "https://byrnehobart.substack.com/feed",
+        "https://astralcodexten.substack.com/feed",
+        "https://simonowens.substack.com/feed",
+        "https://thediff.substack.com/feed"
+      ],
+      "perFeed": 8,
+      "cap": 15,
+      "maxAgeDays": 30
+    }
+  },
+  "papers": {
+    "npr": {
+      "name": "NPR",
+      "emoji": "\ud83d\udcfb",
+      "feeds": [
+        "https://feeds.npr.org/1001/rss.xml"
+      ],
+      "domain": "npr.org"
+    },
+    "bbc": {
+      "name": "BBC",
+      "emoji": "\ud83c\uddec\ud83c\udde7",
+      "feeds": [
+        "https://feeds.bbci.co.uk/news/world/rss.xml"
+      ],
+      "domain": "bbc.co.uk"
+    },
+    "wapo": {
+      "name": "WaPo",
+      "emoji": "\ud83c\udfdb",
+      "feeds": [
+        "https://feeds.washingtonpost.com/rss/national"
+      ],
+      "domain": "washingtonpost.com"
+    },
+    "bloomberg": {
+      "name": "Bloomberg",
+      "emoji": "\ud83d\udcb9",
+      "feeds": [
+        "https://www.bloomberg.com/feeds/markets/news.rss"
+      ],
+      "domain": "bloomberg.com"
+    },
+    "cnbc": {
+      "name": "CNBC",
+      "emoji": "\ud83d\udcca",
+      "feeds": [
+        "https://www.cnbc.com/id/100003114/device/rss/rss.html"
+      ],
+      "domain": "cnbc.com"
+    },
+    "techcrunch": {
+      "name": "TechCrunch",
+      "emoji": "\u25ed",
+      "feeds": [
+        "https://techcrunch.com/feed/"
+      ],
+      "domain": "techcrunch.com"
+    },
+    "latimes": {
+      "name": "LA Times",
+      "emoji": "\ud83c\udf34",
+      "feeds": [
+        "https://www.latimes.com/rss2.0.xml"
+      ],
+      "domain": "latimes.com"
+    },
+    "guardian": {
+      "name": "Guardian",
+      "emoji": "\ud83d\udee1",
+      "feeds": [
+        "https://www.theguardian.com/world/rss"
+      ],
+      "domain": "theguardian.com"
+    },
+    "politico": {
+      "name": "Politico",
+      "emoji": "\ud83c\udfdb",
+      "feeds": [
+        "https://rss.politico.com/politics-news.xml"
+      ],
+      "domain": "politico.com"
+    },
+    "ap": {
+      "name": "AP",
+      "emoji": "\ud83d\udce1",
+      "feeds": [],
+      "domain": "apnews.com"
+    },
+    "reuters": {
+      "name": "Reuters",
+      "emoji": "\ud83c\udf10",
+      "feeds": [],
+      "domain": "reuters.com"
+    },
+    "nyt": {
+      "name": "NYT",
+      "emoji": "\ud83d\udcf0",
+      "feeds": [
+        "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml"
+      ],
+      "domain": "nytimes.com"
+    },
+    "wsj": {
+      "name": "WSJ",
+      "emoji": "\ud83d\udcc8",
+      "feeds": [
+        "https://feeds.content.dowjones.io/public/rss/RSSWorldNews",
+        "https://feeds.content.dowjones.io/public/rss/WSJcomUSBusiness",
+        "https://feeds.content.dowjones.io/public/rss/RSSMarketsMain"
+      ],
+      "domain": "wsj.com"
+    }
+  },
+  "categoryOrder": [
+    "World",
+    "AI",
+    "Technology",
+    "Finance",
+    "Sports",
+    "Politics",
+    "Business",
+    "Science",
+    "Ideas"
+  ]
+}
