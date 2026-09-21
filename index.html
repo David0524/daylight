@@ -908,6 +908,59 @@
 <script>
 // ── Config ──────────────────────────────────────────────────────────────────
 
+// Cloudflare Worker that does our fetching server-side. Deploy worker/ and put
+// its URL here (see worker/README.md). Everything degrades to public CORS
+// proxies when this is blank, but those are unreliable — codetabs has been
+// returning 522, whateverorigin 500 — so the worker is the supported path.
+const WORKER_BASE = "";   // e.g. "https://daylight-worker.yoursubdomain.workers.dev"
+
+const HAS_WORKER = /^https:\/\//.test(WORKER_BASE);
+
+// Public CORS proxies, in the order they are worth trying. AllOrigins is first
+// because it is the only one still returning 200 with correct CORS headers as
+// of this writing; the others are kept only as long shots.
+//   kind: "wrapped" => response is {contents: "..."}; "raw" => body as-is.
+const PUBLIC_PROXIES = [
+  { kind: "wrapped", build: (u) => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}` },
+  { kind: "raw",     build: (u) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}` },
+];
+
+function withTimeout(promise, ms, label = "timeout") {
+  return Promise.race([
+    promise,
+    new Promise((_, rej) => setTimeout(() => rej(new Error(label)), ms)),
+  ]);
+}
+
+/**
+ * Fetch a URL's text, preferring the worker and falling back to public proxies.
+ * `route` picks the worker endpoint ("rss" | "json" | "meta").
+ */
+async function proxyText(target, { route = "json", timeout = 15000 } = {}) {
+  if (HAS_WORKER) {
+    try {
+      const r = await withTimeout(
+        fetch(`${WORKER_BASE}/${route}?url=${encodeURIComponent(target)}`),
+        timeout, "worker timeout"
+      );
+      if (r.ok) return await r.text();
+    } catch {}
+  }
+  for (const proxy of PUBLIC_PROXIES) {
+    try {
+      const r = await withTimeout(fetch(proxy.build(target)), timeout, "proxy timeout");
+      if (!r.ok) continue;
+      if (proxy.kind === "raw") return await r.text();
+      const wrapper = await r.json();
+      if (wrapper?.contents) return wrapper.contents;
+    } catch {}
+  }
+  throw new Error("all fetch routes failed");
+}
+
+async function proxyJson(target, opts) {
+  return JSON.parse(await proxyText(target, { route: "json", ...opts }));
+}
 
 
 // ── State ────────────────────────────────────────────────────────────────────
@@ -1226,17 +1279,114 @@ function timeAgo(dateStr) {
   } catch { return ""; }
 }
 
-// Global recency cutoff — Reddit's "hot" sort can surface posts that are
-// days or weeks old but still getting engagement, so every category applies
-// this filter on top of whatever sort order the source uses.
-const MAX_AGE_DAYS = 7;
+// Global recency cutoff. Was 7 days, which is why a "news" feed kept showing
+// week-old stories. Reddit's "hot" sort in particular surfaces posts that are
+// days old but still getting engagement, so every category applies this on top
+// of whatever sort order the source uses.
+const MAX_AGE_DAYS = 2;
 function isRecent(dateInput, maxDays = MAX_AGE_DAYS) {
-  if (!dateInput) return true; // don't drop items we can't date
+  if (!dateInput) return false;   // was `true` — undated items are not "recent"
   try {
     const t = typeof dateInput === "number" ? dateInput : new Date(dateInput).getTime();
-    if (Number.isNaN(t)) return true;
-    return (Date.now() - t) <= maxDays * 24 * 60 * 60 * 1000;
-  } catch { return true; }
+    if (Number.isNaN(t)) return false;
+    const age = Date.now() - t;
+    // Reject timestamps from the future beyond a little clock skew; some feeds
+    // publish ahead, and those were pinning themselves to the top forever.
+    if (age < -6 * 60 * 60 * 1000) return false;
+    return age <= maxDays * 24 * 60 * 60 * 1000;
+  } catch { return false; }
+}
+
+// ── Ranking ──────────────────────────────────────────────────────────────────
+//
+// The feed previously had no ranking at all — the only ordering was
+// `sort by pubDate desc`. Combined with both RSS parsers defaulting a missing
+// date to `new Date()`, that meant any item without a pubDate was treated as
+// "just now" and permanently outranked real breaking news. Engagement signals
+// were collected (HN points, Reddit upvotes) and then thrown away into a
+// display string.
+//
+// Score is the sum of three parts, so no single signal can dominate:
+//   recency    0..55   — halves roughly every 6 hours
+//   quality    0..25   — known masthead, plus a wire-service bump
+//   engagement 0..20   — log-scaled; 10 upvotes should not beat 1000 linearly
+
+const WIRE_SERVICES = new Set(["reuters.com", "apnews.com", "bloomberg.com", "afp.com"]);
+
+function recencyScore(pubDate) {
+  const t = new Date(pubDate).getTime();
+  if (!Number.isFinite(t)) return 0;
+  const hours = Math.max(0, (Date.now() - t) / 3600000);
+  return 55 * Math.pow(0.5, hours / 6);
+}
+
+function qualityScore(link) {
+  let score = 0;
+  try {
+    const host = new URL(link).hostname.replace(/^www\./, "");
+    if (isQualitySource(link)) score += 18;
+    if (WIRE_SERVICES.has(host)) score += 7;   // wires break news first
+  } catch {}
+  return score;
+}
+
+function engagementScore(item) {
+  const raw = Number(item.engagement) || 0;
+  if (raw <= 0) return 0;
+  // log10(1000) === 3, so a 1000-point story lands at the 20-point ceiling
+  // while a 10-point one gets ~6.7. Linear scaling let one viral post bury
+  // an entire category.
+  return Math.min(20, (Math.log10(raw + 1) / 3) * 20);
+}
+
+function rankScore(item) {
+  return recencyScore(item.pubDate) + qualityScore(item.link) + engagementScore(item);
+}
+
+function rankItems(items) {
+  return items
+    .map(i => ({ ...i, _score: rankScore(i) }))
+    .sort((a, b) => b._score - a._score);
+}
+
+// Normalise a URL for dedupe: drop tracking params, trailing slash, protocol
+// and www. Without this the same wire story from two feeds counted as two
+// stories, which is how one item ended up filling half a category.
+function canonicalUrl(link) {
+  try {
+    const u = new URL(link);
+    [...u.searchParams.keys()].forEach(k => {
+      if (/^(utm_|at_|cmpid|ref|ito|smid|fbclid|gclid|mc_cid|mc_eid|s_cid)/i.test(k))
+        u.searchParams.delete(k);
+    });
+    return (u.hostname.replace(/^www\./, "") + u.pathname.replace(/\/$/, "") + u.search).toLowerCase();
+  } catch { return String(link || "").toLowerCase(); }
+}
+
+// Titles normalised for comparison — the same story carries a different
+// headline at every outlet, but the leading words usually match.
+function titleKey(title) {
+  return String(title || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, "")
+    .split(/\s+/)
+    .filter(w => w.length > 3)
+    .slice(0, 6)
+    .join(" ");
+}
+
+function dedupeItems(items) {
+  const byUrl = new Set();
+  const byTitle = new Set();
+  return items.filter(i => {
+    const u = canonicalUrl(i.link);
+    if (byUrl.has(u)) return false;
+    const t = titleKey(i.title);
+    if (t && t.split(" ").length >= 4 && byTitle.has(t)) return false;
+    byUrl.add(u);
+    if (t) byTitle.add(t);
+    return true;
+  });
 }
 
 function sourceDomain(url) {
@@ -1405,144 +1555,80 @@ async function multiSubReddit(subs, perSub, cap) {
         pubDate: new Date(p.created_utc * 1000).toISOString(),
         age:     timeAgo(new Date(p.created_utc * 1000).toISOString()),
         source:  sourceDomain(p.url),
+        engagement: (p.ups || 0) + (p.num_comments || 0) * 2,
       }));
   });
-  const seen = new Set();
-  const deduped = items
-    .filter(i => { if (seen.has(i.link)) return false; seen.add(i.link); return true; })
-    .sort((a,b) => new Date(b.pubDate) - new Date(a.pubDate))
-    .slice(0, cap);
+  const deduped = rankItems(dedupeItems(items)).slice(0, cap);
   return resolveRedditTitles(deduped);
 }
 
-// Concurrency + pacing limiter for rss2json.com calls. A fresh console log
-// from the real deployed origin (david0524.github.io) shows: (a) codetabs,
-// allorigins, and whateverorigin are now dead as CORS proxies entirely —
-// every call to any of them, for every source, comes back as a browser CORS
-// error, not just from Reddit — so rss2json is effectively the only path
-// left; and (b) even at 4-concurrent, nearly every rss2json call still came
-// back 429 (rate limited) or 500. That combination — failures persisting
-// despite a concurrency cap — points to a rate-*over-time* limit, not a
-// concurrency limit, so capping concurrency alone doesn't help: a burst of
-// 4-at-once still blows through it in the first second. This dispatcher
-// instead runs requests one at a time with a minimum gap between each,
-// spreading ~30 feed calls out over the load instead of bursting them.
-// Free rss2json.com API key. Without a key, the anonymous tier isn't a
-// simple rate-per-time limit — it caps how many *distinct new feed URLs*
-// can be converted in a short window before demanding a key (confirmed via
-// the exact error other apps hit: "You are converting new feeds in a very
-// short period, please use an API key"). Daylight requests ~38 distinct
-// feeds per load, so no amount of client-side pacing could avoid tripping
-// this. With a key attached, the free tier jumps to a real daily quota.
-const RSS2JSON_API_KEY = "bm3dbj9dbzaphulnltcu7ey1yjjzzhdqxb0cmwxc";
+// Feeds are fetched as raw XML through the worker (see proxyText). The old
+// rss2json.com path is gone: it funnelled every feed in the app through one
+// shared free-tier key, which now returns
+//   429 {"status":"error","message":"You are using all the available feeds..."}
+// making it a single point of failure for the entire feed, Papers and search.
 
-const RSS2JSON_MAX_CONCURRENT = 6;
-const RSS2JSON_MIN_GAP_MS = 150;
-let rss2jsonActive = 0;
-let rss2jsonLastStart = 0;
-const rss2jsonQueue = [];
-
-function runRss2JsonQueue() {
-  if (rss2jsonActive >= RSS2JSON_MAX_CONCURRENT || !rss2jsonQueue.length) return;
-  const wait = Math.max(0, RSS2JSON_MIN_GAP_MS - (Date.now() - rss2jsonLastStart));
-  setTimeout(() => {
-    if (rss2jsonActive >= RSS2JSON_MAX_CONCURRENT || !rss2jsonQueue.length) return;
-    const { task, resolve, reject } = rss2jsonQueue.shift();
-    rss2jsonActive++;
-    rss2jsonLastStart = Date.now();
-    task().then(resolve, reject).finally(() => {
-      rss2jsonActive--;
-      runRss2JsonQueue();
-    });
-  }, wait);
-}
-
-function queueRss2Json(task) {
-  return new Promise((resolve, reject) => {
-    rss2jsonQueue.push({ task, resolve, reject });
-    runRss2JsonQueue();
-  });
-}
-
-// Fetch + parse one RSS/Atom feed. rss2json.com is tried first — it's a
-// purpose-built RSS→JSON service with its own CORS headers (no proxy layer
-// needed on top), returns clean pre-parsed JSON, and isn't the kind of
-// generic CORS-bypass tool that ends up on anti-scraping blocklists the
-// way corsproxy.io/allorigins/etc. increasingly are. Falls back to raw-XML
-// fetch via the proxy chain if rss2json is ever unavailable — though as of
-// the last real console log, codetabs/allorigins/whateverorigin are all
-// dead as CORS proxies on the deployed origin, so that fallback chain
-// currently contributes nothing; it's left in place in case any of them
-// recovers, but rss2json (paced via queueRss2Json below) is the real path.
 async function fetchRssItems(feedUrl, limit = 8) {
-  const withTimeout = (p, ms) => Promise.race([p, new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")), ms))]);
-
-  const tryRss2Json = async () => {
-    const r = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feedUrl)}&api_key=${RSS2JSON_API_KEY}`);
-    if (!r.ok) throw new Error("status " + r.status);
-    const j = await r.json();
-    if (j.status !== "ok" || !j.items?.length) throw new Error("bad payload");
-    return j.items.slice(0, limit).map(item => {
-      const link = item.link || "";
-      const title = (item.title || "").trim();
-      const desc = (item.description || "").replace(/<[^>]+>/g,"").trim();
-      const thumb = item.thumbnail || item.enclosure?.link || "";
-      if (!title || !link.startsWith("http") || !isArticleUrl(link)) return null;
-      const iso = item.pubDate ? new Date(item.pubDate.replace(" ", "T") + "Z").toISOString() : new Date().toISOString();
-      return { title, link, desc, image: thumb, pubDate: iso, age: timeAgo(iso), source: sourceDomain(link) };
-    }).filter(Boolean);
-  };
-
-  const parse = (text) => {
-    if (!text || (!text.includes("<item") && !text.includes("<entry"))) throw new Error("no items");
-    const doc = new DOMParser().parseFromString(text, "text/xml");
-    let nodes = [...doc.querySelectorAll("item")];
-    if (!nodes.length) nodes = [...doc.querySelectorAll("entry")]; // Atom feeds
-    return nodes.slice(0, limit).map(item => {
-      const title = item.querySelector("title")?.textContent?.replace(/<!\[CDATA\[|\]\]>/g,"").trim() || "";
-      let link = item.querySelector("link")?.textContent?.trim() || "";
-      if (!link) link = item.querySelector("link")?.getAttribute("href") || "";
-      const pubDate = item.querySelector("pubDate")?.textContent?.trim()
-                    || item.querySelector("published")?.textContent?.trim()
-                    || item.querySelector("updated")?.textContent?.trim() || "";
-      const desc = (item.querySelector("description")?.textContent || item.querySelector("summary")?.textContent || "")
-                     .replace(/<[^>]+>/g,"").trim();
-      if (!title || !link.startsWith("http") || !isArticleUrl(link)) return null;
-      const iso = pubDate ? new Date(pubDate).toISOString() : new Date().toISOString();
-      return { title, link, desc, image: "", pubDate: iso, age: timeAgo(iso), source: sourceDomain(link) };
-    }).filter(Boolean);
-  };
-  const tryText = async (url) => {
-    const r = await fetch(url);
-    if (!r.ok) throw new Error("status " + r.status);
-    return parse(await r.text());
-  };
-  const tryWrapped = async (url) => {
-    const r = await fetch(url);
-    if (!r.ok) throw new Error("status " + r.status);
-    const j = await r.json();
-    return parse(j.contents);
-  };
+  let text;
   try {
-    return await Promise.any([
-      withTimeout(queueRss2Json(tryRss2Json), 12000),
-      withTimeout(tryText(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(feedUrl)}`), 7000),
-      withTimeout(tryWrapped(`https://api.allorigins.win/get?url=${encodeURIComponent(feedUrl)}`), 7000),
-      withTimeout(tryWrapped(`https://whateverorigin.org/get?url=${encodeURIComponent(feedUrl)}`), 7000),
-    ]);
+    text = await proxyText(feedUrl, { route: "rss", timeout: 12000 });
   } catch { return []; }
+  return parseFeedXml(text, limit);
+}
+
+// Parse RSS or Atom XML into feed items.
+function parseFeedXml(text, limit = 8) {
+  if (!text || (!text.includes("<item") && !text.includes("<entry"))) return [];
+  const doc = new DOMParser().parseFromString(text, "text/xml");
+  if (doc.querySelector("parsererror")) return [];
+
+  let nodes = [...doc.querySelectorAll("item")];
+  if (!nodes.length) nodes = [...doc.querySelectorAll("entry")];
+
+  return nodes.slice(0, limit).map(item => {
+    const pick = (sel) => item.querySelector(sel)?.textContent?.trim() || "";
+    const title = pick("title").replace(/<!\[CDATA\[|\]\]>/g, "").trim();
+
+    // Atom puts the URL in link/@href; RSS puts it in the element text.
+    let link = pick("link");
+    if (!link || !link.startsWith("http")) {
+      const alt = [...item.querySelectorAll("link")]
+        .map(l => l.getAttribute("href"))
+        .find(h => h && h.startsWith("http"));
+      link = alt || link;
+    }
+
+    const rawDate = pick("pubDate") || pick("published") || pick("updated")
+                 || pick("date") || item.getElementsByTagName("dc:date")[0]?.textContent?.trim() || "";
+
+    const desc = (pick("description") || pick("summary") || pick("content"))
+                   .replace(/<[^>]+>/g, "").trim();
+
+    // Feeds carry images in several shapes; take whichever is present.
+    const image =
+      item.querySelector("enclosure[type^='image']")?.getAttribute("url") ||
+      item.getElementsByTagName("media:thumbnail")[0]?.getAttribute("url") ||
+      item.getElementsByTagName("media:content")[0]?.getAttribute("url") ||
+      (pick("description").match(/<img[^>]+src=["']([^"']+)["']/i)?.[1]) || "";
+
+    if (!title || !link || !link.startsWith("http") || !isArticleUrl(link)) return null;
+
+    // Undated items are dropped rather than stamped with the current time.
+    // Stamping them "now" made every item without a pubDate outrank genuine
+    // breaking news permanently, which is why the feed order looked random.
+    const ts = rawDate ? new Date(rawDate).getTime() : NaN;
+    if (!Number.isFinite(ts)) return null;
+    const iso = new Date(ts).toISOString();
+
+    return { title, link, desc, image, pubDate: iso, age: timeAgo(iso), source: sourceDomain(link) };
+  }).filter(Boolean);
 }
 
 // Merge several RSS feeds for one category, dedupe, filter to recent, cap.
 async function multiRss(urls, perFeed, cap) {
   const results = await Promise.allSettled(urls.map(u => fetchRssItems(u, perFeed)));
   const items = results.flatMap(r => r.status === "fulfilled" ? r.value : []);
-  const seen = new Set();
-  return items
-    .filter(i => isRecent(i.pubDate))
-    .filter(i => { if (seen.has(i.link)) return false; seen.add(i.link); return true; })
-    .sort((a,b) => new Date(b.pubDate) - new Date(a.pubDate))
-    .slice(0, cap);
+  return rankItems(dedupeItems(items.filter(i => isRecent(i.pubDate)))).slice(0, cap);
 }
 
 // Fetch Reddit JSON — races direct, codetabs, allorigins, and
@@ -1550,67 +1636,57 @@ async function multiRss(urls, perFeed, cap) {
 // out an entire category (this was the main reason several categories
 // were coming back empty or with only a couple of items).
 async function redditFetch(path) {
-  const direct = `https://www.reddit.com${path}`;
-
-  const withTimeout = (p, ms) => Promise.race([
-    p,
-    new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))
-  ]);
-
-  const tryUrl = async (url) => {
-    const r = await fetch(url, { headers: { "Accept": "application/json" } });
-    if (!r.ok) throw new Error("status " + r.status);
-    const j = await r.json();
-    if (!j?.data?.children) throw new Error("bad payload");
-    return j;
-  };
-
-  const tryWrapped = async (url) => {
-    const r = await fetch(url);
-    if (!r.ok) throw new Error("status " + r.status);
-    const wrapper = await r.json();
-    const j = JSON.parse(wrapper.contents);
-    if (!j?.data?.children) throw new Error("bad payload");
-    return j;
-  };
-
-  // Fire every path at once and take whichever resolves first — trying
-  // proxies one after another meant a slow/hanging proxy could eat the
-  // whole per-source timeout before the fallback ever got a chance to run,
-  // which was silently starving nearly every Reddit-sourced category.
-  // Note: corsproxy.io's free tier is now restricted to localhost only and
-  // will 403 on any deployed domain, so it's deliberately not used here.
-  const attempts = [
-    withTimeout(tryUrl(direct), 4000),
-    withTimeout(tryUrl(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(direct)}`), 7000),
-    withTimeout(tryWrapped(`https://api.allorigins.win/get?url=${encodeURIComponent(direct)}`), 7000),
-    withTimeout(tryWrapped(`https://whateverorigin.org/get?url=${encodeURIComponent(direct)}`), 7000),
-  ];
-
+  // Reddit blocks browser-origin requests outright, so this always needs a
+  // server-side hop. Previously it raced four public proxies; three of them
+  // (codetabs 522, whateverorigin 500, thingproxy gone) now only contribute
+  // latency and noise.
   try {
-    return await Promise.any(attempts);
+    const j = await proxyJson(`https://www.reddit.com${path}`, { timeout: 12000 });
+    if (!j?.data?.children) throw new Error("bad payload");
+    return j;
   } catch {
     return null;
   }
 }
 
-// Resolve real og:title + og:image for a Reddit item in one fetch
+// Resolve real og:title + og:image for a feed item.
+//
+// The previous implementation could never succeed: it fetched codetabs'
+// /v1/proxy endpoint, which returns the raw upstream body, then called
+// r.json() on it and read `j.contents` — a wrapper shape only AllOrigins
+// produces. Every call threw, so no card ever got a real title or image.
 async function resolveRedditMeta(item) {
   try {
-    const proxy = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(item.link)}`;
-    const r = await Promise.race([fetch(proxy), new Promise((_,rej) => setTimeout(rej, 5000))]);
-    if (!r.ok) return item;
-    const j = await r.json();
-    const html = j.contents || "";
-    const ogTitle = html.match(/<meta[^>]+property=["'']og:title["''][^>]+content=["'']([^"'']{5,200})["'']]/i)?.[1]
-                 || html.match(/<meta[^>]+content=["'']([^"'']{5,200})["''][^>]+property=["'']og:title["'']]/i)?.[1]
-                 || html.match(/<title[^>]*>([^<]{5,200})<\/title>/i)?.[1]?.replace(/\s*[-|].*$/, "").trim();
-    const ogImage = html.match(/<meta[^>]+property=["'']og:image["''][^>]+content=["'']([^"'']+)["'']]/i)?.[1]
-                 || html.match(/<meta[^>]+content=["'']([^"'']+)["''][^>]+property=["'']og:image["'']]/i)?.[1];
+    if (HAS_WORKER) {
+      const meta = await withTimeout(
+        fetch(`${WORKER_BASE}/meta?url=${encodeURIComponent(item.link)}`).then(r => r.json()),
+        8000, "meta timeout"
+      );
+      if (meta?.ok) {
+        return {
+          ...item,
+          title: (meta.title || "").length > 10 ? meta.title : item.title,
+          image: meta.image || item.image || "",
+        };
+      }
+      return item;
+    }
+
+    // No worker configured — scrape og: tags out of the HTML ourselves.
+    const html = await proxyText(item.link, { route: "meta", timeout: 8000 });
+    const grab = (prop) =>
+      html.match(new RegExp(`<meta[^>]+(?:property|name)=["']${prop}["'][^>]+content=["']([^"']+)["']`, "i"))?.[1] ||
+      html.match(new RegExp(`<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["']${prop}["']`, "i"))?.[1] || "";
+    const decode = (v) => v.replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#0?39;/g, "'").trim();
+
+    const title = decode(grab("og:title") || grab("twitter:title")) ||
+                  (html.match(/<title[^>]*>([^<]{5,300})<\/title>/i)?.[1] || "").replace(/\s*[|\u2013\u2014-]\s*[^|]*$/, "").trim();
+    const image = decode(grab("og:image") || grab("twitter:image"));
+
     return {
       ...item,
-      title: ogTitle?.trim() || item.title,
-      image: (ogImage?.startsWith("http") ? ogImage : null) || item.image || "",
+      title: title.length > 10 ? title : item.title,
+      image: image.startsWith("http") ? image : (item.image || ""),
     };
   } catch {}
   return item;
@@ -1636,6 +1712,7 @@ const LIVE_SOURCES = [
           title:   s.title,
           link:    s.url,
           desc:    `${s.score} points · ${s.descendants || 0} comments`,
+          engagement: (s.score || 0) + (s.descendants || 0) * 2,
           image:   "",
           pubDate: new Date(s.time * 1000).toISOString(),
           age:     timeAgo(new Date(s.time * 1000).toISOString()),
@@ -1658,6 +1735,7 @@ const LIVE_SOURCES = [
           title:   s.title,
           link:    s.url,
           desc:    `${s.score} points · ${s.descendants || 0} comments`,
+          engagement: (s.score || 0) + (s.descendants || 0) * 2,
           image:   "",
           pubDate: new Date(s.time * 1000).toISOString(),
           age:     timeAgo(new Date(s.time * 1000).toISOString()),
@@ -1756,7 +1834,7 @@ const LIVE_SOURCES = [
       // Pick 5 random pubs each load for variety (was 3 — too thin a pool)
       const pick = pubs.sort(() => 0.5 - Math.random()).slice(0, 5);
 
-      // Now built on the same fetchRssItems pipeline (rss2json.com primary,
+      // Now built on the same fetchRssItems pipeline (worker-backed feed XML,
       // raw-XML proxy fallback) that's working for every other category —
       // this previously had its own separate, codetabs-only implementation
       // that never got that upgrade, which is why it kept coming back empty.
@@ -1771,7 +1849,7 @@ const LIVE_SOURCES = [
     }
   },
 
-  // Finance — now on the same fetchRssItems pipeline (rss2json.com primary)
+  // Finance — now on the same fetchRssItems pipeline (worker-backed feed XML)
   // as every other category. This previously had its own separate
   // implementation that never got that upgrade, plus a Reddit-JSON-API
   // call with no fallback beyond redditFetch — which is why it kept
@@ -2414,36 +2492,27 @@ async function fetchDDG(after, query, source) {
 }
 
 async function fetchRssPaper(feedUrl, after, sourceOverride) {
-  // rss2json (paced, API-keyed) as primary — the raw-XML proxy chain below
-  // depends entirely on codetabs/allorigins, both dead as CORS proxies, so
-  // it was always timing out or returning nothing. This is why Papers took
-  // forever to load or never loaded at all. rss2json can't do the special
-  // Google News item-XML extraction the raw path does, but Google News links
-  // still get flagged for the existing async _gnResolve fallback, so they
-  // resolve on click same as before.
+  // Feed XML via the worker (or a public proxy as fallback). This used to go
+  // through rss2json, whose shared key is now returning 429 "using all the
+  // available feeds" — which is why Papers took forever or never loaded.
   try {
-    const items = await queueRss2Json(async () => {
-      const r = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feedUrl)}&api_key=${RSS2JSON_API_KEY}&count=${Math.min(after + 10, 50)}`);
-      if (!r.ok) throw new Error("status " + r.status);
-      const j = await r.json();
-      if (j.status !== "ok" || !j.items?.length) throw new Error("bad payload");
-      return j.items;
-    });
+    const text = await proxyText(feedUrl, { route: "rss", timeout: 12000 });
+    const items = parseFeedXml(text, after + 10);
     const sliced = items.slice(after, after + 10).map(item => {
-      const title = (item.title || "").trim();
-      const link = item.link || "";
-      const isGN = link.includes("news.google.com") || feedUrl.includes("news.google.com");
-      const rawThumb = item.thumbnail || item.enclosure?.link || "";
-      const thumb = (rawThumb && !rawThumb.includes("googleusercontent.com") && !rawThumb.includes("google.com")) ? rawThumb : "";
-      const desc = (item.description || "").replace(/<[^>]+>/g,"").trim().slice(0,200);
-      if (!title || !link.startsWith("http") || link.includes("w3.org")) return null;
-      const pd = item.pubDate ? new Date(item.pubDate.replace(" ","T") + "Z").toISOString() : "";
-      return { title, link, desc,
-               image: isGN ? "" : thumb,
-               pubDate: pd, age: pd ? timeAgo(pd) : "",
-               source: sourceOverride || (isGN ? "" : sourceDomain(link)),
-               _gnResolve: isGN ? link : null,
-               _skipEnrich: isGN };
+      const isGN = item.link.includes("news.google.com") || feedUrl.includes("news.google.com");
+      const thumb = (item.image && !item.image.includes("google.com")) ? item.image : "";
+      if (item.link.includes("w3.org")) return null;
+      return {
+        title: item.title,
+        link: item.link,
+        desc: (item.desc || "").slice(0, 200),
+        image: isGN ? "" : thumb,
+        pubDate: item.pubDate,
+        age: item.age,
+        source: sourceOverride || (isGN ? "" : item.source),
+        _gnResolve: isGN ? item.link : null,
+        _skipEnrich: isGN,
+      };
     }).filter(Boolean);
     if (sliced.length) return sliced;
   } catch {}
@@ -2895,16 +2964,49 @@ async function enrichFeedMeta(catMap) {
 
 function applyFilters(catMap) {
   const out = {};
-  Object.keys(catMap).forEach(cat => {
-    const qualityItems = catMap[cat].filter(i => isQualitySource(i.link));
-    out[cat] = qualityItems.length >= 4 ? qualityItems : catMap[cat];
+
+  // Cross-category dedupe. Categories were filtered independently, so one wire
+  // story could appear as a separate card in World, Business and Politics.
+  // Walking categories in display order means the story stays in the first
+  // (most relevant) category rather than an arbitrary one.
+  const CAT_PRIORITY = ["World","AI","Technology","Finance","Sports","Politics","Business","Science","Ideas"];
+  const seenGlobal = new Set();
+  const seenTitles = new Set();
+
+  const ordered = [
+    ...CAT_PRIORITY.filter(c => catMap[c]),
+    ...Object.keys(catMap).filter(c => !CAT_PRIORITY.includes(c)),
+  ];
+
+  ordered.forEach(cat => {
+    let items = (catMap[cat] || []).filter(item => {
+      const u = canonicalUrl(item.link);
+      if (seenGlobal.has(u)) return false;
+      const t = titleKey(item.title);
+      if (t && t.split(" ").length >= 4 && seenTitles.has(t)) return false;
+      seenGlobal.add(u);
+      if (t) seenTitles.add(t);
+      return true;
+    });
+
+    // Prefer known mastheads, but only when enough of them are present to fill
+    // the category — otherwise show what we have rather than an empty section.
+    const qualityItems = items.filter(i => isQualitySource(i.link));
+    items = qualityItems.length >= 4 ? qualityItems : items;
+
+    // Cap any single outlet so one prolific feed cannot own a category.
     const counts = {};
-    out[cat] = out[cat].filter(item => {
+    items = items.filter(item => {
       const src = (() => { try { return new URL(item.link).hostname.replace(/^www\./,""); } catch { return "?"; } })();
-      counts[src] = (counts[src]||0) + 1;
+      counts[src] = (counts[src] || 0) + 1;
       return counts[src] <= 3;
     });
+
+    out[cat] = rankItems(items);
   });
+
+  // Drop categories too thin to be worth a heading.
+  Object.keys(out).forEach(c => { if (!out[c].length) delete out[c]; });
   return out;
 }
 
@@ -2927,7 +3029,7 @@ async function loadFeed() {
       if (!catMap[src.cat]) catMap[src.cat] = [];
       const existing = new Set(catMap[src.cat].map(x => x.link));
       items.forEach(item => { if (!existing.has(item.link)) catMap[src.cat].push(item); });
-      catMap[src.cat].sort((a,b) => { try { return new Date(b.pubDate)-new Date(a.pubDate); } catch { return 0; } });
+      catMap[src.cat] = rankItems(catMap[src.cat]);
     }).catch(() => {})
   );
 
@@ -2947,7 +3049,7 @@ async function loadFeed() {
 // it settles, so the tab is already populated (or well underway) by the time
 // it's clicked instead of starting a fresh, slow fetch only at click time.
 // Papers waits for the main feed rather than running in parallel so it
-// doesn't compete with it for the rss2json queue's slots during initial load.
+// doesn't compete with it for fetch bandwidth during the initial load.
 loadFeed().then(() => {
   if (!state.papersLoaded) initPapers();
 });
@@ -4741,28 +4843,17 @@ async function runSearch(query) {
   const words = q.split(/\s+/).filter(w => w.length > 2);
 
   const fetchFeed = async ({ url, source }) => {
-    // rss2json (paced, API-keyed) primary — codetabs/allorigins are dead as
-    // CORS proxies, so this was silently failing for essentially all 25
-    // sources here, not just some. Whatever occasionally came through before
-    // was luck, not design; this fetches every source the same way.
+    // Feed XML via the worker (or a public proxy). Previously rss2json, whose
+    // shared key now 429s, so essentially every source here was failing.
     try {
-      const items = await queueRss2Json(async () => {
-        const r = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(url)}&api_key=${RSS2JSON_API_KEY}`);
-        if (!r.ok) throw new Error("status " + r.status);
-        const j = await r.json();
-        if (j.status !== "ok" || !j.items?.length) throw new Error("bad payload");
-        return j.items;
-      });
-      const scored = items.map(item => {
-        const title = (item.title || "").trim();
-        const link = item.link || "";
-        const pub = item.pubDate || "";
-        if (!title || !link) return null;
-        const desc = (item.description || "").toLowerCase();
-        const titleLower = title.toLowerCase();
-        const score = words.reduce((s,w) => s + (titleLower.includes(w) ? 2 : 0) + (desc.includes(w) ? 1 : 0), 0);
+      const text = await proxyText(url, { route: "rss", timeout: 10000 });
+      const scored = parseFeedXml(text, 30).map(item => {
+        const titleLower = item.title.toLowerCase();
+        const desc = (item.desc || "").toLowerCase();
+        const score = words.reduce((n, w) =>
+          n + (titleLower.includes(w) ? 2 : 0) + (desc.includes(w) ? 1 : 0), 0);
         if (score === 0) return null;
-        return { title, link, source, pub, score };
+        return { title: item.title, link: item.link, source, pub: item.pubDate, score };
       }).filter(Boolean);
       if (scored.length) return scored;
     } catch {}
