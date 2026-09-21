@@ -3115,6 +3115,11 @@ async function loadFeed() {
 // it's clicked instead of starting a fresh, slow fetch only at click time.
 // Papers waits for the main feed rather than running in parallel so it
 // doesn't compete with it for fetch bandwidth during the initial load.
+// Raise the "no worker" notice immediately rather than after loadFeed has
+// spent its full source budget failing — otherwise the first thing a new
+// visitor sees is a blank page for half a minute with no explanation.
+if (!HAS_WORKER) showWorkerNotice();
+
 loadFeed().then(() => {
   if (!state.papersLoaded) initPapers();
 });
@@ -4896,6 +4901,8 @@ function showWorkerNotice() {
   if (HAS_WORKER || DB.get("hideWorkerNotice", false)) return;
   const wrap = document.getElementById("feedContent");
   if (!wrap || document.getElementById("feedNotice")) return;
+  // renderFeed replaces innerHTML wholesale, so re-raise the notice afterwards
+  // if this ran first.
   const el = document.createElement("div");
   el.className = "feed-notice";
   el.id = "feedNotice";
