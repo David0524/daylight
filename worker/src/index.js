@@ -394,14 +394,51 @@ export default {
     let response;
     try {
       if (path === "/rss") {
-        const r = await withTimeout(
-          fetch(target, { headers: { ...BROWSER_HEADERS, Accept: "application/rss+xml, application/xml, text/xml, */*" } }),
-          15000, "rss"
-        );
-        if (!r.ok) return fail(request, env, `upstream ${r.status}`);
-        const text = await r.text();
-        if (!text.includes("<item") && !text.includes("<entry"))
-          return fail(request, env, "not a feed");
+        const FEED_ACCEPT = "application/rss+xml, application/xml, text/xml, */*";
+        const isFeed = (t) => t && (t.includes("<item") || t.includes("<entry"));
+
+        // Keep this route's worst case bounded. Chaining several generous
+        // timeouts here starved the client, which gives each source a much
+        // shorter budget of its own: the page ended up rendering nothing while
+        // the worker was still waiting on retries nobody was listening for.
+        let text = null, lastStatus = 0;
+
+        const tryFetch = async (headers, ms) => {
+          const r = await withTimeout(
+            fetch(target, { headers: { ...headers, Accept: FEED_ACCEPT } }), ms, "rss"
+          );
+          lastStatus = r.status;
+          if (!r.ok) return null;
+          const body = await r.text();
+          return isFeed(body) ? body : null;
+        };
+
+        try { text = await tryFetch(BROWSER_HEADERS, 6000); } catch {}
+
+        // Only worth a second attempt when we were refused rather than failing
+        // outright. Some publishers 403 datacenter IPs for a browser UA but
+        // serve Googlebot, since that is how their feeds get indexed (NPR).
+        if (!text && [401, 403, 429].includes(lastStatus)) {
+          try { text = await tryFetch(GOOGLEBOT_HEADERS, 6000); } catch {}
+        }
+
+        // Last resort: some publishers block by TLS fingerprint rather than by
+        // header, so no header spoofing from our own egress gets through.
+        // Bouncing off a public proxy uses a different client stack.
+        if (!text) {
+          try {
+            const r = await withTimeout(
+              fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(target)}`),
+              6000, "rss fallback"
+            );
+            if (r.ok) {
+              const body = (await r.json())?.contents || "";
+              if (isFeed(body)) text = body;
+            }
+          } catch {}
+        }
+
+        if (!text) return fail(request, env, lastStatus ? `upstream ${lastStatus}` : "not a feed");
         response = reply(text, request, env, { type: "application/xml; charset=utf-8", ttl: CACHE_TTL.rss });
 
       } else if (path === "/json") {

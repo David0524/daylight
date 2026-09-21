@@ -1584,7 +1584,7 @@ async function multiSubReddit(subs, perSub, cap) {
 async function fetchRssItems(feedUrl, limit = 8) {
   let text;
   try {
-    text = await proxyText(feedUrl, { route: "rss", timeout: 7000 });
+    text = await proxyText(feedUrl, { route: "rss", timeout: 11000 });
   } catch { return []; }
   return parseFeedXml(text, limit);
 }
@@ -2492,7 +2492,7 @@ async function fetchRssPaper(feedUrl, after, sourceOverride) {
   // through rss2json, whose shared key is now returning 429 "using all the
   // available feeds" — which is why Papers took forever or never loaded.
   try {
-    const text = await proxyText(feedUrl, { route: "rss", timeout: 7000 });
+    const text = await proxyText(feedUrl, { route: "rss", timeout: 11000 });
     const items = parseFeedXml(text, after + 10);
     const sliced = items.slice(after, after + 10).map(item => {
       const isGN = item.link.includes("news.google.com") || feedUrl.includes("news.google.com");
