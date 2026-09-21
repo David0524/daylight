@@ -922,6 +922,8 @@ const HAS_WORKER = /^https:\/\//.test(WORKER_BASE);
 //   kind: "wrapped" => response is {contents: "..."}; "raw" => body as-is.
 const PUBLIC_PROXIES = [
   { kind: "wrapped", build: (u) => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}` },
+  // Literal on purpose: this list is the fallback used *after* the worker has
+  // already failed, so it must not route back through the worker.
   { kind: "raw",     build: (u) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}` },
 ];
 
@@ -956,6 +958,17 @@ async function proxyText(target, { route = "json", timeout = 15000 } = {}) {
     } catch {}
   }
   throw new Error("all fetch routes failed");
+}
+
+/**
+ * URL for a raw passthrough fetch. The worker's /json route returns the
+ * upstream body verbatim, which is exactly what codetabs' /v1/proxy did, so
+ * call sites that just do .text() or .json() work unchanged.
+ */
+function rawProxy(target) {
+  return HAS_WORKER
+    ? `${WORKER_BASE}/json?url=${encodeURIComponent(target)}`
+    : rawProxy(target);
 }
 
 async function proxyJson(target, opts) {
@@ -2077,12 +2090,12 @@ async function fetchMarketData() {
       // Try corsproxy first (works from null origin), allorigins as fallback
       let csv = null;
       try {
-        const r = await race(fetch("https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(url)));
+        const r = await race(fetch(rawProxy(url)));
         if (r.ok) csv = await r.text();
       } catch {}
       if (!csv) {
         try {
-          const r = await race(fetch("https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(url)));
+          const r = await race(fetch(rawProxy(url)));
           if (r.ok) { csv = await r.text(); }
         } catch {}
       }
@@ -2113,11 +2126,11 @@ async function fetchMarketData() {
     const url = "https://query1.finance.yahoo.com/v6/finance/quote?symbols=^DJI,^GSPC,^IXIC";
     let data = null;
     try {
-      const r = await race(fetch("https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(url)));
+      const r = await race(fetch(rawProxy(url)));
       if (r.ok) { const j = await r.json(); data = JSON.parse(j.contents || "null"); }
     } catch {}
     if (!data) {
-      const r = await race(fetch("https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(url)));
+      const r = await race(fetch(rawProxy(url)));
       if (r.ok) data = await r.json();
     }
     const quotes = data?.quoteResponse?.result;
@@ -2363,8 +2376,8 @@ document.getElementById("feedContent").addEventListener("click", e => {
 // Fetch og:image for a URL, trying two proxies
 async function fetchOgImage(url) {
   for (const proxy of [
-    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+    rawProxy(url),
+    rawProxy(url),
   ]) {
     try {
       const r = await Promise.race([
@@ -2389,8 +2402,8 @@ async function fetchOgImage(url) {
 async function resolveGoogleNewsUrlMulti(gnUrl) {
   // Try multiple proxies — some follow the Google News redirect chain better than others
   const proxies = [
-    u => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
-    u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+    u => rawProxy(u),
+    u => rawProxy(u),
     u => `https://thingproxy.freeboard.io/fetch/${u}`,
   ];
   for (const proxyFn of proxies) {
@@ -2435,7 +2448,7 @@ async function resolveGoogleNewsUrl(gnUrl) {
   // corsproxy only — follows redirects, may return destination page directly
   try {
     const r = await Promise.race([
-      fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(gnUrl)}`),
+      fetch(rawProxy(gnUrl)),
       new Promise((_,rej) => setTimeout(rej, 8000))
     ]);
     if (r.ok) {
@@ -2460,16 +2473,23 @@ async function fetchDDG(after, query, source) {
     const pagedQuery = after === 0 ? query : query + `&s=${after*10}&dc=${after*10+1}`;
     const ddgUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(pagedQuery)}`;
     let html = null;
-    for (const proxyUrl of [
-      `https://wsj.drudd524.workers.dev/?action=ddg&q=${encodeURIComponent(pagedQuery)}&url=ddg`,
-      `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(ddgUrl)}`,
-    ]) {
+    // The legacy wsj.drudd524.workers.dev endpoint answers 202 with a
+    // JS-redirect stub containing no results at all. Because 202 is `ok`, the
+    // loop accepted it and broke out before ever trying a path that works --
+    // which is why search came back empty every time. It is dropped, and the
+    // response is now checked for actual result markup rather than just a
+    // 2xx status.
+    for (const proxyUrl of [rawProxy(ddgUrl)]) {
       try {
         const r = await Promise.race([
           fetch(proxyUrl),
-          new Promise((_,rej) => setTimeout(rej, 15000))
+          new Promise((_,rej) => setTimeout(() => rej(new Error("timeout")), 15000))
         ]);
-        if (r.ok) { html = await r.text(); break; }
+        if (!r.ok) continue;
+        const text = await r.text();
+        if (!text.includes("result__a") && !text.includes("result__title")) continue;
+        html = text;
+        break;
       } catch {}
     }
     if (!html) return [];
@@ -2520,7 +2540,7 @@ async function fetchRssPaper(feedUrl, after, sourceOverride) {
   // Fallback: raw-XML via proxy chain — kept in case codetabs/allorigins
   // ever recover, but currently never succeeds on its own.
   for (const proxyFn of [
-    u => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
+    u => rawProxy(u),
     u => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,
   ]) {
     try {
@@ -2619,13 +2639,19 @@ const NEWSPAPERS = [
       const query = after === 0 ? "site:wsj.com/articles" : `site:wsj.com/articles&s=${after * 10}&dc=${after * 10 + 1}`;
       const ddgUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
       let html = null;
-      for (const proxyUrl of [
-        `https://wsj.drudd524.workers.dev/?action=ddg&q=${encodeURIComponent(query)}&url=ddg`,
-        `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(ddgUrl)}`,
-      ]) {
+      // Same fix as fetchDDG: the legacy endpoint returns 202 with a
+      // JS-redirect stub and no results, and a bare r.ok check accepted it.
+      for (const proxyUrl of [rawProxy(ddgUrl)]) {
         try {
-          const r = await Promise.race([fetch(proxyUrl), new Promise((_,rej)=>setTimeout(rej,12000))]);
-          if (r.ok) { html = await r.text(); break; }
+          const r = await Promise.race([
+            fetch(proxyUrl),
+            new Promise((_,rej)=>setTimeout(() => rej(new Error("timeout")), 12000))
+          ]);
+          if (!r.ok) continue;
+          const text = await r.text();
+          if (!text.includes("result__a") && !text.includes("result__title")) continue;
+          html = text;
+          break;
         } catch {}
       }
       if (!html) return [];
@@ -2665,7 +2691,7 @@ const NEWSPAPERS = [
     fetch: async (after) => {
       // lite.cnn.com — CNN's text-only version, no JS, always current
       for (const proxy of [
-        `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent("https://lite.cnn.com/")}`,
+        rawProxy("https://lite.cnn.com/"),
         `https://api.allorigins.win/get?url=${encodeURIComponent("https://lite.cnn.com/")}`,
       ]) {
         try {
@@ -2932,33 +2958,40 @@ async function loadMorePaper(id) {
 
 // Background enrichment — called after feed renders. Updates title + image in DOM quietly.
 async function enrichFeedMeta(catMap) {
-  const allItems = Object.values(catMap).flat();
-  // Only enrich Reddit-sourced items (they have reddit.com referrer patterns or no image)
-  // Process in small batches to avoid hammering allorigins
+  // Only enrich what actually needs it. The old version ran against every item
+  // in the feed despite a comment claiming otherwise, which meant a fetch per
+  // card on every load -- and since resolveRedditMeta could never succeed
+  // (wrong proxy response shape), all of it was wasted.
+  const needsWork = Object.values(catMap).flat().filter(item =>
+    !item.image || !item.title || item.title.length < 15
+  );
+  if (!needsWork.length) return;
+
+  // indexOf against the registry per item was O(n^2); build the lookup once.
+  const indexOf = new Map(ARTICLE_REGISTRY.map((item, i) => [item, i]));
+
   const BATCH = 4;
-  for (let i = 0; i < allItems.length; i += BATCH) {
-    const batch = allItems.slice(i, i + BATCH);
-    await Promise.allSettled(batch.map(async item => {
-      const idx = ARTICLE_REGISTRY.indexOf(item);
-      if (idx === -1) return;
+  for (let i = 0; i < needsWork.length; i += BATCH) {
+    await Promise.allSettled(needsWork.slice(i, i + BATCH).map(async item => {
+      const idx = indexOf.get(item);
+      if (idx === undefined) return;
       try {
         const updated = await resolveRedditMeta(item);
-        // Update image in DOM if we got a real one
         if (updated.image && updated.image !== item.image) {
           item.image = updated.image;
           const el = document.getElementById(`img-${idx}`);
           if (el) el.src = updated.image;
         }
-        // Update title in DOM if meaningfully different
         if (updated.title && updated.title !== item.title && updated.title.length > 10) {
           item.title = updated.title;
-          const titleEl = document.querySelector(`[data-idx="${idx}"] .card-hero-title, [data-idx="${idx}"] .card-mini-title`);
+          const titleEl = document.querySelector(
+            `[data-idx="${idx}"] .card-hero-title, [data-idx="${idx}"] .card-mini-title`
+          );
           if (titleEl) titleEl.textContent = updated.title;
         }
       } catch {}
     }));
-    // Small pause between batches to avoid rate-limiting allorigins
-    if (i + BATCH < allItems.length) await new Promise(r => setTimeout(r, 200));
+    if (i + BATCH < needsWork.length) await new Promise(r => setTimeout(r, 200));
   }
 }
 
@@ -3518,7 +3551,7 @@ async function fetchMetaViaGoogle(url) {
     // Use Google News RSS to get description — first result for exact URL is usually the article
     const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent('"' + headline.split(" ").slice(0,6).join(" ") + '"')}&hl=en-US&gl=US&ceid=US:en`;
     const r = await Promise.race([
-      fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(rssUrl)}`),
+      fetch(rawProxy(rssUrl)),
       new Promise((_,rej) => setTimeout(rej, 7000))
     ]);
     if (!r.ok) return null;
@@ -3552,7 +3585,7 @@ async function fetchMetaOnly(url) {
     for (const tryUrl of urlsToTry) {
       try {
         const r = await Promise.race([
-          fetch(`https://r.jina.ai/${tryUrl}`, { headers: { "Accept": "text/plain", "X-Return-Format": "markdown" } }),
+          fetch(`https://r.jina.ai/${encodeURIComponent(tryUrl)}`, { headers: { "Accept": "text/plain", "X-Return-Format": "markdown" } }),
           new Promise((_,rej) => setTimeout(rej, 12000))
         ]);
         if (!r.ok) continue;
@@ -3584,7 +3617,7 @@ async function fetchMetaOnly(url) {
 
   // Standard proxy approach for non-CF sites
   for (const proxyFn of [
-    u => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
+    u => rawProxy(u),
     u => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}&t=${Math.floor(Date.now()/300000)}`,
   ]) {
     try {
@@ -3660,7 +3693,7 @@ const FETCH_METHODS = [
     // Jina Reader: real browser rendering, returns clean markdown. Best for most sites.
     name: "Jina",
     fetch: async (url) => {
-      const r = await fetch(`https://r.jina.ai/${url}`, {
+      const r = await fetch(`https://r.jina.ai/${encodeURIComponent(url)}`, {
         headers: { "Accept": "text/plain", "X-Return-Format": "markdown" }
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -3684,7 +3717,7 @@ const FETCH_METHODS = [
       ];
       for (const giftUrl of variants) {
         try {
-          const r = await fetch(`https://r.jina.ai/${giftUrl}`, {
+          const r = await fetch(`https://r.jina.ai/${encodeURIComponent(giftUrl)}`, {
             headers: { "Accept": "text/plain", "X-Return-Format": "markdown",
                        "X-Referer": "https://www.google.com/" }
           });
@@ -3704,7 +3737,7 @@ const FETCH_METHODS = [
     // Jina with Googlebot UA — many publishers grant first-click-free to Googlebot
     name: "Jina+googlebot",
     fetch: async (url) => {
-      const r = await fetch(`https://r.jina.ai/${url}`, {
+      const r = await fetch(`https://r.jina.ai/${encodeURIComponent(url)}`, {
         headers: {
           "Accept": "text/plain",
           "X-Return-Format": "markdown",
@@ -3737,7 +3770,7 @@ const FETCH_METHODS = [
       const referrers = [slugRef, "https://www.facebook.com/", "https://t.co/"];
       for (const referer of referrers) {
         try {
-          const r = await fetch(`https://r.jina.ai/${url}`, {
+          const r = await fetch(`https://r.jina.ai/${encodeURIComponent(url)}`, {
             headers: {
               "Accept": "text/html",
               "X-Return-Format": "html",
@@ -3756,26 +3789,6 @@ const FETCH_METHODS = [
     }
   },
   {
-    // Google Webcache → Jina: Google caches WSJ pages on Google's own servers.
-    // WSJ cannot block Google without deindexing themselves — this bypasses their paywall entirely.
-    name: "Jina+gcache",
-    fetch: async (url) => {
-      const cacheUrl = `https://webcache.googleusercontent.com/search?q=cache:${url}`;
-      const r = await fetch(`https://r.jina.ai/${cacheUrl}`, {
-        headers: { "Accept": "text/plain", "X-Return-Format": "markdown" }
-      });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const t = await r.text();
-      if (t.includes("error 401") || t.includes("Unauthorized")) throw new Error("Blocked");
-      // Strip Google Webcache chrome — everything before the actual article
-      // Google wraps cached pages with its own header/footer
-      const stripped = stripGoogleCacheChrome(t);
-      const lines = stripped.split("\n").filter(l => l.trim().length > 60).length;
-      if (lines < 4) throw new Error(`Only ${lines} content lines after stripping`);
-      return { type: "markdown", text: stripped };
-    }
-  },
-  {
     // Jina on AMP URL — Jina fetches amp.wsj.com as Googlebot server-side.
     // WSJ can't block Googlebot without deindexing; AMP delivers full article HTML.
     // This is the core technique archive.ph uses for WSJ.
@@ -3783,7 +3796,7 @@ const FETCH_METHODS = [
     fetch: async (url) => {
       const ampUrl = toAmpUrl(url);
       if (!ampUrl || ampUrl === url) throw new Error("No AMP URL available");
-      const r = await fetch(`https://r.jina.ai/${ampUrl}`, {
+      const r = await fetch(`https://r.jina.ai/${encodeURIComponent(ampUrl)}`, {
         headers: {
           "Accept": "text/plain",
           "X-Return-Format": "markdown",
@@ -3802,44 +3815,18 @@ const FETCH_METHODS = [
     // Jina via corsproxy — fallback if direct Jina hits CORS
     name: "Jina+proxy",
     fetch: async (url) => {
-      const jinaUrl = `https://r.jina.ai/${url}`;
-      const r = await fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(jinaUrl)}`);
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const t = await r.text();
+      const jinaUrl = `https://r.jina.ai/${encodeURIComponent(url)}`;
+      const t = await proxyText(jinaUrl, { route: "json", timeout: 15000 });
       if (t.includes("error 401") || t.includes("CAPTCHA") || t.includes("Unauthorized"))
         throw new Error("Jina: site requires auth");
-      if (t.length < 500) throw new Error("Too short");
+      if (t.length < 1200) throw new Error("Too short");
       return { type: "markdown", text: t };
-    }
-  },
-  {
-    // archive.ph via Jina — Jina fetches the archive.ph snapshot and returns clean markdown.
-    // archive.ph snapshots bypass paywalls because they were crawled when the article was free.
-    // Format confirmed working: archive.ph/{timestamp}/{url}
-    name: "ArchiveJina",
-    fetch: async (url) => {
-      // Send archive.ph/newest/{url} directly to Jina — Jina follows the redirect
-      // to the timestamped snapshot and returns clean markdown. No corsproxy needed,
-      // which avoids the 429 rate limit corsproxy hits against archive.ph.
-      const newestUrl = `https://archive.ph/newest/${url}`;
-      const jinaR = await Promise.race([
-        fetch(`https://r.jina.ai/${newestUrl}`, {
-          headers: { "Accept": "text/plain", "X-Return-Format": "markdown" }
-        }),
-        new Promise((_,rej) => setTimeout(rej, 15000))
-      ]);
-      if (!jinaR.ok) throw new Error(`Jina HTTP ${jinaR.status}`);
-      const md = await jinaR.text();
-      if (md.length < 300) throw new Error("Too short");
-      // Reject if Jina returned a subscription wall instead of article content
-      if (md.includes("Subscribe now") && md.length < 1000) throw new Error("Paywall");
-      return { type: "markdown", text: md };
     }
   },
   {
     name: "codetabs",
     fetch: async (url) => {
-      const r = await fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`);
+      const r = await fetch(rawProxy(url));
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const t = await r.text();
       if (t.length < 800) throw new Error("Too short");
@@ -3875,7 +3862,7 @@ const FETCH_METHODS = [
       // failed. Jina supports the same server-side header override via
       // X-Referer, so this switches to that instead (same technique the
       // Jina+AMP method already uses successfully).
-      const r = await fetch(`https://r.jina.ai/${ampUrl}`, {
+      const r = await fetch(`https://r.jina.ai/${encodeURIComponent(ampUrl)}`, {
         headers: {
           "Accept": "text/plain", "X-Return-Format": "markdown",
           "X-Referer": "https://www.google.com/",
@@ -3907,31 +3894,12 @@ const FETCH_METHODS = [
       // Fetch the snapshot itself via Jina, not codetabs — codetabs is dead
       // as a CORS proxy, which made this always fail even after finding a
       // valid snapshot URL.
-      const r = await fetch(`https://r.jina.ai/${snapUrl}`, {
+      const r = await fetch(`https://r.jina.ai/${encodeURIComponent(snapUrl)}`, {
         headers: { "Accept": "text/plain", "X-Return-Format": "markdown" }
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const md = await r.text();
       if (md.length < 800) throw new Error("Snapshot too short");
-      return { type: "markdown", text: md };
-    }
-  },
-  {
-    // archive.ph via Jina — was previously two codetabs calls (regex-scrape the
-    // snapshot URL, then fetch it), both of which now fail since codetabs is
-    // dead as a CORS proxy. Jina can follow the archive.ph/newest/{url}
-    // redirect directly to the timestamped snapshot in one request, same
-    // technique as the ArchiveJina method below — no proxy needed at all.
-    name: "Archive.ph",
-    fetch: async (url) => {
-      const newestUrl = `https://archive.ph/newest/${url}`;
-      const r = await fetch(`https://r.jina.ai/${newestUrl}`, {
-        headers: { "Accept": "text/plain", "X-Return-Format": "markdown" }
-      });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const md = await r.text();
-      if (md.length < 800) throw new Error("Snapshot too short");
-      if (md.includes("Subscribe now") && md.length < 1000) throw new Error("Paywall");
       return { type: "markdown", text: md };
     }
   },
@@ -4114,12 +4082,32 @@ const PAYWALL_SIGNALS = [
   "you've used all your free articles",
   "you have reached your article limit",
   "to continue, please subscribe",
-  // Bot/Cloudflare walls — these must be distinctive enough to not false-positive
-  "please make sure your browser supports javascript and cookies",
+  "already a subscriber? sign in",
+];
+
+// Bot walls and captcha interstitials. These were badly under-covered: the
+// archive.ph Cloudflare challenge page matched none of the old signals, and
+// the only other guard was `if (text.length < 800) throw`. That page is 810
+// bytes, so it passed by ten bytes and was rendered to the reader as the
+// article body. That is the captcha users kept seeing.
+const CHALLENGE_SIGNALS = [
+  "please complete the security check",
+  "complete the security check to access",
+  "one more step",
+  "why do i have to complete a captcha",
+  "completing the captcha proves you are a human",
   "checking if the site connection is secure",
-  "please enable js and disable any ad blocker",
   "enable javascript and cookies to continue",
-  "ray id:", // Cloudflare challenge page signature
+  "please make sure your browser supports javascript and cookies",
+  "please enable js and disable any ad blocker",
+  "ray id:",
+  "cf-browser-verification",
+  "attention required! | cloudflare",
+  "this page maybe requiring captcha",
+  "page maybe not yet fully loaded",
+  "are you a robot",
+  "unusual traffic from your computer network",
+  "verify you are human",
 ];
 
 // ── Empirical per-domain routing (Tier C) ────────────────────────────────────
@@ -4203,7 +4191,7 @@ async function searchGoogleNews(query) {
   try {
     const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=en-US&gl=US&ceid=US:en`;
     const r = await Promise.race([
-      fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(rssUrl)}`),
+      fetch(rawProxy(rssUrl)),
       new Promise((_,rej) => setTimeout(rej, 8000))
     ]);
     if (!r.ok) return null;
@@ -4241,7 +4229,7 @@ async function fetchReutersApi(url) {
     if (!url.includes("reuters.com")) return null;
     // Jina fetches Reuters cleanly — Reuters is not in JINA_BLOCKED
     const r = await Promise.race([
-      fetch(`https://r.jina.ai/${url}`, {
+      fetch(`https://r.jina.ai/${encodeURIComponent(url)}`, {
         headers: { "Accept": "text/plain", "X-Return-Format": "markdown" }
       }),
       new Promise((_,rej) => setTimeout(rej, 12000))
@@ -4259,7 +4247,7 @@ async function fetchReutersApi(url) {
 async function fetchRealHeadline(url) {
   try {
     const r = await Promise.race([
-      fetch(`https://r.jina.ai/${url}`, { headers: { "Accept": "text/plain", "X-Return-Format": "markdown" } }),
+      fetch(`https://r.jina.ai/${encodeURIComponent(url)}`, { headers: { "Accept": "text/plain", "X-Return-Format": "markdown" } }),
       new Promise((_,rej) => setTimeout(rej, 8000))
     ]);
     if (!r.ok) return null;
@@ -4313,7 +4301,7 @@ async function searchYahooFinance(query) {
   try {
     const searchUrl = `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(query)}&newsCount=6&enableFuzzyQuery=false`;
     const r = await Promise.race([
-      fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(searchUrl)}`),
+      fetch(rawProxy(searchUrl)),
       new Promise((_,rej) => setTimeout(rej, 6000))
     ]);
     if (!r.ok) return null;
@@ -4349,47 +4337,51 @@ function pick(names) {
 // Parse and validate a raw fetch result into an article object.
 // Returns the article if usable, null otherwise.
 function parseResult(result, url) {
-  let article;
-  if (result.type === "markdown") {
-    article = parseJinaMarkdown(result.text, url);
-    article.url = url;
-    const lower = result.text.toLowerCase();
-    if (PAYWALL_SIGNALS.some(s => lower.includes(s))) return null;
-  } else {
-    const lower = result.text.toLowerCase();
-    if (PAYWALL_SIGNALS.some(s => lower.includes(s))) return null;
-    article = extractArticle(result.text, url);
-  }
-  if (!article || article.paragraphs.length < 2) return null;
+  const lower = (result.text || "").toLowerCase();
+
+  // Order matters: check for a bot wall before anything else, so a challenge
+  // page is never parsed into paragraphs and shown as an article.
+  if (CHALLENGE_SIGNALS.some(sig => lower.includes(sig))) return null;
+  if (PAYWALL_SIGNALS.some(sig => lower.includes(sig))) return null;
+  if (!result.text || result.text.length < 1200) return null;
+
+  const article = result.type === "markdown"
+    ? Object.assign(parseJinaMarkdown(result.text, url), { url })
+    : extractArticle(result.text, url);
+
+  // Require real prose, not two lines of boilerplate. A wall that slips past
+  // the string checks still gets caught here.
+  if (!article || !article.paragraphs) return null;
+  const substantive = article.paragraphs.filter(p => (p.text || "").length > 100);
+  if (article.paragraphs.length < 3 || substantive.length < 2) return null;
+
   return article;
 }
 
 // Race corsproxy and Jina simultaneously — take whichever returns valid content first.
 // Both run with a 12s timeout. Used for CF-protected / ambiguous domains (Tier 2).
 async function raceFetch(url) {
-  const proxy  = FETCH_METHODS.find(m => m.name === "codetabs");
-  const jina   = FETCH_METHODS.find(m => m.name === "Jina");
-  // AllOrigins is dead as a CORS proxy (confirmed via console log), so it's
-  // no longer a useful tiebreaker — ArchiveJina (Jina fetching an archive.ph
-  // snapshot, no proxy involved) actually has a chance of succeeding.
-  const tiebreaker = FETCH_METHODS.find(m => m.name === "ArchiveJina");
+  // Runs the two independent paths at once and takes the first that returns
+  // usable content. AllOrigins leads because it is the only public proxy still
+  // answering with correct CORS headers; codetabs has been returning 522.
+  // The old archive.ph tiebreaker is gone -- it sits behind a Cloudflare
+  // challenge and was the source of the captcha pages shown in the reader.
+  const proxy = FETCH_METHODS.find(m => m.name === "AllOrigins");
+  const jina  = FETCH_METHODS.find(m => m.name === "Jina");
   const TIMEOUT = 12000;
 
   const attempt = (method) => Promise.race([
     method.fetch(url),
-    new Promise((_,rej) => setTimeout(() => rej(new Error("Timeout")), TIMEOUT))
+    new Promise((_, rej) => setTimeout(() => rej(new Error("Timeout")), TIMEOUT)),
   ]).then(result => {
     const article = parseResult(result, url);
     if (!article) throw new Error("No content");
     return { article, method: method.name };
   });
 
-  // Promise.any resolves as soon as the FIRST attempt succeeds — true race.
-  // If both fail, fall through to ArchiveJina as tiebreaker.
   try {
-    return await Promise.any([attempt(proxy), attempt(jina)]);
+    return await Promise.any([proxy, jina].filter(Boolean).map(attempt));
   } catch {}
-  try { return await attempt(tiebreaker); } catch {}
   return null;
 }
 
@@ -4404,6 +4396,36 @@ async function fetchArticle(url, _isRetry = false) {
   } catch {}
   const loadingSub = document.getElementById("loadingSub");
   const host = (() => { try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return ""; } })();
+
+  // ── Worker first ─────────────────────────────────────────────────────────
+  // The worker runs the whole extraction ladder server-side with real browser
+  // headers and an authenticated Jina key. That matters: anonymous Jina is now
+  // rate-limited hard enough to answer with a captcha stub on HTTP 200, and
+  // this page was firing nine Jina variants at once for a single article,
+  // which blew the limit immediately. One server-side call replaces all of it.
+  if (HAS_WORKER) {
+    loadingSub.textContent = "Fetching…";
+    logMethod("worker", "pending", "Connecting…");
+    try {
+      const r = await Promise.race([
+        fetch(`${WORKER_BASE}/article?url=${encodeURIComponent(url)}`),
+        new Promise((_, rej) => setTimeout(() => rej(new Error("Timeout")), 30000)),
+      ]);
+      const payload = await r.json();
+      if (payload?.ok) {
+        const article = parseResult({ type: payload.type, text: payload.text }, url);
+        if (article) {
+          logMethod(`worker:${payload.method}`, "ok", `${article.paragraphs.length} paragraphs`);
+          return article;
+        }
+        logMethod("worker", "fail", "No usable content");
+      } else {
+        logMethod("worker", "fail", payload?.error || `HTTP ${r.status}`);
+      }
+    } catch (e) {
+      logMethod("worker", "fail", e.message || "Network error");
+    }
+  }
 
   const inSet = (set) => set.has(host) || [...set].some(d => host.endsWith("." + d));
 
@@ -4426,12 +4448,14 @@ async function fetchArticle(url, _isRetry = false) {
     // Method order reflects current (2026) reality for NYT specifically:
     // NYT has been actively "hard blocking" Internet Archive's crawlers since
     // late 2025 — confirmed via multiple 2026 reports, not just occasional
-    // failures — so Wayback is now a long shot and moved last. Archive.ph is
-    // under separate pressure but still occasionally works, so it stays
-    // early. Jina+html+googlebot is new: it fetches raw HTML (not Jina's
+    // failures — so Wayback is now a long shot and moved last. Archive.ph has
+    // been removed entirely: it is behind a Cloudflare challenge that no
+    // server-side fetch passes, and it was the source of the captcha pages
+    // that were being rendered as articles.
+    // Jina+html+googlebot fetches raw HTML (not Jina's
     // markdown, which strips JSON-LD entirely) with Googlebot spoofing, so
     // our JSON-LD articleBody extraction actually gets a chance to run.
-    for (const method of pick(["Jina+html+googlebot","Archive.ph","Jina+gift","Jina+googlebot","Wayback"])) {
+    for (const method of pick(["Jina+html+googlebot","Jina+gift","Jina+googlebot","Wayback"])) {
       loadingSub.textContent = `Trying ${method.name}…`;
       logMethod(method.name, "pending", "Connecting…");
       try {
@@ -4454,7 +4478,7 @@ async function fetchArticle(url, _isRetry = false) {
 
   // ── Reuters: Jina markdown → Jina+proxy → Wayback ───────────────────────
   else if (inSet(REUTERS_DOMAINS)) {
-    for (const method of pick(["Jina","Jina+proxy","Wayback","Archive.ph"])) {
+    for (const method of pick(["Jina","Jina+proxy","Wayback"])) {
       loadingSub.textContent = `Trying ${method.name}…`;
       logMethod(method.name, "pending", "Connecting…");
       try {
@@ -4469,7 +4493,7 @@ async function fetchArticle(url, _isRetry = false) {
 
   // ── Tier 3a: Hard paywalls ───────────────────────────────────────────────
   else if (inSet(JINA_ONLY)) {
-    for (const method of pick(["Jina","Jina+proxy","Wayback","Archive.ph"])) {
+    for (const method of pick(["Jina","Jina+proxy","Wayback"])) {
       loadingSub.textContent = `Trying ${method.name}…`;
       logMethod(method.name, "pending", "Connecting…");
       try {
@@ -4493,7 +4517,7 @@ async function fetchArticle(url, _isRetry = false) {
     }
     logMethod("codetabs + Jina", "fail", "Both failed");
     // Fall through to Wayback/Archive as last resort
-    for (const method of pick(["Wayback","Archive.ph"])) {
+    for (const method of pick(["Wayback"])) {
       loadingSub.textContent = `Trying ${method.name}…`;
       logMethod(method.name, "pending", "Connecting…");
       try {
@@ -4515,8 +4539,8 @@ async function fetchArticle(url, _isRetry = false) {
     // previously had no non-codetabs fallback at all, so those domains could
     // never open an article; Jina is added here as a real fallback.
     const methods = inSet(PROXY_ONLY)
-      ? pick(["Jina","AMP","Wayback","Archive.ph","codetabs","AllOrigins"])
-      : pick(["Jina","Jina+proxy","AMP","Wayback","Archive.ph","codetabs","AllOrigins"]);
+      ? pick(["Jina","AMP","Wayback","AllOrigins","codetabs"])
+      : pick(["Jina","Jina+proxy","AMP","Wayback","AllOrigins","codetabs"]);
     for (const method of methods) {
       loadingSub.textContent = `Trying ${method.name}…`;
       logMethod(method.name, "pending", "Connecting…");
@@ -4861,7 +4885,7 @@ async function runSearch(query) {
     // Fallback: raw-XML via proxy chain — kept in case codetabs/allorigins
     // ever recover, but currently never succeeds on its own.
     for (const proxyFn of [
-      u => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
+      u => rawProxy(u),
       u => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,
     ]) {
       try {
@@ -4970,28 +4994,28 @@ async function wsjDiag() {
   const tests = [
     { label: "corsproxy + wsj.com/news/world HTML", 
       fn: async () => {
-        const r = await fetch("https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent("https://www.wsj.com/news/world"), {signal: AbortSignal.timeout(10000)});
+        const r = await fetch(rawProxy("https://www.wsj.com/news/world"), {signal: AbortSignal.timeout(10000)});
         const t = await r.text();
         return `HTTP ${r.status}, length ${t.length}, has articles: ${t.includes("wsj.com/articles")}`;
       }
     },
     { label: "corsproxy + wsj.com sitemap",
       fn: async () => {
-        const r = await fetch("https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent("https://www.wsj.com/news-sitemap.xml"), {signal: AbortSignal.timeout(10000)});
+        const r = await fetch(rawProxy("https://www.wsj.com/news-sitemap.xml"), {signal: AbortSignal.timeout(10000)});
         const t = await r.text();
         return `HTTP ${r.status}, length ${t.length}, has loc: ${t.includes("<loc>")}`;
       }
     },
     { label: "corsproxy + wsj.com/sitemap.xml",
       fn: async () => {
-        const r = await fetch("https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent("https://www.wsj.com/sitemap.xml"), {signal: AbortSignal.timeout(10000)});
+        const r = await fetch(rawProxy("https://www.wsj.com/sitemap.xml"), {signal: AbortSignal.timeout(10000)});
         const t = await r.text();
         return `HTTP ${r.status}, length ${t.length}, snippet: ${t.slice(0,200)}`;
       }
     },
     { label: "corsproxy + wsj RSS v2 (paid)",
       fn: async () => {
-        const r = await fetch("https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent("https://feeds.a.dj.com/rss/WSJcomUSBusiness.xml"), {signal: AbortSignal.timeout(10000)});
+        const r = await fetch(rawProxy("https://feeds.a.dj.com/rss/WSJcomUSBusiness.xml"), {signal: AbortSignal.timeout(10000)});
         const t = await r.text();
         const date = t.match(/<lastBuildDate>([^<]+)<\/lastBuildDate>/)?.[1] || "no date";
         return `HTTP ${r.status}, lastBuildDate: ${date}`;
@@ -4999,7 +5023,7 @@ async function wsjDiag() {
     },
     { label: "corsproxy + wsj.com/news page (mobile UA)",
       fn: async () => {
-        const r = await fetch("https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent("https://www.wsj.com/news"), {signal: AbortSignal.timeout(10000)});
+        const r = await fetch(rawProxy("https://www.wsj.com/news"), {signal: AbortSignal.timeout(10000)});
         const t = await r.text();
         return `HTTP ${r.status}, length ${t.length}, has wsj/articles: ${(t.match(/wsj\.com\/articles/g)||[]).length}`;
       }
