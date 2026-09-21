@@ -1,0 +1,12 @@
+{
+  "name": "daylight-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "node test/reject.test.mjs",
+    "smoke": "node test/harness.mjs /health '/rss?url=https%3A%2F%2Ffeeds.bbci.co.uk%2Fnews%2Frss.xml'"
+  },
+  "devDependencies": { "wrangler": "^3.90.0" }
+}

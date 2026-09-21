@@ -1,0 +1,13 @@
+name = "daylight-worker"
+main = "src/index.js"
+compatibility_date = "2024-11-01"
+
+# Secrets are NOT set here — they would end up in git. Set them with:
+#   wrangler secret put JINA_API_KEY
+[vars]
+# Comma-separated list of origins allowed to call this worker.
+# Leave empty to allow any origin (fine for first deploy; lock it down after).
+ALLOWED_ORIGINS = ""
+
+[observability]
+enabled = true
