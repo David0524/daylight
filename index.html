@@ -1789,10 +1789,10 @@ const LIVE_SOURCES = [
             pubDate: new Date(p.created_utc*1000).toISOString(),
             age: timeAgo(new Date(p.created_utc*1000).toISOString()),
             source: sourceDomain(p.url),
+            engagement: (p.ups || 0) + (p.num_comments || 0) * 2,
           }));
       });
-      const seen = new Set();
-      const deduped = items.filter(i => { if (seen.has(i.link)) return false; seen.add(i.link); return true; }).slice(0, 12);
+      const deduped = rankItems(dedupeItems(items)).slice(0, 12);
       return resolveRedditTitles(deduped);
     }
   },
@@ -1807,47 +1807,55 @@ const LIVE_SOURCES = [
   // Reddit's JSON API appears to be blocking known CORS-proxy IP ranges
   // outright, so these categories can't depend on Reddit alone; RSS feeds
   // aren't subject to that block and go through the same proxy chain fine.
+  // Publisher RSS feeds — the primary source for these categories.
+  //
+  // Every feed below was verified to answer from a datacenter IP with real
+  // items. That matters because the fetch now happens server-side, and a large
+  // share of the feeds this list used to carry refuse datacenter IPs outright:
+  // every reddit .rss feed (17 of them), all five Guardian feeds, NYT, The
+  // Verge, Ars Technica, Wired, CNET, ZDNet and Politico all return 403, while
+  // Reuters' feed host, feedburner's AP feed, ESPN's and space.com's feeds are
+  // simply dead. Technology and AI were the worst hit — every feed they had
+  // was failing, so both categories were running on Hacker News alone.
+  //
+  // NPR's feeds 403 a browser UA but serve Googlebot; the worker retries with
+  // Googlebot headers on a 403, so they work here.
   { cat: "World",    fetch: () => multiRss([
-      "https://feeds.npr.org/1004/rss.xml",
-      "http://feeds.bbci.co.uk/news/world/rss.xml",
+      "https://feeds.bbci.co.uk/news/world/rss.xml",
       "https://www.aljazeera.com/xml/rss/all.xml",
-      "https://www.theguardian.com/world/rss",
-      "https://www.reddit.com/r/worldnews/.rss",
-      "https://www.reddit.com/r/news/.rss",
+      "https://feeds.npr.org/1004/rss.xml",
+      "https://www.cbsnews.com/latest/rss/world",
+      "https://abcnews.go.com/abcnews/internationalheadlines",
+      "https://www.france24.com/en/rss",
     ], 8, 24) },
   { cat: "Politics", fetch: () => multiRss([
       "https://feeds.npr.org/1014/rss.xml",
-      "https://rss.politico.com/politicopicks.xml",
       "https://thehill.com/homenews/feed/",
-      "https://www.theguardian.com/us-news/rss",
-      "https://www.reddit.com/r/politics/.rss",
+      "https://www.cbsnews.com/latest/rss/politics",
+      "https://abcnews.go.com/abcnews/politicsheadlines",
+      "https://moxie.foxnews.com/google-publisher/politics.xml",
     ], 8, 22) },
   { cat: "Business", fetch: () => multiRss([
       "https://www.cnbc.com/id/10001147/device/rss/rss.html",
       "https://feeds.content.dowjones.io/public/rss/mw_topstories",
       "https://feeds.npr.org/1006/rss.xml",
-      "https://www.theguardian.com/business/rss",
-      "https://www.reddit.com/r/business/.rss",
-      "https://www.reddit.com/r/economy/.rss",
+      "https://www.cbsnews.com/latest/rss/moneywatch",
+      "https://fortune.com/feed/",
     ], 8, 22) },
   { cat: "Science",  fetch: () => multiRss([
       "https://www.sciencedaily.com/rss/all.xml",
       "https://feeds.npr.org/1007/rss.xml",
-      "https://www.space.com/feeds/all",
-      "https://www.theguardian.com/science/rss",
-      "https://www.reddit.com/r/science/.rss",
+      "https://phys.org/rss-feed/",
+      "https://www.livescience.com/feeds/all",
     ], 8, 22) },
   { cat: "Technology", fetch: () => multiRss([
-      "https://www.theverge.com/rss/index.xml",
-      "https://feeds.arstechnica.com/arstechnica/index",
-      "https://www.reddit.com/r/technology/.rss",
-      "https://www.reddit.com/r/gadgets/.rss",
+      "https://techcrunch.com/feed/",
+      "https://www.engadget.com/rss.xml",
+      "https://www.cnbc.com/id/19854910/device/rss/rss.html",
     ], 8, 20) },
   { cat: "AI", fetch: () => multiRss([
-      "https://www.reddit.com/r/artificial/.rss",
-      "https://www.reddit.com/r/MachineLearning/.rss",
-      "https://www.reddit.com/r/LocalLLaMA/.rss",
-      "https://www.reddit.com/r/singularity/.rss",
+      "https://www.technologyreview.com/feed/",
+      "https://feeds.feedburner.com/venturebeat/SZYF",
     ], 8, 20) },
   // Substack — rotating curated publications via RSS
   {
@@ -1870,7 +1878,8 @@ const LIVE_SOURCES = [
       const results = await Promise.allSettled(pick.map(slug =>
         fetchRssItems(`https://${slug}.substack.com/feed`, 8)
       ));
-      const cutoffMs = 30 * 24 * 60 * 60 * 1000; // essays post less often than news, so use a longer window than the 7-day default
+      // Essays post far less often than news, so Ideas deliberately uses a
+      // 30-day window rather than the global MAX_AGE_DAYS.
       return results
         .flatMap(r => r.status === "fulfilled" ? r.value : [])
         .filter(i => isRecent(i.pubDate, 30))
@@ -1887,10 +1896,9 @@ const LIVE_SOURCES = [
   { cat: "Finance", fetch: () => multiRss([
       "https://www.cnbc.com/id/100003114/device/rss/rss.html",
       "https://feeds.content.dowjones.io/public/rss/mw_realtimeheadlines",
-      "https://www.theguardian.com/business/rss",
-      "https://www.reddit.com/r/finance/.rss",
-      "https://www.reddit.com/r/investing/.rss",
-      "https://www.reddit.com/r/economics/.rss",
+      "https://feeds.content.dowjones.io/public/rss/mw_marketpulse",
+      "https://feeds.a.dj.com/rss/RSSMarketsMain.xml",
+      "https://feeds.a.dj.com/rss/WSJcomUSBusiness.xml",
     ], 8, 22) },
 
   // Sports — Reddit for URLs, real titles resolved from og:title
@@ -1919,22 +1927,16 @@ const LIVE_SOURCES = [
             source:  sourceDomain(p.url),
           }));
       });
-      const seen = new Set();
-      const deduped = items
-        .filter(i => { if (seen.has(i.link)) return false; seen.add(i.link); return true; })
-        .slice(0, 20);
+      const deduped = rankItems(dedupeItems(items)).slice(0, 20);
       return resolveRedditTitles(deduped);
     }
   },
   // ESPN/CBS/Yahoo RSS — the real primary source; see note above multiRss.
   { cat: "Sports", fetch: () => multiRss([
-      "http://feeds.bbci.co.uk/sport/rss.xml",
-      "https://www.theguardian.com/sport/rss",
+      "https://feeds.bbci.co.uk/sport/rss.xml",
       "https://sports.yahoo.com/rss/",
-      "https://www.espn.com/espn/rss/news",
-      "https://www.reddit.com/r/sports/.rss",
-      "https://www.reddit.com/r/nba/.rss",
-      "https://www.reddit.com/r/nfl/.rss",
+      "https://www.cbssports.com/rss/headlines/",
+      "https://sports.yahoo.com/nfl/rss/",
     ], 8, 22) },
 ];
 
@@ -2583,6 +2585,9 @@ async function fetchRssPaper(feedUrl, after, sourceOverride) {
 
 const NEWSPAPERS = [
   { id:"ap", name:"AP", emoji:"📡", fetch: async (after) => {
+    // All three of AP's feeds are gone or blocked: the feedburner one returns
+    // no items, apnews.com/hub 403s datacenter IPs, and the rsshub mirror is
+    // unreachable. They are kept in case any comes back; DDG carries this tab.
     const feeds = [
       "https://feeds.feedburner.com/APTopHeadlines",
       "https://apnews.com/hub/ap-top-news?format=rss",
@@ -2607,7 +2612,15 @@ const NEWSPAPERS = [
     }
     return fetchDDG(after, "site:reuters.com/world OR site:reuters.com/business", "reuters.com");
   }},
-  { id:"nyt",      name:"NYT",       emoji:"📰", fetch: (after) => fetchRssPaper("https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml",        after, "nytimes.com")      },
+  { id:"nyt", name:"NYT", emoji:"📰", fetch: async (after) => {
+    // rss.nytimes.com 403s datacenter IPs (confirmed across every UA,
+    // including Googlebot), and this tab previously had no fallback, so it
+    // was permanently empty. Try the feed anyway in case the request comes
+    // from somewhere it serves, then fall back to search like AP does.
+    const items = await fetchRssPaper("https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml", after, "nytimes.com");
+    if (items && items.length) return items;
+    return fetchDDG(after, "site:nytimes.com", "nytimes.com");
+  }},
   { id:"bbc",      name:"BBC",       emoji:"🇬🇧", fetch: (after) => fetchRssPaper("https://feeds.bbci.co.uk/news/world/rss.xml",                   after, "bbc.co.uk")        },
   { id:"wsj", name:"WSJ", emoji:"📈", fetch: async (after) => {
     // DuckDuckGo HTML search for site:wsj.com — real URLs, fresh results, no API key needed
@@ -2696,7 +2709,7 @@ const NEWSPAPERS = [
   },
   { id:"bloomberg",name:"Bloomberg", emoji:"💹", fetch: (after) => fetchRssPaper("https://news.google.com/rss/search?q=bloomberg+markets+finance&hl=en-US&gl=US&ceid=US:en",                     after, "bloomberg.com")    },
   { id:"cnbc",     name:"CNBC",      emoji:"📊", fetch: (after) => fetchRssPaper("https://www.cnbc.com/id/100003114/device/rss/rss.html",             after, "cnbc.com")         },
-  { id:"verge",    name:"The Verge", emoji:"◭",  fetch: (after) => fetchRssPaper("https://www.theverge.com/rss/index.xml",                           after, "theverge.com")     },
+  { id:"techcrunch", name:"TechCrunch", emoji:"◭", fetch: (after) => fetchRssPaper("https://techcrunch.com/feed/",                                     after, "techcrunch.com")   },
 ];
 
 // ── Papers tab ────────────────────────────────────────────────────────────────
@@ -4811,7 +4824,7 @@ async function runSearch(query) {
     { url: "https://feeds.bbci.co.uk/news/rss.xml",                                source: "bbc.co.uk" },
     { url: "https://feeds.bbci.co.uk/news/world/rss.xml",                          source: "bbc.co.uk" },
     { url: "https://feeds.npr.org/1001/rss.xml",                                    source: "npr.org" },
-    { url: "https://feeds.content.dowjones.io/public/rss/WSJcomUSBusinessNews",                          source: "wsj.com" },
+    { url: "https://feeds.a.dj.com/rss/WSJcomUSBusiness.xml",                       source: "wsj.com" },
     { url: "https://feeds.content.dowjones.io/public/rss/mw_topstories",                               source: "wsj.com" },
     // US news
     { url: "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml",            source: "nytimes.com" },
@@ -4819,23 +4832,23 @@ async function runSearch(query) {
     { url: "https://rss.nytimes.com/services/xml/rss/nyt/US.xml",                  source: "nytimes.com" },
     { url: "https://feeds.washingtonpost.com/rss/national",                         source: "washingtonpost.com" },
     { url: "https://feeds.washingtonpost.com/rss/world",                            source: "washingtonpost.com" },
-    { url: "https://www.theguardian.com/world/rss",                                 source: "theguardian.com" },
-    { url: "https://www.theguardian.com/us-news/rss",                               source: "theguardian.com" },
+    { url: "https://www.cbsnews.com/latest/rss/world",                              source: "cbsnews.com" },
+    { url: "https://abcnews.go.com/abcnews/internationalheadlines",                 source: "abcnews.go.com" },
     // Finance
     { url: "https://www.cnbc.com/id/100003114/device/rss/rss.html",                source: "cnbc.com" },
     { url: "https://www.cnbc.com/id/10000664/device/rss/rss.html",                 source: "cnbc.com" },
     { url: "https://feeds.content.dowjones.io/public/rss/mw_realtimeheadlines",    source: "marketwatch.com" },
     { url: "https://feeds.content.dowjones.io/public/rss/mw_topstories",           source: "marketwatch.com" },
     // Tech
-    { url: "https://www.theverge.com/rss/index.xml",                               source: "theverge.com" },
-    { url: "https://feeds.arstechnica.com/arstechnica/index",                      source: "arstechnica.com" },
-    { url: "https://www.wired.com/feed/rss",                                        source: "wired.com" },
+    { url: "https://techcrunch.com/feed/",                                          source: "techcrunch.com" },
+    { url: "https://www.engadget.com/rss.xml",                                      source: "engadget.com" },
+    { url: "https://www.technologyreview.com/feed/",                                source: "technologyreview.com" },
     // Politics / policy
     { url: "https://rss.politico.com/politicopicks.xml",                        source: "politico.com" },
     { url: "https://api.axios.com/feed/",                                           source: "axios.com" },
     // Science
     { url: "https://www.sciencedaily.com/rss/all.xml",                             source: "sciencedaily.com" },
-    { url: "https://rss.cnn.com/rss/edition.rss",                                   source: "cnn.com" },
+    { url: "http://rss.cnn.com/rss/edition_world.rss",                              source: "cnn.com" },
     { url: "https://abcnews.go.com/abcnews/topstories",                              source: "abcnews.go.com" },
     { url: "https://feeds.nbcnews.com/nbcnews/public/news",                          source: "nbcnews.com" },
     { url: "https://aljazeera.com/xml/rss/all.xml",                                  source: "aljazeera.com" },
