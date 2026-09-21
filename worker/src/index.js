@@ -397,48 +397,49 @@ export default {
         const FEED_ACCEPT = "application/rss+xml, application/xml, text/xml, */*";
         const isFeed = (t) => t && (t.includes("<item") || t.includes("<entry"));
 
-        // Keep this route's worst case bounded. Chaining several generous
-        // timeouts here starved the client, which gives each source a much
-        // shorter budget of its own: the page ended up rendering nothing while
-        // the worker was still waiting on retries nobody was listening for.
-        let text = null, lastStatus = 0;
-
-        const tryFetch = async (headers, ms) => {
+        const direct = async (headers, ms) => {
           const r = await withTimeout(
             fetch(target, { headers: { ...headers, Accept: FEED_ACCEPT } }), ms, "rss"
           );
-          lastStatus = r.status;
-          if (!r.ok) return null;
+          if (!r.ok) throw new Error(`upstream ${r.status}`);
           const body = await r.text();
-          return isFeed(body) ? body : null;
+          if (!isFeed(body)) throw new Error("not a feed");
+          return body;
+        };
+        // Bouncing off a public proxy puts a different client stack in front of
+        // the publisher, which is what these are for (see below).
+        const bounce = async (url, wrapped, ms) => {
+          const r = await withTimeout(fetch(url), ms, "rss bounce");
+          if (!r.ok) throw new Error(`bounce ${r.status}`);
+          const body = wrapped ? ((await r.json())?.contents || "") : await r.text();
+          if (!isFeed(body)) throw new Error("not a feed");
+          return body;
         };
 
-        try { text = await tryFetch(BROWSER_HEADERS, 6000); } catch {}
+        let text = null, lastErr = "";
+        try { text = await direct(BROWSER_HEADERS, 6000); }
+        catch (e) { lastErr = String(e.message || e); }
 
-        // Only worth a second attempt when we were refused rather than failing
-        // outright. Some publishers 403 datacenter IPs for a browser UA but
-        // serve Googlebot, since that is how their feeds get indexed (NPR).
-        if (!text && [401, 403, 429].includes(lastStatus)) {
-          try { text = await tryFetch(GOOGLEBOT_HEADERS, 6000); } catch {}
-        }
-
-        // Last resort: some publishers block by TLS fingerprint rather than by
-        // header, so no header spoofing from our own egress gets through.
-        // Bouncing off a public proxy uses a different client stack.
+        // Fallbacks run in PARALLEL, not in sequence. Chained sequentially they
+        // stacked into a ~24s worst case while the client gives each source a
+        // far shorter budget of its own, so the page rendered nothing while the
+        // worker was still working for nobody.
+        //
+        // They are needed because several publishers block on TLS fingerprint
+        // rather than on IP or headers: NYT, the Guardian, LA Times and The
+        // Atlantic all refuse one common client stack while serving another
+        // from the very same address. NPR is the header case instead — it
+        // refuses every browser UA and serves Googlebot.
         if (!text) {
-          try {
-            const r = await withTimeout(
-              fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(target)}`),
-              6000, "rss fallback"
-            );
-            if (r.ok) {
-              const body = (await r.json())?.contents || "";
-              if (isFeed(body)) text = body;
-            }
-          } catch {}
+          const attempts = [
+            direct(GOOGLEBOT_HEADERS, 6000),
+            bounce(`https://api.allorigins.win/get?url=${encodeURIComponent(target)}`, true, 6000),
+            bounce(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(target)}`, false, 6000),
+          ];
+          try { text = await Promise.any(attempts); } catch {}
         }
 
-        if (!text) return fail(request, env, lastStatus ? `upstream ${lastStatus}` : "not a feed");
+        if (!text) return fail(request, env, lastErr || "not a feed");
         response = reply(text, request, env, { type: "application/xml; charset=utf-8", ttl: CACHE_TTL.rss });
 
       } else if (path === "/json") {

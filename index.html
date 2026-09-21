@@ -939,18 +939,28 @@ function withTimeout(promise, ms, label = "timeout") {
  * `route` picks the worker endpoint ("rss" | "json" | "meta").
  */
 async function proxyText(target, { route = "json", timeout = 15000 } = {}) {
-  if (HAS_WORKER) {
+  // `timeout` is a TOTAL budget, not a per-attempt one. It used to be applied
+  // to each attempt separately, so a target that failed everywhere took
+  // timeout x (1 + PUBLIC_PROXIES.length) -- 42s at a 14s setting. That
+  // overran loadFeed's per-source budget, and since multiRss waits for every
+  // feed in a category, one unreachable feed took the whole category down
+  // with it. Categories were rendering empty because of a single bad URL.
+  const deadline = Date.now() + timeout;
+  const remaining = () => deadline - Date.now();
+
+  if (HAS_WORKER && remaining() > 500) {
     try {
       const r = await withTimeout(
         fetch(`${WORKER_BASE}/${route}?url=${encodeURIComponent(target)}`),
-        timeout, "worker timeout"
+        remaining(), "worker timeout"
       );
       if (r.ok) return await r.text();
     } catch {}
   }
   for (const proxy of PUBLIC_PROXIES) {
+    if (remaining() <= 500) break;
     try {
-      const r = await withTimeout(fetch(proxy.build(target)), timeout, "proxy timeout");
+      const r = await withTimeout(fetch(proxy.build(target)), remaining(), "proxy timeout");
       if (!r.ok) continue;
       if (proxy.kind === "raw") return await r.text();
       const wrapper = await r.json();
@@ -958,17 +968,6 @@ async function proxyText(target, { route = "json", timeout = 15000 } = {}) {
     } catch {}
   }
   throw new Error("all fetch routes failed");
-}
-
-/**
- * URL for a raw passthrough fetch. The worker's /json route returns the
- * upstream body verbatim, which is exactly what codetabs' /v1/proxy did, so
- * call sites that just do .text() or .json() work unchanged.
- */
-function rawProxy(target) {
-  return HAS_WORKER
-    ? `${WORKER_BASE}/json?url=${encodeURIComponent(target)}`
-    : rawProxy(target);
 }
 
 async function proxyJson(target, opts) {
@@ -1584,7 +1583,7 @@ async function multiSubReddit(subs, perSub, cap) {
 async function fetchRssItems(feedUrl, limit = 8) {
   let text;
   try {
-    text = await proxyText(feedUrl, { route: "rss", timeout: 11000 });
+    text = await proxyText(feedUrl, { route: "rss", timeout: 14000 });
   } catch { return []; }
   return parseFeedXml(text, limit);
 }
@@ -1809,53 +1808,66 @@ const LIVE_SOURCES = [
   // aren't subject to that block and go through the same proxy chain fine.
   // Publisher RSS feeds — the primary source for these categories.
   //
-  // Every feed below was verified to answer from a datacenter IP with real
-  // items. That matters because the fetch now happens server-side, and a large
-  // share of the feeds this list used to carry refuse datacenter IPs outright:
-  // every reddit .rss feed (17 of them), all five Guardian feeds, NYT, The
-  // Verge, Ars Technica, Wired, CNET, ZDNet and Politico all return 403, while
-  // Reuters' feed host, feedburner's AP feed, ESPN's and space.com's feeds are
-  // simply dead. Technology and AI were the worst hit — every feed they had
-  // was failing, so both categories were running on Hacker News alone.
+  // Every feed below was verified to return real items. The major US papers
+  // lead each category, with wires and broadcast filling in for breadth;
+  // applyFilters caps any single outlet at 3 items, so no one masthead can
+  // take over a category.
   //
-  // NPR's feeds 403 a browser UA but serve Googlebot; the worker retries with
-  // Googlebot headers on a 403, so they work here.
+  // A note on why these were previously missing: an earlier pass dropped NYT,
+  // WaPo, the Guardian and Politico after they returned 403. That was a bad
+  // diagnosis. They 403 Node's fetch but return 200 to curl from the very same
+  // IP, so it is TLS fingerprinting of the client stack, not a block on
+  // datacenter addresses. Cloudflare's fetch uses an ordinary TLS stack, so
+  // these work from the worker. (NPR is the genuine exception: it refuses
+  // every browser UA and serves Googlebot, which the worker retries with.)
   { cat: "World",    fetch: () => multiRss([
+      "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
+      "https://feeds.washingtonpost.com/rss/world",
+      "https://feeds.content.dowjones.io/public/rss/RSSWorldNews",
+      "https://www.theguardian.com/world/rss",
       "https://feeds.bbci.co.uk/news/world/rss.xml",
       "https://www.aljazeera.com/xml/rss/all.xml",
       "https://feeds.npr.org/1004/rss.xml",
       "https://www.cbsnews.com/latest/rss/world",
-      "https://abcnews.go.com/abcnews/internationalheadlines",
-      "https://www.france24.com/en/rss",
-    ], 8, 24) },
+    ], 8, 28) },
   { cat: "Politics", fetch: () => multiRss([
-      "https://feeds.npr.org/1014/rss.xml",
+      "https://rss.nytimes.com/services/xml/rss/nyt/Politics.xml",
+      "https://feeds.washingtonpost.com/rss/politics",
+      "https://rss.politico.com/politics-news.xml",
+      "https://rss.nytimes.com/services/xml/rss/nyt/US.xml",
       "https://thehill.com/homenews/feed/",
+      "https://feeds.npr.org/1014/rss.xml",
       "https://www.cbsnews.com/latest/rss/politics",
-      "https://abcnews.go.com/abcnews/politicsheadlines",
-      "https://moxie.foxnews.com/google-publisher/politics.xml",
-    ], 8, 22) },
+    ], 8, 26) },
   { cat: "Business", fetch: () => multiRss([
+      "https://feeds.content.dowjones.io/public/rss/WSJcomUSBusiness",
+      "https://rss.nytimes.com/services/xml/rss/nyt/Business.xml",
+      "https://feeds.washingtonpost.com/rss/business",
       "https://www.cnbc.com/id/10001147/device/rss/rss.html",
       "https://feeds.content.dowjones.io/public/rss/mw_topstories",
-      "https://feeds.npr.org/1006/rss.xml",
-      "https://www.cbsnews.com/latest/rss/moneywatch",
       "https://fortune.com/feed/",
-    ], 8, 22) },
+      "https://feeds.npr.org/1006/rss.xml",
+    ], 8, 26) },
   { cat: "Science",  fetch: () => multiRss([
+      "https://rss.nytimes.com/services/xml/rss/nyt/Science.xml",
+      "https://www.theguardian.com/science/rss",
       "https://www.sciencedaily.com/rss/all.xml",
-      "https://feeds.npr.org/1007/rss.xml",
       "https://phys.org/rss-feed/",
       "https://www.livescience.com/feeds/all",
-    ], 8, 22) },
+      "https://feeds.npr.org/1007/rss.xml",
+    ], 8, 24) },
   { cat: "Technology", fetch: () => multiRss([
+      "https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml",
+      "https://feeds.content.dowjones.io/public/rss/RSSWSJD",
+      "https://www.latimes.com/business/technology/rss2.0.xml",
       "https://techcrunch.com/feed/",
       "https://www.engadget.com/rss.xml",
       "https://www.cnbc.com/id/19854910/device/rss/rss.html",
-    ], 8, 20) },
+    ], 8, 24) },
   { cat: "AI", fetch: () => multiRss([
       "https://www.technologyreview.com/feed/",
-      "https://feeds.feedburner.com/venturebeat/SZYF",
+      "https://www.economist.com/science-and-technology/rss.xml",
+      "https://www.theatlantic.com/feed/all/",
     ], 8, 20) },
   // Substack — rotating curated publications via RSS
   {
@@ -1894,12 +1906,12 @@ const LIVE_SOURCES = [
   // coming back empty along with Sports/Ideas while everything already
   // migrated to multiRss worked fine.
   { cat: "Finance", fetch: () => multiRss([
+      "https://feeds.content.dowjones.io/public/rss/RSSMarketsMain",
+      "https://www.bloomberg.com/feeds/markets/news.rss",
+      "https://www.ft.com/world?format=rss",
       "https://www.cnbc.com/id/100003114/device/rss/rss.html",
-      "https://feeds.content.dowjones.io/public/rss/mw_realtimeheadlines",
-      "https://feeds.content.dowjones.io/public/rss/mw_marketpulse",
-      "https://feeds.a.dj.com/rss/RSSMarketsMain.xml",
-      "https://feeds.a.dj.com/rss/WSJcomUSBusiness.xml",
-    ], 8, 22) },
+      "https://feeds.content.dowjones.io/public/rss/mw_topstories",
+    ], 8, 24) },
 
   // Sports — Reddit for URLs, real titles resolved from og:title
   {
@@ -1933,11 +1945,12 @@ const LIVE_SOURCES = [
   },
   // ESPN/CBS/Yahoo RSS — the real primary source; see note above multiRss.
   { cat: "Sports", fetch: () => multiRss([
+      "https://feeds.washingtonpost.com/rss/sports",
       "https://feeds.bbci.co.uk/sport/rss.xml",
       "https://sports.yahoo.com/rss/",
       "https://www.cbssports.com/rss/headlines/",
       "https://sports.yahoo.com/nfl/rss/",
-    ], 8, 22) },
+    ], 8, 24) },
 ];
 
 // Global article registry — avoids inline onclick URL escaping issues entirely
@@ -2494,7 +2507,7 @@ async function fetchRssPaper(feedUrl, after, sourceOverride) {
   // through rss2json, whose shared key is now returning 429 "using all the
   // available feeds" — which is why Papers took forever or never loaded.
   try {
-    const text = await proxyText(feedUrl, { route: "rss", timeout: 11000 });
+    const text = await proxyText(feedUrl, { route: "rss", timeout: 14000 });
     const items = parseFeedXml(text, after + 10);
     const sliced = items.slice(after, after + 10).map(item => {
       const isGN = item.link.includes("news.google.com") || feedUrl.includes("news.google.com");
@@ -2613,67 +2626,28 @@ const NEWSPAPERS = [
     return fetchDDG(after, "site:reuters.com/world OR site:reuters.com/business", "reuters.com");
   }},
   { id:"nyt", name:"NYT", emoji:"📰", fetch: async (after) => {
-    // rss.nytimes.com 403s datacenter IPs (confirmed across every UA,
-    // including Googlebot), and this tab previously had no fallback, so it
-    // was permanently empty. Try the feed anyway in case the request comes
-    // from somewhere it serves, then fall back to search like AP does.
     const items = await fetchRssPaper("https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml", after, "nytimes.com");
     if (items && items.length) return items;
     return fetchDDG(after, "site:nytimes.com", "nytimes.com");
   }},
+
   { id:"bbc",      name:"BBC",       emoji:"🇬🇧", fetch: (after) => fetchRssPaper("https://feeds.bbci.co.uk/news/world/rss.xml",                   after, "bbc.co.uk")        },
   { id:"wsj", name:"WSJ", emoji:"📈", fetch: async (after) => {
-    // DuckDuckGo HTML search for site:wsj.com — real URLs, fresh results, no API key needed
-    try {
-      const query = after === 0 ? "site:wsj.com/articles" : `site:wsj.com/articles&s=${after * 10}&dc=${after * 10 + 1}`;
-      const ddgUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
-      let html = null;
-      // Same fix as fetchDDG: the legacy endpoint returns 202 with a
-      // JS-redirect stub and no results, and a bare r.ok check accepted it.
-      for (const proxyUrl of [rawProxy(ddgUrl)]) {
-        try {
-          const r = await Promise.race([
-            fetch(proxyUrl),
-            new Promise((_,rej)=>setTimeout(() => rej(new Error("timeout")), 12000))
-          ]);
-          if (!r.ok) continue;
-          const text = await r.text();
-          if (!text.includes("result__a") && !text.includes("result__title")) continue;
-          html = text;
-          break;
-        } catch {}
-      }
-      if (!html) return [];
-      const doc = new DOMParser().parseFromString(html, "text/html");
-      const results = [...doc.querySelectorAll(".result")];
-      const items = results.map(el => {
-        const titleEl = el.querySelector(".result__title a, .result__a");
-        const snippetEl = el.querySelector(".result__snippet");
-        const urlEl = el.querySelector(".result__url");
-        if (!titleEl) return null;
-        // DDG wraps real URLs in redirects — extract from href or result__url
-        let link = titleEl.getAttribute("href") || "";
-        // DDG href is like //duckduckgo.com/l/?uddg=https%3A%2F%2Fwsj.com...
-        const uddg = link.match(/uddg=([^&]+)/)?.[1];
-        if (uddg) link = decodeURIComponent(uddg);
-        // Or get from the displayed URL text
-        if (!link.includes("wsj.com")) {
-          const urlText = urlEl?.textContent?.trim() || "";
-          if (urlText.includes("wsj.com")) link = "https://" + urlText.replace(/^https?:\/\//, "");
-        }
-        if (!link.includes("wsj.com")) return null;
-        const title = titleEl.textContent.trim();
-        const desc = snippetEl?.textContent?.trim() || "";
-        if (!title) return null;
-        // Filter out subscription/marketing pages
-        const lowerTitle = title.toLowerCase();
-        const lowerLink = link.toLowerCase();
-        if (lowerTitle.includes("subscri") || lowerTitle.includes("sign in") || lowerTitle.includes("become a") || lowerLink.includes("subscri") || lowerLink.includes("signin") || lowerLink.includes("login")) return null;
-        return { title, link, desc, image: "", pubDate: "", age: "today", source: "wsj.com" };
-      }).filter(Boolean);
-      if (items.length > 0) return items;
-    } catch {}
-    return [];
+    // WSJ's own feeds work and give real article URLs with real timestamps.
+    // This used to scrape DuckDuckGo for "site:wsj.com/articles", which
+    // returned no pubDate at all (every item was stamped "today") and was
+    // hostage to DDG's markup. The feeds are tried in turn; DDG stays as a
+    // last resort only.
+    const feeds = [
+      "https://feeds.content.dowjones.io/public/rss/RSSWorldNews",
+      "https://feeds.content.dowjones.io/public/rss/WSJcomUSBusiness",
+      "https://feeds.content.dowjones.io/public/rss/RSSMarketsMain",
+    ];
+    for (const url of feeds) {
+      const items = await fetchRssPaper(url, after, "wsj.com");
+      if (items && items.length) return items;
+    }
+    return fetchDDG(after, "site:wsj.com/articles", "wsj.com");
   }},
   { id:"wapo",     name:"WaPo",      emoji:"🏛", fetch: (after) => fetchRssPaper("https://feeds.washingtonpost.com/rss/national",                    after, "washingtonpost.com")},
   { id:"cnn", name:"CNN", emoji:"🔴",
@@ -2710,6 +2684,9 @@ const NEWSPAPERS = [
   { id:"bloomberg",name:"Bloomberg", emoji:"💹", fetch: (after) => fetchRssPaper("https://news.google.com/rss/search?q=bloomberg+markets+finance&hl=en-US&gl=US&ceid=US:en",                     after, "bloomberg.com")    },
   { id:"cnbc",     name:"CNBC",      emoji:"📊", fetch: (after) => fetchRssPaper("https://www.cnbc.com/id/100003114/device/rss/rss.html",             after, "cnbc.com")         },
   { id:"techcrunch", name:"TechCrunch", emoji:"◭", fetch: (after) => fetchRssPaper("https://techcrunch.com/feed/",                                     after, "techcrunch.com")   },
+  { id:"latimes",  name:"LA Times",  emoji:"🌴", fetch: (after) => fetchRssPaper("https://www.latimes.com/rss2.0.xml",                                after, "latimes.com")      },
+  { id:"guardian", name:"Guardian",  emoji:"🛡", fetch: (after) => fetchRssPaper("https://www.theguardian.com/world/rss",                             after, "theguardian.com")  },
+  { id:"politico", name:"Politico",  emoji:"🏛", fetch: (after) => fetchRssPaper("https://rss.politico.com/politics-news.xml",                        after, "politico.com")     },
 ];
 
 // ── Papers tab ────────────────────────────────────────────────────────────────
@@ -4833,7 +4810,7 @@ async function runSearch(query) {
     { url: "https://feeds.bbci.co.uk/news/rss.xml",                                source: "bbc.co.uk" },
     { url: "https://feeds.bbci.co.uk/news/world/rss.xml",                          source: "bbc.co.uk" },
     { url: "https://feeds.npr.org/1001/rss.xml",                                    source: "npr.org" },
-    { url: "https://feeds.a.dj.com/rss/WSJcomUSBusiness.xml",                       source: "wsj.com" },
+    { url: "https://feeds.content.dowjones.io/public/rss/WSJcomUSBusiness",                       source: "wsj.com" },
     { url: "https://feeds.content.dowjones.io/public/rss/mw_topstories",                               source: "wsj.com" },
     // US news
     { url: "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml",            source: "nytimes.com" },
@@ -4841,23 +4818,31 @@ async function runSearch(query) {
     { url: "https://rss.nytimes.com/services/xml/rss/nyt/US.xml",                  source: "nytimes.com" },
     { url: "https://feeds.washingtonpost.com/rss/national",                         source: "washingtonpost.com" },
     { url: "https://feeds.washingtonpost.com/rss/world",                            source: "washingtonpost.com" },
+    { url: "https://www.theguardian.com/world/rss",                                 source: "theguardian.com" },
+    { url: "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",                source: "nytimes.com" },
+    { url: "https://rss.nytimes.com/services/xml/rss/nyt/Business.xml",             source: "nytimes.com" },
+    { url: "https://feeds.washingtonpost.com/rss/politics",                         source: "washingtonpost.com" },
+    { url: "https://feeds.content.dowjones.io/public/rss/RSSWorldNews",                           source: "wsj.com" },
+    { url: "https://www.latimes.com/rss2.0.xml",                                    source: "latimes.com" },
+    { url: "https://rss.politico.com/politics-news.xml",                            source: "politico.com" },
+    { url: "https://www.theatlantic.com/feed/all/",                                 source: "theatlantic.com" },
+    { url: "https://time.com/feed/",                                                source: "time.com" },
     { url: "https://www.cbsnews.com/latest/rss/world",                              source: "cbsnews.com" },
-    { url: "https://abcnews.go.com/abcnews/internationalheadlines",                 source: "abcnews.go.com" },
     // Finance
     { url: "https://www.cnbc.com/id/100003114/device/rss/rss.html",                source: "cnbc.com" },
     { url: "https://www.cnbc.com/id/10000664/device/rss/rss.html",                 source: "cnbc.com" },
-    { url: "https://feeds.content.dowjones.io/public/rss/mw_realtimeheadlines",    source: "marketwatch.com" },
+    { url: "https://feeds.content.dowjones.io/public/rss/RSSMarketsMain",    source: "marketwatch.com" },
     { url: "https://feeds.content.dowjones.io/public/rss/mw_topstories",           source: "marketwatch.com" },
     // Tech
     { url: "https://techcrunch.com/feed/",                                          source: "techcrunch.com" },
     { url: "https://www.engadget.com/rss.xml",                                      source: "engadget.com" },
     { url: "https://www.technologyreview.com/feed/",                                source: "technologyreview.com" },
     // Politics / policy
-    { url: "https://rss.politico.com/politicopicks.xml",                        source: "politico.com" },
+    { url: "https://rss.politico.com/politics-news.xml",                             source: "politico.com" },
     { url: "https://api.axios.com/feed/",                                           source: "axios.com" },
     // Science
     { url: "https://www.sciencedaily.com/rss/all.xml",                             source: "sciencedaily.com" },
-    { url: "http://rss.cnn.com/rss/edition_world.rss",                              source: "cnn.com" },
+    { url: "https://www.ft.com/world?format=rss",                              source: "cnn.com" },
     { url: "https://abcnews.go.com/abcnews/topstories",                              source: "abcnews.go.com" },
     { url: "https://feeds.nbcnews.com/nbcnews/public/news",                          source: "nbcnews.com" },
     { url: "https://aljazeera.com/xml/rss/all.xml",                                  source: "aljazeera.com" },
@@ -5015,7 +5000,7 @@ async function wsjDiag() {
     },
     { label: "corsproxy + wsj RSS v2 (paid)",
       fn: async () => {
-        const r = await fetch(rawProxy("https://feeds.a.dj.com/rss/WSJcomUSBusiness.xml"), {signal: AbortSignal.timeout(10000)});
+        const r = await fetch(rawProxy("https://feeds.content.dowjones.io/public/rss/WSJcomUSBusiness"), {signal: AbortSignal.timeout(10000)});
         const t = await r.text();
         const date = t.match(/<lastBuildDate>([^<]+)<\/lastBuildDate>/)?.[1] || "no date";
         return `HTTP ${r.status}, lastBuildDate: ${date}`;
