@@ -3958,6 +3958,15 @@ function parseJinaMarkdown(text, url) {
     if (/^\* liveUpdates/i.test(trimmed)) continue;
     // NYT / news site ad markers
     if (/^advertisement$/i.test(trimmed)) continue;
+    // Publisher/platform chrome that rides along at the top of the extraction.
+    // Publisher/platform chrome that rides along at the top of the extraction.
+    // The leading \[? matters: these arrive as markdown links, e.g.
+    // "[Add as preferred on Google](https://www.google.com/preferences/...)",
+    // and the link text is only unwrapped further down.
+    if (/^\[?(Add as (a )?preferred|Follow the topics in this article|Get in touch|Sign up for our newsletter|Download the app|Save this article|Gift this article|Listen to this article|BBC InDepth|More on this story|Related topics)/i.test(trimmed)) continue;
+    if (/^\[?(Copy link|Print this|Email this|Share this|Share|Save)\]?(\(|$)/i.test(trimmed)) continue;
+    // A line that is nothing but a link into a site-preferences/settings page.
+    if (/^\[[^\]]*\]\(https?:\/\/[^)]*\/(preferences|settings|newsletters|watch-live)[^)]*\)$/i.test(trimmed)) continue;
     if (/^\[SKIP ADVERTISEMENT\]/i.test(trimmed)) continue;
     if (/^\[skip to/i.test(trimmed)) continue;
     // Section labels that aren't article content (NYT uses single-word section names)
