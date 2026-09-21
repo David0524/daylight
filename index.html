@@ -552,6 +552,35 @@
   /* -- History / Saved panels -- */
   .panel-wrap { padding:16px; }
   .panel-section { margin-bottom:24px; }
+  .worker-help { font-size:12px; line-height:1.5; color:var(--sub); margin-bottom:10px; }
+  .worker-help .mono { font-family:'DM Mono',monospace; font-size:11px; }
+  .worker-row { display:flex; gap:8px; }
+  .worker-input {
+    flex:1; min-width:0; padding:9px 11px; font-size:12px;
+    font-family:'DM Mono',monospace; color:var(--fg);
+    background:var(--card); border:1px solid var(--line); border-radius:8px;
+  }
+  .worker-input:focus { outline:none; border-color:var(--accent); }
+  .worker-save {
+    padding:9px 15px; font-size:12px; font-weight:600; cursor:pointer;
+    color:#fff; background:var(--accent); border:none; border-radius:8px;
+  }
+  .worker-status { margin-top:9px; font-size:12px; min-height:17px; }
+  .worker-status.ok   { color:#2e7d32; }
+  .worker-status.bad  { color:#c62828; }
+  .worker-status.busy { color:var(--sub); }
+  .feed-notice {
+    margin:0 0 14px; padding:11px 13px; border-radius:10px;
+    background:var(--card); border:1px solid var(--line);
+    font-size:12px; line-height:1.5; color:var(--sub);
+    display:flex; gap:10px; align-items:flex-start;
+  }
+  .feed-notice b { color:var(--fg); font-weight:600; }
+  .feed-notice button {
+    margin-left:auto; flex-shrink:0; cursor:pointer; padding:5px 10px;
+    font-size:11px; font-weight:600; color:#fff;
+    background:var(--accent); border:none; border-radius:6px;
+  }
   .panel-heading { font-family:'DM Mono',monospace; font-size:10px; letter-spacing:0.08em;
     text-transform:uppercase; color:var(--sub); margin-bottom:10px; display:flex; justify-content:space-between; align-items:center; }
   .panel-clear { font-size:10px; color:var(--sub); opacity:0.5; cursor:pointer; background:none; border:none; padding:0; }
@@ -862,6 +891,20 @@
           </div>
           <div id="savedList"><div class="panel-empty">Nothing saved yet</div></div>
         </div>
+        <div class="panel-section" id="workerSection">
+          <div class="panel-heading"><span>Fetch service</span></div>
+          <div class="worker-help" id="workerHelp">
+            Publishers like the NYT, Washington Post and Guardian can't be read
+            straight from a browser. Point this at your worker to enable them.
+            See <span class="mono">worker/README.md</span>.
+          </div>
+          <div class="worker-row">
+            <input id="workerInput" class="worker-input" type="url" spellcheck="false"
+                   placeholder="https://daylight-worker.<you>.workers.dev">
+            <button class="worker-save" onclick="saveWorkerBase()">Save</button>
+          </div>
+          <div class="worker-status" id="workerStatus"></div>
+        </div>
         <div class="panel-section" id="historySection">
           <div class="panel-heading">
             <span>Recently Read</span>
@@ -907,25 +950,6 @@
 
 <script>
 // ── Config ──────────────────────────────────────────────────────────────────
-
-// Cloudflare Worker that does our fetching server-side. Deploy worker/ and put
-// its URL here (see worker/README.md). Everything degrades to public CORS
-// proxies when this is blank, but those are unreliable — codetabs has been
-// returning 522, whateverorigin 500 — so the worker is the supported path.
-const WORKER_BASE = "";   // e.g. "https://daylight-worker.yoursubdomain.workers.dev"
-
-const HAS_WORKER = /^https:\/\//.test(WORKER_BASE);
-
-// Public CORS proxies, in the order they are worth trying. AllOrigins is first
-// because it is the only one still returning 200 with correct CORS headers as
-// of this writing; the others are kept only as long shots.
-//   kind: "wrapped" => response is {contents: "..."}; "raw" => body as-is.
-const PUBLIC_PROXIES = [
-  { kind: "wrapped", build: (u) => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}` },
-  // Literal on purpose: this list is the fallback used *after* the worker has
-  // already failed, so it must not route back through the worker.
-  { kind: "raw",     build: (u) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}` },
-];
 
 function withTimeout(promise, ms, label = "timeout") {
   return Promise.race([
@@ -982,6 +1006,43 @@ const DB = {
   get: (k, def=null) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : def; } catch { return def; } },
   set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
 };
+
+// Cloudflare Worker that does our fetching server-side. Deploy worker/ and put
+// its URL here (see worker/README.md). Everything degrades to public CORS
+// proxies when this is blank, but those are unreliable — codetabs has been
+// returning 522, whateverorigin 500 — so the worker is the supported path.
+// Cloudflare Worker that does our fetching server-side. Deploy worker/ (see
+// worker/README.md), then either set the URL here or paste it into the Fetch
+// service box under the ⋯ tab — the saved value wins, so a deployed page can
+// be pointed at a worker without editing code.
+//
+// This is not optional for the major papers. Measured from a real browser
+// origin, every public CORS proxy either times out, 401s, or fails outright on
+// the NYT, WaPo and WSJ feeds — one working response out of eighteen attempts.
+// Without a worker the feed falls back to whatever publishers serve the browser
+// directly, which is a much smaller set.
+const WORKER_BASE_DEFAULT = "";
+
+function getWorkerBase() {
+  const saved = DB.get("workerBase", "");
+  const v = (typeof saved === "string" && saved) || WORKER_BASE_DEFAULT;
+  return /^https?:\/\//.test(v) ? v.replace(/\/+$/, "") : "";
+}
+
+let WORKER_BASE = getWorkerBase();
+let HAS_WORKER  = Boolean(WORKER_BASE);
+
+// Public CORS proxies, in the order they are worth trying. AllOrigins is first
+// because it is the only one still returning 200 with correct CORS headers as
+// of this writing; the others are kept only as long shots.
+//   kind: "wrapped" => response is {contents: "..."}; "raw" => body as-is.
+const PUBLIC_PROXIES = [
+  { kind: "wrapped", build: (u) => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}` },
+  // Literal on purpose: this list is the fallback used *after* the worker has
+  // already failed, so it must not route back through the worker.
+  { kind: "raw",     build: (u) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}` },
+];
+
 
 let state = {
   view: "idle",       // idle | loading | reader | error | papers | search | panel
@@ -3039,10 +3100,13 @@ async function loadFeed() {
   const filtered = applyFilters(catMap);
   if (Object.keys(filtered).length > 0 && state.view === "idle") {
     renderFeed(filtered);
+    showWorkerNotice();
     setTimeout(() => enrichFeedMeta(filtered), 200);
   } else {
-    document.getElementById("feedContent").innerHTML =
-      `<div class="feed-empty">Couldn't load feeds right now.<br>Paste any URL above to start reading.</div>`;
+    document.getElementById("feedContent").innerHTML = HAS_WORKER
+      ? `<div class="feed-empty">Couldn't load feeds right now.<br>Paste any URL above to start reading.</div>`
+      : `<div class="feed-empty">No sources could be reached.<br>Add your worker URL under the ⋯ tab.</div>`;
+    showWorkerNotice();
   }
 }
 
@@ -4775,6 +4839,71 @@ function renderPanelItems(items, containerId) {
 function renderPanel() {
   renderPanelItems(state.saved, "savedList");
   renderPanelItems(state.readHistory, "historyList");
+  const input = document.getElementById("workerInput");
+  if (input && !input.value) input.value = WORKER_BASE;
+  if (WORKER_BASE) setWorkerStatus("ok", `Using ${WORKER_BASE.replace(/^https?:\/\//, "")}`);
+}
+
+function setWorkerStatus(kind, msg) {
+  const el = document.getElementById("workerStatus");
+  if (!el) return;
+  el.className = "worker-status " + kind;
+  el.textContent = msg;
+}
+
+// Save the worker URL and verify it before trusting it — a typo would
+// otherwise just look like the feed being broken again.
+async function saveWorkerBase() {
+  const input = document.getElementById("workerInput");
+  const raw = (input?.value || "").trim().replace(/\/+$/, "");
+
+  if (!raw) {
+    DB.set("workerBase", "");
+    WORKER_BASE = ""; HAS_WORKER = false;
+    setWorkerStatus("busy", "Cleared — using public proxies (limited).");
+    return;
+  }
+  const isLocal = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(raw);
+  if (!isLocal && !/^https:\/\/[^\s]+$/i.test(raw)) {
+    setWorkerStatus("bad", "Needs to be a full https:// URL.");
+    return;
+  }
+
+  setWorkerStatus("busy", "Checking…");
+  try {
+    const r = await withTimeout(fetch(`${raw}/health`), 12000, "timeout");
+    if (!r.ok) throw new Error(`responded ${r.status}`);
+    const j = await r.json();
+    if (j?.service !== "daylight-worker") throw new Error("not a Daylight worker");
+
+    DB.set("workerBase", raw);
+    WORKER_BASE = raw; HAS_WORKER = true;
+
+    setWorkerStatus("ok", j.jinaKey
+      ? "Connected. Jina key configured — paywalled articles enabled."
+      : "Connected, but no Jina key set (wrangler secret put JINA_API_KEY).");
+
+    document.getElementById("feedNotice")?.remove();
+    loadFeed();   // reload now that the full source list is reachable
+  } catch (e) {
+    setWorkerStatus("bad", `Couldn't reach it: ${e.message || e}`);
+  }
+}
+
+// Say plainly when no worker is set, rather than quietly serving a thin feed
+// and leaving it looking broken.
+function showWorkerNotice() {
+  if (HAS_WORKER || DB.get("hideWorkerNotice", false)) return;
+  const wrap = document.getElementById("feedContent");
+  if (!wrap || document.getElementById("feedNotice")) return;
+  const el = document.createElement("div");
+  el.className = "feed-notice";
+  el.id = "feedNotice";
+  el.innerHTML = `<div><b>Limited sources.</b> The NYT, Washington Post, WSJ and
+    Guardian can't be fetched straight from a browser. Add your worker URL under
+    the ⋯ tab to turn them on.</div>
+    <button onclick="DB.set('hideWorkerNotice',true);this.parentElement.remove()">Dismiss</button>`;
+  wrap.prepend(el);
 }
 
 // ── Search ────────────────────────────────────────────────────────────────────

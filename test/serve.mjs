@@ -36,8 +36,9 @@ http.createServer(async (req, res) => {
 
 // Page on :8080
 const page = readFileSync(new URL("../index.html", import.meta.url), "utf8")
-  .replace('const WORKER_BASE = "";', 'const WORKER_BASE = "http://localhost:8787";')
-  .replace('const HAS_WORKER = /^https:\\/\\//.test(WORKER_BASE);', 'const HAS_WORKER = true;');
+  // Left exactly as shipped: WORKER_BASE_DEFAULT stays empty so the runtime
+  // configuration flow (Fetch service box under the ⋯ tab) is what gets tested.
+  ;
 http.createServer((req, res) => {
   res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
   res.end(page);
