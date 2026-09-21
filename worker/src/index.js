@@ -65,7 +65,11 @@ function validateTarget(raw) {
   if (u.protocol !== "https:" && u.protocol !== "http:")
     return { error: "protocol not allowed" };
   if (BLOCKED_HOSTS.test(u.hostname)) return { error: "host not allowed" };
-  return { url: u.toString() };
+  // Return the caller's original string, not u.toString(). URL normalisation
+  // percent-encodes characters some upstreams insist on seeing literally --
+  // stooq 404s when "^dji" arrives as "%5Edji" -- so validate the URL but
+  // fetch exactly what was asked for.
+  return { url: raw };
 }
 
 function corsHeaders(request, env) {

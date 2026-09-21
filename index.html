@@ -1584,9 +1584,25 @@ async function multiSubReddit(subs, perSub, cap) {
 async function fetchRssItems(feedUrl, limit = 8) {
   let text;
   try {
-    text = await proxyText(feedUrl, { route: "rss", timeout: 12000 });
+    text = await proxyText(feedUrl, { route: "rss", timeout: 7000 });
   } catch { return []; }
   return parseFeedXml(text, limit);
+}
+
+// Some feeds double-encode entities, so after XML parsing a title can still
+// literally read "Meta&#x27;s". Decode once more before display.
+function decodeEntities(str) {
+  if (!str || !str.includes("&")) return str || "";
+  return str
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
+    .replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+    .replace(/&nbsp;/g, " ").replace(/&hellip;/g, "\u2026")
+    .replace(/&mdash;/g, "\u2014").replace(/&ndash;/g, "\u2013")
+    .replace(/&lsquo;/g, "\u2018").replace(/&rsquo;/g, "\u2019")
+    .replace(/&ldquo;/g, "\u201c").replace(/&rdquo;/g, "\u201d")
+    .replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");   // last, so "&amp;#x27;" resolves correctly
 }
 
 // Parse RSS or Atom XML into feed items.
@@ -1600,7 +1616,7 @@ function parseFeedXml(text, limit = 8) {
 
   return nodes.slice(0, limit).map(item => {
     const pick = (sel) => item.querySelector(sel)?.textContent?.trim() || "";
-    const title = pick("title").replace(/<!\[CDATA\[|\]\]>/g, "").trim();
+    const title = decodeEntities(pick("title").replace(/<!\[CDATA\[|\]\]>/g, "").trim());
 
     // Atom puts the URL in link/@href; RSS puts it in the element text.
     let link = pick("link");
@@ -1614,8 +1630,8 @@ function parseFeedXml(text, limit = 8) {
     const rawDate = pick("pubDate") || pick("published") || pick("updated")
                  || pick("date") || item.getElementsByTagName("dc:date")[0]?.textContent?.trim() || "";
 
-    const desc = (pick("description") || pick("summary") || pick("content"))
-                   .replace(/<[^>]+>/g, "").trim();
+    const desc = decodeEntities((pick("description") || pick("summary") || pick("content"))
+                   .replace(/<[^>]+>/g, "")).trim();
 
     // Feeds carry images in several shapes; take whichever is present.
     const image =
@@ -2064,85 +2080,45 @@ async function fetchWeather() {
 }
 
 async function fetchMarketData() {
-  // ── 1. Render from cache immediately if available ─────────────────────────
+  // Render from cache immediately so the tiles are never blank on load.
   const cached = DB.get(MARKET_CACHE_KEY);
   if (cached?.tiles?.length) {
     applyMarketTiles(cached.tiles);
     if (Date.now() - (cached.ts || 0) < MARKET_TTL) return;
   }
 
-  const T = 8000;
-  const race = (p) => Promise.race([p, new Promise((_,rej) => setTimeout(rej, T))]);
-
-  // ── 2. stooq.com — most reliable, no auth needed ──────────────────────────
-  // CSV columns: Symbol, Date, Time, Open, High, Low, Close  (index 0-6)
-  // Note: pass symbols as literal strings in the URL — do NOT encodeURIComponent
-  // the ^ character or stooq won't recognise the index.
-  const STOOQ = [
-    { id:"dji", sym:"^dji" },
-    { id:"sp",  sym:"^spx" },
-    { id:"nq",  sym:"^ndq" },
+  // Yahoo's v8 chart endpoint. The previous code used stooq's CSV export as
+  // primary and Yahoo's v6 quote endpoint as fallback; stooq now 404s on every
+  // index symbol and v6 was retired by Yahoo, so the tiles always showed "—".
+  //
+  // The v6 path also had the same wrapper-shape bug as resolveRedditMeta: it
+  // read `j.contents` off a raw passthrough response that has no such field,
+  // so JSON.parse(undefined || "null") returned null on every call.
+  const INDICES = [
+    { id: "dji", symbol: "^DJI"  },
+    { id: "sp",  symbol: "^GSPC" },
+    { id: "nq",  symbol: "^IXIC" },
   ];
-  try {
-    const tiles = (await Promise.allSettled(STOOQ.map(async ({id, sym}) => {
-      // Build URL with literal ^ — do NOT encode the symbol part
-      const url = "https://stooq.com/q/l/?s=" + sym + "&f=sd2t2ohlcv&h&e=csv";
-      // Try corsproxy first (works from null origin), allorigins as fallback
-      let csv = null;
-      try {
-        const r = await race(fetch(rawProxy(url)));
-        if (r.ok) csv = await r.text();
-      } catch {}
-      if (!csv) {
-        try {
-          const r = await race(fetch(rawProxy(url)));
-          if (r.ok) { csv = await r.text(); }
-        } catch {}
-      }
-      if (!csv) throw new Error("no csv");
-      const rows = csv.trim().split("\n");
-      const vals = rows[1]?.split(",");
-      // Cols: Symbol(0), Date(1), Time(2), Open(3), High(4), Low(5), Close(6)
-      if (!vals || vals.length < 7) throw new Error("bad csv");
-      const close = parseFloat(vals[6]);
-      const open  = parseFloat(vals[3]);
-      if (!close || !open) throw new Error("bad vals");
-      return { id, price: close, pct: ((close - open) / open) * 100 };
-    }))).filter(r => r.status === "fulfilled").map(r => r.value);
 
-    if (tiles.length === 3) {
+  const fetchOne = async ({ id, symbol }) => {
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`;
+    const data = await proxyJson(url, { timeout: 8000 });
+    const meta = data?.chart?.result?.[0]?.meta;
+    const price = meta?.regularMarketPrice;
+    const prev  = meta?.chartPreviousClose ?? meta?.previousClose;
+    if (!Number.isFinite(price) || !Number.isFinite(prev) || prev === 0)
+      throw new Error("no quote for " + symbol);
+    return { id, price, pct: ((price - prev) / prev) * 100 };
+  };
+
+  try {
+    const settled = await Promise.allSettled(INDICES.map(fetchOne));
+    const tiles = settled.filter(r => r.status === "fulfilled").map(r => r.value);
+    if (tiles.length) {
       applyMarketTiles(tiles);
-      DB.set(MARKET_CACHE_KEY, { tiles, ts: Date.now() });
-      return;
-    }
-    // Partial success — apply what we got, continue to Yahoo for the rest
-    if (tiles.length > 0) applyMarketTiles(tiles);
-  } catch {}
-
-  // ── 3. Yahoo Finance fallback — v6 bulk, symbols as plain text ────────────
-  // IMPORTANT: pass ^ literally in the URL string, not as %5E — proxies
-  // double-encodes %5E to %255E which Yahoo rejects.
-  try {
-    const url = "https://query1.finance.yahoo.com/v6/finance/quote?symbols=^DJI,^GSPC,^IXIC";
-    let data = null;
-    try {
-      const r = await race(fetch(rawProxy(url)));
-      if (r.ok) { const j = await r.json(); data = JSON.parse(j.contents || "null"); }
-    } catch {}
-    if (!data) {
-      const r = await race(fetch(rawProxy(url)));
-      if (r.ok) data = await r.json();
-    }
-    const quotes = data?.quoteResponse?.result;
-    if (quotes?.length) {
-      const MAP = { "^DJI":"dji", "^GSPC":"sp", "^IXIC":"nq" };
-      const tiles = quotes.map(q => {
-        const id = MAP[q.symbol];
-        if (!id || !q.regularMarketPrice) return null;
-        return { id, price: q.regularMarketPrice, pct: q.regularMarketChangePercent || 0 };
-      }).filter(Boolean);
-      if (tiles.length) {
-        applyMarketTiles(tiles);
+      // Only cache a complete set, so a partial failure does not get pinned
+      // for the whole TTL.
+      if (tiles.length === INDICES.length) {
         DB.set(MARKET_CACHE_KEY, { tiles, ts: Date.now() });
       }
     }
@@ -2516,7 +2492,7 @@ async function fetchRssPaper(feedUrl, after, sourceOverride) {
   // through rss2json, whose shared key is now returning 429 "using all the
   // available feeds" — which is why Papers took forever or never loaded.
   try {
-    const text = await proxyText(feedUrl, { route: "rss", timeout: 12000 });
+    const text = await proxyText(feedUrl, { route: "rss", timeout: 7000 });
     const items = parseFeedXml(text, after + 10);
     const sliced = items.slice(after, after + 10).map(item => {
       const isGN = item.link.includes("news.google.com") || feedUrl.includes("news.google.com");
@@ -3046,16 +3022,18 @@ function applyFilters(catMap) {
 async function loadFeed() {
   const catMap = {};
 
-  // Stagger source starts — firing all 11+ sources (several of which hit
-  // 2-6 subreddits each) at once was bursting corsproxy.io hard enough to
-  // trip its rate limit, which is why several categories were coming back
-  // empty. Spacing starts out ~300ms apart keeps concurrent proxy calls low
-  // without meaningfully slowing the overall load.
+  // Stagger source starts so we do not open ~40 sockets at once. 300ms x 18
+  // sources meant the last source did not even start until 5.1s in, and then
+  // had to finish inside a 10s budget — while the feed fetch underneath it had
+  // a 12s timeout of its own. The inner timeout outlived the outer one, so any
+  // RSS-backed source could never report a result. Inner is now 7s, the
+  // per-source budget is 20s, and the stagger is tighter.
+  const SOURCE_TIMEOUT_MS = 20000;
   const promises = LIVE_SOURCES.map((src, i) =>
-    new Promise(resolve => setTimeout(resolve, i * 300)).then(() =>
+    new Promise(resolve => setTimeout(resolve, i * 120)).then(() =>
       Promise.race([
         src.fetch(),
-        new Promise((_,rej) => setTimeout(() => rej(new Error("Timeout")), 10000))
+        new Promise((_,rej) => setTimeout(() => rej(new Error("Timeout")), SOURCE_TIMEOUT_MS))
       ])
     ).then(items => {
       if (!items?.length) return;
