@@ -4155,8 +4155,16 @@ function parseJinaMarkdown(text, url) {
   let contentStart = 0;
   for (let i = 0; i < lines.length; i++) {
     if (lines[i].trim() === "Markdown Content:") { contentStart = i + 1; break; }
-    // First proper heading after line 3 marks the article headline — capture it, then skip past
-    if (lines[i].match(/^#{1,2}\s/) && i > 3) {
+    // First proper heading marks the article headline — capture it, then skip past.
+    //
+    // The `i === 0` case matters: trimJinaChrome may already have positioned the
+    // text at the article's own heading, which removes the "Markdown Content:"
+    // marker above. The old `i > 3` guard then skipped that heading and latched
+    // onto the *next* one — which, on a page whose body carries no subheadings,
+    // is the site footer. Everything between was discarded and the footer link
+    // list was parsed as the article. WaPo, The Atlantic and Bloomberg were all
+    // being thrown away this way with no paywall involved at all.
+    if (lines[i].match(/^#{1,2}\s/) && (i === 0 || i > 3)) {
       if (!headline) headline = lines[i].replace(/^#+\s*/, "").trim();
       contentStart = i + 1; break;
     }
