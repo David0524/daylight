@@ -239,40 +239,39 @@ async function prefetchArticle(url) {
 // ── Markets ─────────────────────────────────────────────────────────────────
 
 async function marketQuotes() {
-  // Yahoo rate-limits hard, and GitHub's runners share addresses with a lot of
-  // other scrapers, so a single attempt per symbol came back empty for all
-  // three. Try both hosts with a short backoff and give up quietly — the tiles
-  // are a nicety, not a reason to fail the build.
-  const hosts = ["query1.finance.yahoo.com", "query2.finance.yahoo.com"];
-  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-
-  const quote = async (symbol) => {
-    for (let attempt = 0; attempt < 2; attempt++) {
-      for (const host of hosts) {
-        try {
-          const url = `https://${host}/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`;
-          const r = await withTimeout(fetch(url, {
-            headers: { "User-Agent": UA_BROWSER, Accept: "application/json" },
-          }), 15000, "market");
-          if (!r.ok) continue;
-          const m = (await r.json())?.chart?.result?.[0]?.meta;
-          const price = m?.regularMarketPrice;
-          const prev = m?.chartPreviousClose ?? m?.previousClose;
-          if (Number.isFinite(price) && Number.isFinite(prev) && prev) {
-            return { price, pct: ((price - prev) / prev) * 100 };
-          }
-        } catch {}
-      }
-      if (attempt === 0) await sleep(1500);
-    }
-    return null;
-  };
-
+  // Nasdaq's public quote API, which is the only keyless source left that
+  // answers from a build runner. Yahoo blocks cloud IP ranges outright, and
+  // stooq, CNBC, MarketWatch, Google Finance and slickcharts all refuse too.
+  //
+  // It carries Nasdaq's own indices but not the Dow or S&P, so those two are
+  // quoted via DIA and SPY, the standard ETF proxies. The tiles are labelled
+  // for what is actually quoted rather than for the index, since an ETF's
+  // price is not the index level and its move differs slightly.
   const out = [];
-  for (const { id, symbol } of (SOURCES.markets || [])) {
-    const q = await quote(symbol);
-    if (q) out.push({ id, ...q });
-    else log(`    miss  ${symbol}`);
+  for (const { id, label, symbol, assetclass } of (SOURCES.markets || [])) {
+    try {
+      const url = `https://api.nasdaq.com/api/quote/${encodeURIComponent(symbol)}/info?assetclass=${assetclass}`;
+      const r = await withTimeout(fetch(url, {
+        headers: { "User-Agent": UA_BROWSER, Accept: "application/json" },
+      }), 15000, "market");
+      if (!r.ok) { log(`    miss  ${symbol} (http ${r.status})`); continue; }
+
+      const d = (await r.json())?.data?.primaryData;
+      // Prices arrive as display strings: "$773.50", "27,122.09", "+2.26%".
+      const num = (v) => {
+        const n = parseFloat(String(v ?? "").replace(/[$,%+\s]/g, ""));
+        return Number.isFinite(n) ? n : null;
+      };
+      const price = num(d?.lastSalePrice);
+      const pctRaw = String(d?.percentageChange ?? "");
+      let pct = num(pctRaw);
+      if (pct !== null && pctRaw.trim().startsWith("-")) pct = -Math.abs(pct);
+
+      if (price === null || pct === null) { log(`    miss  ${symbol} (no data)`); continue; }
+      out.push({ id, label, price, pct });
+    } catch (e) {
+      log(`    miss  ${symbol} (${String(e.message || e).slice(0, 40)})`);
+    }
   }
   return out;
 }

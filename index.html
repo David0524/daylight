@@ -2093,8 +2093,15 @@ const MARKET_CACHE_KEY = "marketData";
 const MARKET_TTL = 5 * 60 * 1000; // 5 minutes
 
 function applyMarketTiles(tiles) {
-  // tiles: [{ id, price, pct }]
-  tiles.forEach(({ id, price, pct }) => {
+  // tiles: [{ id, label, price, pct }]
+  const row = document.getElementById("marketRow");
+  if (row) row.style.display = "";   // may have been hidden by a previous miss
+  tiles.forEach(({ id, label, price, pct }) => {
+    // Label from the data: the Dow and S&P are quoted through DIA and SPY
+    // (the only keyless source left does not carry those two indices), and a
+    // tile should say what it is actually showing.
+    const nameEl = document.getElementById(`mkt-${id}-name`);
+    if (nameEl && label) nameEl.textContent = label;
     const up = pct >= 0;
     const priceEl  = document.getElementById(`mkt-${id}-price`);
     const changeEl = document.getElementById(`mkt-${id}-change`);
@@ -2252,17 +2259,17 @@ function renderFeed(catMap) {
   let html = `<div class="feed-date-header"><span>${dateStr}</span><div class="weather-widget" id="weatherWidget"><span class="weather-icon" id="weatherIcon"></span><span class="weather-temp" id="weatherTemp"></span></div></div>
   <div class="market-row" id="marketRow">
     <div class="market-tile loading" id="mkt-dji">
-      <div class="market-tile-name">DJI</div>
+      <div class="market-tile-name" id="mkt-dji-name">DIA</div>
       <div class="market-tile-price" id="mkt-dji-price">—</div>
       <div class="market-tile-change" id="mkt-dji-change">—</div>
     </div>
     <div class="market-tile loading" id="mkt-sp">
-      <div class="market-tile-name">S&amp;P 500</div>
+      <div class="market-tile-name" id="mkt-sp-name">SPY</div>
       <div class="market-tile-price" id="mkt-sp-price">—</div>
       <div class="market-tile-change" id="mkt-sp-change">—</div>
     </div>
     <div class="market-tile loading" id="mkt-nq">
-      <div class="market-tile-name">NASDAQ</div>
+      <div class="market-tile-name" id="mkt-nq-name">NASDAQ</div>
       <div class="market-tile-price" id="mkt-nq-price">—</div>
       <div class="market-tile-change" id="mkt-nq-change">—</div>
     </div>

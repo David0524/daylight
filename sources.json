@@ -230,15 +230,21 @@
   "markets": [
     {
       "id": "dji",
-      "symbol": "^DJI"
+      "label": "DIA",
+      "symbol": "DIA",
+      "assetclass": "etf"
     },
     {
       "id": "sp",
-      "symbol": "^GSPC"
+      "label": "SPY",
+      "symbol": "SPY",
+      "assetclass": "etf"
     },
     {
       "id": "nq",
-      "symbol": "^IXIC"
+      "label": "NASDAQ",
+      "symbol": "COMP",
+      "assetclass": "index"
     }
   ]
 }
