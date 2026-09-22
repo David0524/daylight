@@ -15,7 +15,7 @@ on:
   workflow_dispatch:             # and on demand, from the Actions tab
   push:
     branches: [main]
-    paths: ["sources.json", "scripts/build-feed.mjs", ".github/workflows/build-feed.yml"]
+    paths: ["sources.json", "scripts/**", ".github/workflows/build-feed.yml"]
 
 permissions:
   contents: write

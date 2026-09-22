@@ -21,6 +21,7 @@
 import { writeFileSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { findCoverage, readPage, asEntry } from "./coverage.mjs";
 
 const OUT_DIR = process.argv[2] || "dist";
 const SOURCES = JSON.parse(readFileSync(new URL("../sources.json", import.meta.url), "utf8"));
@@ -356,23 +357,24 @@ async function kanebridgeCopy(title) {
     try {
       const r = await withTimeout(fetch(url, { headers: { "User-Agent": UA_BROWSER }, redirect: "follow" }), 20000, "kanebridge");
       if (!r.ok || !/Dow Jones &(amp;)? Company/i.test(await r.text())) continue;
-      const text = await jinaFetch(url);
-      if (text && text.length > 2000) return { type: "markdown", text, source: url, via: "Kanebridge News (WSJ)" };
+      // Read directly rather than through Jina, so this needs no key.
+      const page = await readPage(url);
+      if (page) return asEntry(page, url, "Kanebridge News (WSJ)");
     } catch {}
   }
   return null;
 }
 
 async function licensedCopy(item) {
-  if (!JINA_KEY) return null;
   const rule = LICENSED.find(r => r.host.test(hostOf(item.link)));
   if (!rule) return null;
   const title = String(item.title || "").replace(/^opinion\s*\|\s*/i, "");
   if (!title) return null;
 
-  // The direct check is cheaper than a search, so it goes first.
+  // The direct check is cheaper than a search, and needs no key, so it goes first.
   const kb = await kanebridgeCopy(title);
   if (kb) return kb;
+  if (!JINA_KEY) return null;
 
   let hits = [];
   try {
@@ -419,8 +421,15 @@ async function licensedCopy(item) {
  */
 async function resolveItem(item) {
   if (LICENSED.some(r => r.host.test(hostOf(item.link)))) {
-    try { return (await licensedCopy(item)) || { miss: true, at: Date.now() }; }
-    catch { return null; }   // key exhausted: record nothing, retry next build
+    // WSJ's own text where a licensee has published it; otherwise another
+    // outlet's full article on the same story, labelled as such. An exhausted
+    // key only rules out the Morningstar search, not the rest.
+    let copy = null, keyDead = false;
+    try { copy = await licensedCopy(item); } catch { keyDead = true; }
+    if (copy) return copy;
+    const other = await findCoverage(item).catch(() => null);
+    if (other) return other;
+    return keyDead ? null : { miss: true, at: Date.now() };
   }
   const text = await prefetchArticle(item.link);
   return text ? { type: "markdown", text } : null;
@@ -609,17 +618,17 @@ async function main() {
     const top = [...pool.slice(0, PREFETCH_LIMIT),
                  ...pool.slice(PREFETCH_LIMIT).filter(isLicensed)];
     log(`  Carried ${carried} forward; prefetching ${top.length} more`);
-    let hit = 0, licensed = 0;
+    let hit = 0, licensed = 0, covered = 0;
     const BATCH = 5;
     for (let i = 0; i < top.length; i += BATCH) {
       await Promise.all(top.slice(i, i + BATCH).map(async (item) => {
         const entry = await resolveItem(item);
         if (!entry) return;
         articles[canonicalUrl(item.link)] = entry;
-        if (entry.text) { hit++; if (entry.source) licensed++; }
+        if (entry.text) { hit++; if (entry.relation) covered++; else if (entry.source) licensed++; }
       }));
     }
-    log(`    ${hit}/${top.length} resolved, ${licensed} via licensed copies (${Object.values(articles).filter(a => a.text).length} total)`);
+    log(`    ${hit}/${top.length} resolved, ${licensed} via licensed copies, ${covered} via same-story coverage (${Object.values(articles).filter(a => a.text).length} total)`);
   } else {
     log(`  Prefetch skipped (no key) — carried ${carried} published articles forward`);
   }

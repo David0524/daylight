@@ -3329,7 +3329,13 @@ function renderReader(article) {
     `;
   }
 
-  const pill = article.via
+  // Another outlet's article is never presented as WSJ's own: the label says
+  // whose it is, and whether it reports the same story or only the topic.
+  const pill = article.via && article.relation === "same"
+    ? `<div class="reader-meta-pill" style="background:var(--input-bg);color:var(--sub)">Same story, reported by ${escHtml(article.via)} · WSJ's version isn't free</div>`
+    : article.via && article.relation === "related"
+    ? `<div class="reader-meta-pill" style="background:var(--input-bg);color:var(--sub)">Related coverage from ${escHtml(article.via)} · WSJ's piece isn't free</div>`
+    : article.via
     ? `<div class="reader-meta-pill"><span style="color:var(--green)">✓</span> Licensed copy via ${escHtml(article.via)}</div>`
     : article.openVersionNote
     ? `<div class="reader-meta-pill" style="background:var(--input-bg);color:var(--sub)">↗ ${escHtml(article.openVersionNote)}</div>`
@@ -5093,7 +5099,12 @@ async function fetchArticle(url, _isRetry = false) {
       // is parsed against the page it actually came from, so that site's junk
       // rules apply, but keeps the original URL for "open original".
       const article = parseResult(cached, cached.source || url);
-      if (article && cached.source) { article.url = url; article.via = cached.via || ""; }
+      if (article && cached.source) {
+        article.url = url; article.via = cached.via || ""; article.relation = cached.relation || "";
+        // Someone else's article keeps its own link as the original, so "open
+        // original" goes to what was actually read.
+        if (cached.relation) article.url = cached.source;
+      }
       if (article) {
         logMethod("prefetched", "ok", `${article.paragraphs.length} paragraphs`);
         return article;
