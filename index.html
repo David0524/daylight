@@ -5094,7 +5094,8 @@ async function fetchArticle(url, _isRetry = false) {
   // resolved without the page hitting a rate limit or a bot wall.
   try {
     const cached = (await loadPrebuiltArticles())[canonicalUrl(url)];
-    if (cached?.text) {
+    // Another outlet's article is never shown in place of the one tapped.
+    if (cached?.text && !cached.relation) {
       // A licensed copy (a WSJ story read from Morningstar's Dow Jones feed)
       // is parsed against the page it actually came from, so that site's junk
       // rules apply, but keeps the original URL for "open original".

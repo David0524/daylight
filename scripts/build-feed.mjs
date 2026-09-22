@@ -296,6 +296,8 @@ async function carryForwardArticles(liveUrls) {
     const out = {};
     for (const [k, v] of Object.entries(prev || {})) {
       if (!liveUrls.has(k)) continue;
+      // Drop other outlets' articles published while same-story coverage was on.
+      if (v?.relation && process.env.SAME_STORY_COVERAGE !== "1") continue;
       // For a licensed host, only a licensed copy or a recorded miss is worth
       // keeping. Anything else is the host's own paywalled preview, left by a
       // build that fetched the site directly -- and carrying it forward would
@@ -427,11 +429,15 @@ async function resolveItem(item) {
     // WSJ's own text where a licensee has published it; otherwise another
     // outlet's full article on the same story, labelled as such. An exhausted
     // key only rules out the Morningstar search, not the rest.
-    let copy = null, keyDead = false;
-    try { copy = await licensedCopy(item); } catch { keyDead = true; }
+    let copy = null;
+    try { copy = await licensedCopy(item); } catch {}
     if (copy) return copy;
-    const other = await findCoverage(item).catch(() => null);
-    if (other) return other;
+    // Another outlet's article on the same story is not WSJ's reporting, and
+    // was never asked for, so it stays off unless explicitly enabled.
+    if (process.env.SAME_STORY_COVERAGE === "1") {
+      const other = await findCoverage(item).catch(() => null);
+      if (other) return other;
+    }
     return { miss: true, at: Date.now(), v: MISS_VERSION };
   }
   const text = await prefetchArticle(item.link);
