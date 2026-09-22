@@ -4,3 +4,8 @@ node_modules/
 *.log
 feed.png
 dist/
+
+# Captured article bodies used for tuning the per-publisher extraction rules.
+# These are publishers' copyrighted text, kept local and never committed; the
+# scripts in research/ regenerate them on demand.
+research/captures/
