@@ -1036,9 +1036,17 @@ const DB = {
 // directly, which is a much smaller set.
 const WORKER_BASE_DEFAULT = "";
 
+// A shipped Jina key, at the owner's explicit instruction. It is a free key
+// and visible to anyone who views source, so treat it as public: if it starts
+// drawing rate limits or stops working, it has probably been picked up by a
+// scraper, and the fix is to replace it here with a new one. A key entered
+// under the ... tab still wins, so a device can always override it.
+const JINA_KEY_DEFAULT = "jina_3c7c35dfe33141c59b75abdf4ef567ebfD9KFFpq_NwRB3u0Y8B5dEUDiZNs";
+
 function getJinaKey() {
   const k = DB.get("jinaKey", "");
-  return (typeof k === "string" && /^jina_/.test(k.trim())) ? k.trim() : "";
+  if (typeof k === "string" && /^jina_/.test(k.trim())) return k.trim();
+  return JINA_KEY_DEFAULT;
 }
 
 // Authorization header for Jina, when a key has been configured. Anonymous
@@ -5181,13 +5189,15 @@ function feedEntryFor(url) {
 
 // Say what actually went wrong. The method log is developer detail; a reader
 // needs to know whether this is fixable and how. Repeated 401s and timeouts
-// from the fetcher mean it is being refused without a key, which is the common
-// case for paywalled publishers.
+// from the fetcher mean the reader key is being refused -- and since the
+// shipped key is public, the likely cause is that it has been exhausted, which
+// a key of your own fixes.
 function readerFailureNote() {
   const log = (state.errors || []).join(" ").toLowerCase();
   const rateLimited = /401|429|unauthorized|timeout|captcha|sharing-param/.test(log);
-  if (rateLimited && !getJinaKey()) {
-    return "Couldn't load the full text — the article fetcher is rate-limited without a key. Adding a free reader key under the ⋯ tab fixes this for paywalled sites.";
+  const onSharedKey = getJinaKey() === JINA_KEY_DEFAULT;
+  if (rateLimited && onSharedKey) {
+    return "Couldn't load the full text — the shared reader key is being rate-limited. Adding your own free key under the ⋯ tab fixes this for paywalled sites.";
   }
   return "Couldn't load the full text for this one. Open the original to read it.";
 }

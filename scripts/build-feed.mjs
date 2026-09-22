@@ -24,7 +24,13 @@ import { pathToFileURL } from "node:url";
 
 const OUT_DIR = process.argv[2] || "dist";
 const SOURCES = JSON.parse(readFileSync(new URL("../sources.json", import.meta.url), "utf8"));
-const JINA_KEY = process.env.JINA_API_KEY || "";
+// Falls back to the key committed in index.html so the scheduled build
+// prefetches without a repository secret being configured. The environment
+// wins where it is set, which is how a replacement key gets used without a
+// code change.
+const JINA_KEY = process.env.JINA_API_KEY ||
+  (readFileSync(new URL("../index.html", import.meta.url), "utf8")
+    .match(/JINA_KEY_DEFAULT\s*=\s*"(jina_[^"]+)"/)?.[1] || "");
 const PREFETCH_LIMIT = Number(process.env.PREFETCH_LIMIT || 60);
 
 const UA_BROWSER = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
