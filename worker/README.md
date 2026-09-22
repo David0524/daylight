@@ -1,5 +1,12 @@
 # Daylight fetch worker
 
+> **Optional.** The feed is now built by a scheduled GitHub Action
+> (`.github/workflows/build-feed.yml`), which needs no account and no deploy.
+> This worker predates that and is no longer required for the feed. It is still
+> useful for the reader, which fetches arbitrary pasted URLs live, and as a
+> fallback when the published feed is unavailable. Paste its URL under the ⋯
+> tab in the app.
+
 Server-side fetching for the Daylight reader. The app is a static page, so
 without this worker every request it makes depends on a public CORS proxy and
 an unauthenticated rate limit. Both were failing, which is what broke article
