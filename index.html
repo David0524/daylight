@@ -4107,19 +4107,34 @@ function trimJinaChrome(text) {
     /^read\s+\d+\s+comments?$/i,
     /^\s*\*?\s*share full article/i,
     /^\[?subscribe to the times/i,
-    /^advertisement$/i,
-    /^\s*\*\s*$/,           // the empty bullet lists that trail NYT pages
+    // Deliberately not here: "Advertisement" and empty "*" bullets. They occur
+    // throughout an NYT article body, not only after it, so treating them as
+    // end-of-article markers truncated the story mid-way. The per-line filters
+    // in parseJinaMarkdown drop them where they appear.
   ];
+  const isProse = (l) => l.trim().length > 140 && !/^[*#\[!]/.test(l.trim());
+
   let end = lines.length;
   // Only look past a reasonable amount of body, so a stray marker near the top
   // cannot truncate the article to nothing.
   for (let i = start + 12; i < lines.length; i++) {
     const t = lines[i].trim();
     if (!t) continue;
-    if (END_MARKERS.some(re => re.test(t))) {
-      // Confirm it really is the tail: little prose should remain after it.
-      const rest = lines.slice(i + 1).filter(l => l.trim().length > 140).length;
-      if (rest <= 1) { end = i; break; }
+
+    // Named furniture ("## Related Content", "Read 18 comments", a share bar)
+    // is unambiguous, so it cuts on sight.
+    if (END_MARKERS.some(re => re.test(t))) { end = i; break; }
+
+    // Any other h2 might be the start of a site footer or might be a genuine
+    // mid-article subheading. Tell them apart by what follows: a footer is a
+    // dense list of links, an article section is prose. Counting remaining
+    // prose alone failed both ways -- footers carry a couple of long legal
+    // lines, and a subheading near the end of a story has little after it.
+    if (/^##\s+\S/.test(t)) {
+      const after = lines.slice(i + 1).filter(l => l.trim()).slice(0, 15);
+      const linky = after.filter(l => /^[*\-]\s|^\[|\]\(http/.test(l.trim())).length;
+      const prose = after.filter(isProse).length;
+      if (after.length >= 3 && linky >= after.length * 0.6 && prose <= 1) { end = i; break; }
     }
   }
 
