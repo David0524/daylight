@@ -4168,8 +4168,8 @@ function trimJinaChrome(text) {
   const isProse = (l) => l.trim().length > 140 && !/^[*#\[!]/.test(l.trim());
 
   // Everything from the first of these markers on is post-article furniture.
+  // Unambiguous end-of-article furniture: cuts on sight.
   const END_MARKERS = [
-    /^##+\s*(related content|more on this|most read|editors.? picks|site index|explore|comments)/i,
     /^read\s+\d+\s+comments?$/i,
     /^\s*\*?\s*share full article/i,
     /^\[?subscribe to the times/i,
@@ -4179,6 +4179,15 @@ function trimJinaChrome(text) {
     // end-of-article markers truncated the story mid-way. The per-line filters
     // in parseJinaMarkdown drop them where they appear.
   ];
+
+  // "More stories" section headings. These cannot cut on sight, because some
+  // publishers place such a section mid-article as a sidebar rather than after
+  // the body: Al Jazeera's "## Recommended Stories" sits in the middle of the
+  // flow, and cutting there dropped an 800-word piece to 136 words, while
+  // CNBC's "## Read more CNBC airline news" genuinely ends its article. So the
+  // decision is made on how much article still follows.
+  const MORE_STORIES = MORE_STORIES_RE;
+
 
   let end = lines.length;
   for (let i = start + 12; i < lines.length; i++) {
@@ -4190,9 +4199,20 @@ function trimJinaChrome(text) {
     // the entire story with it.
     if (lines.slice(start, i).filter(isProse).length < 3) continue;
 
-    // Named furniture ("## Related Content", "Read 18 comments", a share bar)
-    // is unambiguous, so it cuts on sight.
+    // Named furniture ("Read 18 comments", a share bar) cuts on sight.
     if (END_MARKERS.some(re => re.test(t))) { end = i; break; }
+
+    // A "more stories" heading ends the article only when no real body
+    // paragraph follows it. Article paragraphs run long; related-story blurbs
+    // are short, which is what separates CNBC's and the Guardian's terminal
+    // sections from Al Jazeera's mid-article sidebar. Counting "prose" alone
+    // could not tell them apart, because blurbs pass that test.
+    if (MORE_STORIES.test(t)) {
+      const bodyAfter = lines.slice(i + 1)
+        .some(l => l.trim().length > 300 && !/^[*\-\u2022#>[!]/.test(l.trim()));
+      if (!bodyAfter) { end = i; break; }
+      continue;   // sidebar: the extractor's skip mode handles its items
+    }
 
     // Any other h2 might start a site footer or might be a genuine
     // mid-article subheading. Tell them apart by what follows: a footer is a
@@ -4208,6 +4228,175 @@ function trimJinaChrome(text) {
   const body = lines.slice(start, end).join("\n");
   // If the trim left almost nothing, the anchors were wrong — keep the original.
   return body.replace(/\s+/g, " ").trim().length > 400 ? body : text;
+}
+
+// ── Per-publisher junk rules ─────────────────────────────────────────────────
+//
+// Derived from real captures of each outlet (research/junk.mjs), not guessed.
+// Every site wraps its articles in different furniture, and one shared filter
+// list either misses most of it or starts eating prose, so the site-specific
+// patterns live per domain and only the genuinely universal ones are shared.
+
+// A "more stories" section heading. These cannot simply end the article:
+// some publishers place one mid-body as a sidebar -- Al Jazeera's
+// "## Recommended Stories" sits in the middle of the flow, and treating it as
+// the end cut an 800-word piece to 136 words -- while CNBC's
+// "## Read more CNBC airline news" really does close its article. Nor can the
+// decision rest on how much text follows, because related-story blurbs read as
+// prose. So instead of cutting, the extractor skips forward from the heading
+// until real body prose resumes; if none does, the rest is dropped. That works
+// whether the section is a sidebar or the tail.
+const MORE_STORIES_RE = /^#{0,6}\s*(related content|related stories|more on this|more from|more in|read more|read next|most read|most popular|editors.? picks|top stories|latest stories|you might also|recommended|site index|explore)\b/i;
+
+// Patterns seen at essentially every outlet.
+const GENERIC_JUNK = [
+  // A list item wrapping a heading is a related-story teaser, never body text.
+  // This single pattern accounted for 26 of 37 junk paragraphs across the
+  // Guardian, CBS News and Al Jazeera captures.
+  /^\*?\s*(image\s*\d+\s*)?#{2,6}\s/i,
+  // Same teaser once links and images have been stripped, where the heading
+  // marker survives but the bullet may not.
+  /^(image\s*\d+\s*)?#{2,6}\s*\S/i,
+  // Bare image placeholders Jina leaves behind mid-article.
+  /^\*?\s*image\s*\d+\s*:?\s*$/i,
+  /^!?\[image\s*\d+\]/i,
+  // Markdown checkboxes are consent-form controls.
+  /^[-*]\s*\[[ xX]\]/,
+  // Social/utility rows.
+  /^(share|save|copy link|print this|email this|gift this|listen to this)\b.{0,40}$/i,
+  /^(follow us|sign up|subscribe to our)\b/i,
+];
+
+const PUBLISHER_RULES = {
+  "theguardian.com": {
+    drop: [
+      // The membership pitch, which Jina renders as a benefits list inside
+      // the article flow rather than as a sidebar.
+      /^unlock\b.*all-access/i,
+      /^(far fewer asks for support|ad-free reading|unlimited access to|regular dispatches from the newsroom)/i,
+      /^support the guardian/i,
+      /^(one-time|monthly|annual)\b.{0,30}$/i,
+      // Byline glued to the correspondent's title, with no sentence punctuation.
+      /^[A-Z][a-z]+ [A-Z][a-z]+ [a-z][a-z\s]{6,40}(correspondent|editor|reporter)$/,
+    ],
+  },
+  "npr.org": {
+    drop: [
+      /^heard on\b/i,                    // "Heard on All Things Considered"
+      /^\*+\s*listen[\u00b7\u2022]/i,       // "***Listen· 3:54…Playlist*"
+      /transcripttoggle/i,
+      /^\d+-minute listen/i,
+      /^(playlist|download|embed|transcript)\s*$/i,
+      /^#{4,6}\s/,                       // trailing show/newsletter promos
+    ],
+  },
+  "aljazeera.com": {
+    drop: [
+      /^(published on|source:)\b/i,
+      // Their related-story carousel arrives as "list 1 of 4<headline>".
+      /^list\s*\d+\s*of\s*\d+/i,
+      /^(list of \d+ items|end of list)/i,
+      // Footer columns.
+      /^(eu\/eea regulatory notice|cookie preferences|accessibility statement)/i,
+      /^al jazeera (investigative unit|centre for studies|media institute|balkans|mubasher)/i,
+      /^(our channels|our network|about us|connect with us)$/i,
+    ],
+  },
+  "cbsnews.com": {
+    drop: [/^get (the )?browser notifications/i, /^be the first to know/i, /^go deeper with\b/i,
+           /^watch cbs news$/i, /^more from cbs news/i],
+  },
+  "bbc.co.uk": {
+    drop: [/^(watch|listen)\b.{0,30}$/i, /^bbc (news|verify|indepth)\b.{0,24}$/i,
+           /^get in touch\b/i, /^related (topics|internet links)/i],
+  },
+  "cnbc.com": {
+    // Note: their "key points" bullets are left alone on purpose -- those are
+    // the article's own summary, not furniture.
+    drop: [
+      /^(watch|sign up for)\b.{0,50}$/i,
+      /^got a confidential news tip/i,
+      /^subscribe to cnbc/i,
+      /^in this article/i,
+      /^follow your favorite/i,
+      // Dateline row: "Published Mon, Sep 21 2026 1:06 PM EDT Updated …".
+      /^published\s+\w{3},/i,
+      // Inline video player chrome.
+      /^\d+ seconds? of \d+ seconds?/i,
+      /keyboard shortcuts enabled/i,
+      /^(volume|playback rate|captions|picture-in-picture|fullscreen)\b.{0,30}$/i,
+      // Ticker widgets: "VZ+0.14 (+0.29%)Image 7: After Hours".
+      /^[A-Z]{1,5}[+\u2212-][\d.]+\s*\([+\u2212-][\d.]+%\)/,
+      // Author handle glued to the name: "Leslie Josephs@lesliejosephs".
+      /^[A-Z][a-z]+ [A-Z][a-z]+@\w+$/,
+      // Product nav and the legal block that closes their pages.
+      /^(subscribe to|select)\s+[A-Z]/,
+      /market data terms of use/i,
+      /^data also provided by/i,
+      /(ccpa|california consumer privacy)/i,
+      /^(your privacy choices|privacy policy|terms of service)$/i,
+    ],
+  },
+  "washingtonpost.com": {
+    drop: [/^(democracy dies in darkness|end of carousel)$/i, /^advertisement$/i],
+  },
+  "nytimes.com": {
+    drop: [/^see more on:/i, /^\d+ comments?$/i, /^share full article/i],
+  },
+  "theatlantic.com": {
+    drop: [/^explore more\b/i, /^sign up for\b/i, /^most popular$/i],
+  },
+  "bloomberg.com": {
+    drop: [/^(watch|listen to)\b.{0,40}$/i, /^terms of service\b/i, /^before it.s here/i],
+  },
+  "ft.com": {
+    drop: [/^(roula khalaf|editor.s digest)/i, /^promoted content$/i, /^follow the topics/i],
+  },
+  "techcrunch.com": {
+    drop: [/^(topics|newsletters|events|advertise)$/i, /^most popular$/i],
+  },
+  "politico.com": {
+    drop: [
+      /^(playbook|filed under)\b/i,
+      /^continue reading\b/i,
+      // All-caps byline row.
+      /^by\s+[A-Z][A-Z\s.'-]{4,}$/,
+      // Pro upsell scattered through the body.
+      /^_?read more from\b.*politico/i,
+      // Author social row: "* Chris Sommerfeldt @C_Sommerfeldt".
+      /^[A-Z][a-z]+ [A-Z][a-zA-Z]+\s+@\w+$/,
+      /^do not sell or share my personal information/i,
+    ],
+  },
+  "latimes.com": {
+    drop: [/^(more to read|advertisement)$/i, /^sign up for\b/i],
+  },
+};
+
+/**
+ * Test a line against a rule set.
+ *
+ * Checks both the raw markdown line and a cleaned form, because the extractor
+ * normalises text after this point: "* [![Image 5](u)](u)#### [Headline](u)"
+ * only becomes "* Image 5 #### Headline" once images and links are stripped,
+ * so a pattern written against the readable form never matched the raw line.
+ * The leading list marker is also dropped, so a site pattern does not need to
+ * anticipate whether its furniture arrives as a bullet.
+ */
+function matchesJunk(rules, raw, cleaned) {
+  const forms = [raw, cleaned,
+                 String(raw || "").replace(/^[*\-\u2022]+\s*/, ""),
+                 String(cleaned || "").replace(/^[*\-\u2022]+\s*/, "")];
+  return rules.some(re => forms.some(f => f && re.test(f)));
+}
+
+/** Junk matchers for one article URL: the shared set plus that site's own. */
+function junkRulesFor(url) {
+  let host = "";
+  try { host = new URL(url).hostname.replace(/^www\./, ""); } catch {}
+  const site = PUBLISHER_RULES[host]
+    || Object.entries(PUBLISHER_RULES).find(([d]) => host.endsWith("." + d))?.[1];
+  return site ? GENERIC_JUNK.concat(site.drop) : GENERIC_JUNK;
 }
 
 // Parse Jina markdown into article paragraphs
@@ -4253,9 +4442,21 @@ function parseJinaMarkdown(text, url) {
   }
 
   // Parse markdown into paragraphs
+  const junk = junkRulesFor(url);
+  let skippingMore = false;
+
   for (const line of lines.slice(contentStart)) {
     const trimmed = line.trim();
     if (!trimmed) continue;
+
+    // Enter skip mode at a "more stories" heading, and leave it again only
+    // when a substantial prose paragraph shows the body has resumed.
+    if (MORE_STORIES_RE.test(trimmed)) { skippingMore = true; continue; }
+    if (skippingMore) {
+      const looksLikeBody = trimmed.length > 200 && !/^[*\-\u2022#>[!]/.test(trimmed);
+      if (!looksLikeBody) continue;
+      skippingMore = false;
+    }
 
     // ── Strip line-level noise before any other processing ──
     // Empty or image-only links: [](url) or [![...](img)](url)
@@ -4386,6 +4587,10 @@ function parseJinaMarkdown(text, url) {
     text = text.replace(/\*\*([^*]+)\*\*/g, "$1").replace(/\*([^*]+)\*/g, "$1").replace(/__([^_]+)__/g, "$1");
     // Collapse whitespace
     text = text.replace(/\s+/g, " ").trim();
+
+    // Shared plus per-publisher furniture, derived from real captures. Applied
+    // here rather than on the raw line so it sees the text the reader will.
+    if (matchesJunk(junk, trimmed, text)) continue;
 
     if (text.length < 25 || seen.has(text)) continue;
     seen.add(text);
