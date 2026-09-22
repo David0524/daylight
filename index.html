@@ -8,7 +8,14 @@
 <meta name="apple-mobile-web-app-title" content="Daylight">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#1C1917">
-<link rel="apple-touch-icon" sizes="180x180" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAALQAAAC0CAIAAACyr5FlAABNPklEQVR42s3d" />
+<!-- Home-screen icon. This was an inline data: URI that had been truncated
+     down the versions until only a PNG header survived, so iOS had nothing to
+     show and fell back to a screenshot of the page. Recovered from git and
+     stored as real files, which also keeps ~82KB of base64 out of this file. -->
+<link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180.png">
+<link rel="apple-touch-icon-precomposed" sizes="180x180" href="icons/icon-180.png">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="manifest" href="manifest.webmanifest">
 
 <title>Daylight</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
