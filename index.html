@@ -5073,11 +5073,14 @@ async function fetchArticle(url, _isRetry = false) {
     }
   }
 
-  // ── Tier 3b: WSJ/Barron's — open directly in browser ───────────────────
+  // ── Tier 3b: WSJ/Barron's — no fetch can reach them ─────────────────────
   else if (inSet(JINA_BLOCKED)) {
-    // WSJ blocks all automated fetch methods. Open directly in the browser —
-    // if the user is logged in with cookies cleared, they get free access.
-    window.open(url, "_blank", "noreferrer");
+    // WSJ refuses every automated fetch, so the only full text is a licensed
+    // copy, which the prefetch check above has already looked for. Without
+    // one, stay in the app and show the feed's own summary rather than
+    // bouncing the reader out to wsj.com -- that is what "open original" is
+    // for, when they choose it.
+    state.noLicensedCopy = true;
     return null;
   }
 
@@ -5222,6 +5225,9 @@ function feedEntryFor(url) {
 // shipped key is public, the likely cause is that it has been exhausted, which
 // a key of your own fixes.
 function readerFailureNote() {
+  if (state.noLicensedCopy) {
+    return "Summary only — WSJ makes just some stories free, via Morningstar, and this isn't one.";
+  }
   const log = (state.errors || []).join(" ").toLowerCase();
   const rateLimited = /401|429|unauthorized|timeout|captcha|sharing-param/.test(log);
   const onSharedKey = getJinaKey() === JINA_KEY_DEFAULT;
@@ -5249,6 +5255,7 @@ async function startRead(rawUrl, addToHistory = true) {
   document.getElementById("methodLog").innerHTML = "";
   document.getElementById("loadingSub").textContent = "Initializing…";
   state.errors = [];
+  state.noLicensedCopy = false;
 
   if (addToHistory) pushHistory(url);
 
