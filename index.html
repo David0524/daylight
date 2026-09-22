@@ -4147,6 +4147,14 @@ function trimJinaChrome(text) {
   let anchor = -1;
   if (h1s.length) {
     anchor = h1s[0];
+    // NYT renders the headline block twice -- headline, dek and photo credit,
+    // then the same three again before the body. Anchoring on the first copy
+    // left the reader showing the headline and dek twice, so where the same
+    // h1 text repeats, take the last copy of it.
+    const same = (i) => lines[i].replace(/^#\s*/, "").trim();
+    for (let i = 1; i < h1s.length && h1s[i] - h1s[i - 1] <= 12; i++) {
+      if (same(h1s[i]) === same(anchor)) anchor = h1s[i];
+    }
   } else if (title) {
     // 2. Otherwise an h1/h2 that shares most of its words with the meta title.
     //    Prefix matching was too brittle: NYT's meta title and display
@@ -4192,6 +4200,12 @@ function trimJinaChrome(text) {
   const MORE_STORIES = MORE_STORIES_RE;
 
 
+  // Article paragraphs run long; related-story blurbs and footer links do not.
+  // That length difference is what separates furniture that genuinely ends the
+  // article from the same furniture appearing above or beside it.
+  const bodyFollows = (i) => lines.slice(i + 1)
+    .some(l => l.trim().length > 300 && !/^[*\-\u2022#>[!]/.test(l.trim()));
+
   let end = lines.length;
   for (let i = start + 12; i < lines.length; i++) {
     const t = lines[i].trim();
@@ -4202,8 +4216,13 @@ function trimJinaChrome(text) {
     // the entire story with it.
     if (lines.slice(start, i).filter(isProse).length < 3) continue;
 
-    // Named furniture ("Read 18 comments", a share bar) cuts on sight.
-    if (END_MARKERS.some(re => re.test(t))) { end = i; break; }
+    // Named furniture ("Read 18 comments", a share bar). NYT places its share
+    // bar and comment count above the story as well as below it, so the marker
+    // alone is not enough: cut only when no article body still follows.
+    if (END_MARKERS.some(re => re.test(t))) {
+      if (!bodyFollows(i)) { end = i; break; }
+      continue;
+    }
 
     // A "more stories" heading ends the article only when no real body
     // paragraph follows it. Article paragraphs run long; related-story blurbs
@@ -4211,9 +4230,7 @@ function trimJinaChrome(text) {
     // sections from Al Jazeera's mid-article sidebar. Counting "prose" alone
     // could not tell them apart, because blurbs pass that test.
     if (MORE_STORIES.test(t)) {
-      const bodyAfter = lines.slice(i + 1)
-        .some(l => l.trim().length > 300 && !/^[*\-\u2022#>[!]/.test(l.trim()));
-      if (!bodyAfter) { end = i; break; }
+      if (!bodyFollows(i)) { end = i; break; }
       continue;   // sidebar: the extractor's skip mode handles its items
     }
 

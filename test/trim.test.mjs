@@ -50,6 +50,22 @@ check("starts at the display headline, not the meta title",
 check("keeps the opening paragraph", trimJinaChrome(gift).includes("pledged to disarm"));
 check("drops the nav above it", !trimJinaChrome(gift).includes("Skip to site index"));
 
+// NYT places its share bar and comment count ABOVE the story as well as below
+// it, and repeats the headline, dek and photo credit twice before the body.
+// Those three long lines satisfied the "article has begun" guard, so the share
+// bar above the story was taken for the footer: a 44 KB capture trimmed to
+// 1,055 characters and the reader rendered nothing at all.
+console.log("\ntop-of-page share bar is not the end of the article:");
+const topbar = readFileSync(new URL("./fixture-nyt-top-sharebar.md", import.meta.url), "utf8");
+const tOut = trimJinaChrome(topbar);
+console.log(`  ${topbar.length}B -> ${tOut.length}B, ${tOut.split(/\s+/).length}w`);
+check("keeps the body past the top share bar", tOut.split(/\s+/).length > 1000);
+check("keeps a paragraph from deep in the story",
+  tOut.includes("no House member has ascended directly to the presidency"));
+check("does not repeat the headline block",
+  (tOut.match(/^#\s+Alexandria Ocasio-Cortez on 2028/gm) || []).length === 1);
+check("still drops the trailing furniture", !/Read \d+ comments/.test(tOut));
+
 console.log("\nsafety:");
 const plain = "Title: A Story\n\nMarkdown Content:\n\n" + "Real prose. ".repeat(60);
 check("passes through text with no H1", trimJinaChrome(plain).includes("Real prose."));
