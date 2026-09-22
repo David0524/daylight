@@ -2774,11 +2774,23 @@ const PAPER_STATE = {};
 
 async function initPapers() {
   state.papersLoaded = true;
+
+  // Show a tab only where there is something behind it. AP and Reuters no
+  // longer publish a feed that answers anywhere — AP's feedburner mirror
+  // returns nothing, apnews.com/hub 403s, and Reuters' feed host is gone — so
+  // their tabs would sit permanently empty. When published data is available,
+  // it decides which tabs exist; without it, fall back to showing everything
+  // so the live path still has something to try.
+  const available = PREBUILT_PAPERS
+    ? NEWSPAPERS.filter(p => PREBUILT_PAPERS[p.id]?.items?.length)
+    : NEWSPAPERS;
+  const papers = available.length ? available : NEWSPAPERS;
+
   const tabsEl = document.getElementById("paperTabs");
-  tabsEl.innerHTML = NEWSPAPERS.map((p, i) =>
+  tabsEl.innerHTML = papers.map((p, i) =>
     `<button class="paper-tab${i===0?" active":""}" onclick="selectPaper('${p.id}')">${p.emoji} ${p.name}</button>`
   ).join("");
-  selectPaper(NEWSPAPERS[0].id);
+  selectPaper(papers[0].id);
 }
 
 function selectPaper(id) {
