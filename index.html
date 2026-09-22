@@ -4061,9 +4061,69 @@ const FETCH_METHODS = [
   },
 ];
 
+// Cut a Jina capture down to the article itself.
+//
+// Jina renders the whole page, so on a full-site layout the article can be
+// buried: an NYT capture arrives with ~485 lines of section menus, newsletter
+// promos and podcast lists ahead of the story, and ~240 lines of author bios,
+// comment counts and related-content links after it. Per-line boilerplate
+// filters cannot fix that — the chrome has to be bounded off at both ends.
+//
+// The reliable anchor is Jina's own "Title:" header: the article's H1 repeats
+// it, so the first heading that matches is where the story starts.
+function trimJinaChrome(text) {
+  const lines = text.split("\n");
+
+  const titleLine = lines.find(l => l.startsWith("Title:"));
+  const title = titleLine ? titleLine.slice(6).trim() : "";
+  const norm = (v) => v.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+
+  let start = 0;
+  const contentAt = lines.findIndex(l => l.trim() === "Markdown Content:");
+  if (contentAt !== -1) start = contentAt + 1;
+
+  if (title) {
+    const want = norm(title);
+    const h1 = lines.findIndex(l => {
+      if (!/^#{1,2}\s/.test(l)) return false;
+      const h = norm(l.replace(/^#{1,2}\s*/, ""));
+      // Prefixes rather than equality: the H1 is sometimes lightly different
+      // (a trailing dateline, a dropped subtitle) from the meta title.
+      return h && (h === want || want.startsWith(h) || h.startsWith(want));
+    });
+    if (h1 > start) start = h1;
+  }
+
+  // Everything from the first of these markers on is post-article furniture.
+  const END_MARKERS = [
+    /^##+\s*(related content|more on this|most read|editors.? picks|site index|explore|comments)/i,
+    /^read\s+\d+\s+comments?$/i,
+    /^\s*\*?\s*share full article/i,
+    /^\[?subscribe to the times/i,
+    /^advertisement$/i,
+    /^\s*\*\s*$/,           // the empty bullet lists that trail NYT pages
+  ];
+  let end = lines.length;
+  // Only look past a reasonable amount of body, so a stray marker near the top
+  // cannot truncate the article to nothing.
+  for (let i = start + 12; i < lines.length; i++) {
+    const t = lines[i].trim();
+    if (!t) continue;
+    if (END_MARKERS.some(re => re.test(t))) {
+      // Confirm it really is the tail: little prose should remain after it.
+      const rest = lines.slice(i + 1).filter(l => l.trim().length > 140).length;
+      if (rest <= 1) { end = i; break; }
+    }
+  }
+
+  const body = lines.slice(start, end).join("\n");
+  // If the trim left almost nothing, the anchors were wrong — keep the original.
+  return body.replace(/\s+/g, " ").trim().length > 400 ? body : text;
+}
+
 // Parse Jina markdown into article paragraphs
 function parseJinaMarkdown(text, url) {
-  const lines = text.split("\n");
+  const lines = trimJinaChrome(text).split("\n");
   const paragraphs = [];
   const seen = new Set();
   let headline = "", author = "", date = "", heroImage = "";

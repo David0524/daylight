@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node test/ranking.test.mjs && node worker/test/reject.test.mjs",
+    "test": "node test/ranking.test.mjs && node test/trim.test.mjs && node worker/test/reject.test.mjs",
     "serve": "node test/serve.mjs",
     "e2e": "node test/e2e.mjs",
     "audit:feeds": "node test/audit-feeds.mjs"
