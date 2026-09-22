@@ -284,6 +284,7 @@ const PUBLISHED_ARTICLES_URL =
   "https://raw.githubusercontent.com/David0524/daylight/data/articles.json";
 
 const MISS_RETRY_MS = 3 * 60 * 60 * 1000;
+const MISS_VERSION = 2;   // bump whenever the search itself changes
 
 async function carryForwardArticles(liveUrls) {
   try {
@@ -304,7 +305,9 @@ async function carryForwardArticles(liveUrls) {
       // Text is kept for as long as the story is live. A recorded miss is kept
       // for a few hours only, so a story is not searched for again on every
       // build, but still gets another try in case its copy was published late.
-      if (v?.text || (v?.miss && Date.now() - v.at < MISS_RETRY_MS)) out[k] = v;
+      // A miss only counts if it was recorded by the current search: one from
+      // before same-story coverage existed never looked for coverage at all.
+      if (v?.text || (v?.miss && v.v === MISS_VERSION && Date.now() - v.at < MISS_RETRY_MS)) out[k] = v;
     }
     return out;
   } catch { return {}; }
@@ -429,7 +432,7 @@ async function resolveItem(item) {
     if (copy) return copy;
     const other = await findCoverage(item).catch(() => null);
     if (other) return other;
-    return keyDead ? null : { miss: true, at: Date.now() };
+    return { miss: true, at: Date.now(), v: MISS_VERSION };
   }
   const text = await prefetchArticle(item.link);
   return text ? { type: "markdown", text } : null;
