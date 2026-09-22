@@ -236,11 +236,16 @@ async function viaJinaGift(target, env) {
     `${target}${sep}unlocked_article_code=1&smid=url-share`,
     `${target}${sep}smid=nytcore-ios-share`,
   ];
+  // Two passes: a cold URL often answers with a stub first and the article on
+  // a retry (measured: 225 bytes, then 34,679 for the same keyed request).
   let lastErr = "no variant worked";
-  for (const v of variants) {
-    try {
-      return await viaJina(v, env, { headers: { "X-Referer": "https://www.google.com/" } });
-    } catch (e) { lastErr = String(e.message || e); }
+  for (let pass = 0; pass < 2; pass++) {
+    for (const v of variants) {
+      try {
+        return await viaJina(v, env, { headers: { "X-Referer": "https://www.google.com/" } });
+      } catch (e) { lastErr = String(e.message || e); }
+    }
+    if (pass === 0) await new Promise(r => setTimeout(r, 800));
   }
   throw new Error(lastErr);
 }

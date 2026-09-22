@@ -911,6 +911,20 @@
             <button class="worker-save" onclick="saveWorkerBase()">Save</button>
           </div>
           <div class="worker-status" id="workerStatus"></div>
+
+          <div class="worker-help" style="margin-top:16px">
+            Reader key (optional). Anonymous requests to the article fetcher are
+            rate-limited, which is why some paywalled pieces load in full and
+            others don't. A free key from
+            <span class="mono">jina.ai/reader</span> fixes that. Stored only in
+            this browser.
+          </div>
+          <div class="worker-row">
+            <input id="jinaInput" class="worker-input" type="password" spellcheck="false"
+                   placeholder="jina_…">
+            <button class="worker-save" onclick="saveJinaKey()">Save</button>
+          </div>
+          <div class="worker-status" id="jinaStatus"></div>
         </div>
         <div class="panel-section" id="historySection">
           <div class="panel-heading">
@@ -1029,6 +1043,25 @@ const DB = {
 // Without a worker the feed falls back to whatever publishers serve the browser
 // directly, which is a much smaller set.
 const WORKER_BASE_DEFAULT = "";
+
+function getJinaKey() {
+  const k = DB.get("jinaKey", "");
+  return (typeof k === "string" && /^jina_/.test(k.trim())) ? k.trim() : "";
+}
+
+// Authorization header for Jina, when a key has been configured. Anonymous
+// requests are rate-limited hard enough that a cold URL frequently answers
+// with a captcha stub instead of the article -- which is what made NYT work
+// only intermittently. The key stays in this browser's localStorage.
+function jinaHeaders(extra = {}) {
+  const key = getJinaKey();
+  return {
+    Accept: "text/plain",
+    "X-Return-Format": "markdown",
+    ...(key ? { Authorization: `Bearer ${key}` } : {}),
+    ...extra,
+  };
+}
 
 function getWorkerBase() {
   const saved = DB.get("workerBase", "");
@@ -3748,7 +3781,7 @@ async function fetchMetaOnly(url) {
     for (const tryUrl of urlsToTry) {
       try {
         const r = await Promise.race([
-          fetch(`https://r.jina.ai/${encodeURIComponent(tryUrl)}`, { headers: { "Accept": "text/plain", "X-Return-Format": "markdown" } }),
+          fetch(`https://r.jina.ai/${encodeURIComponent(tryUrl)}`, { headers: jinaHeaders() }),
           new Promise((_,rej) => setTimeout(rej, 12000))
         ]);
         if (!r.ok) continue;
@@ -3857,7 +3890,7 @@ const FETCH_METHODS = [
     name: "Jina",
     fetch: async (url) => {
       const r = await fetch(`https://r.jina.ai/${encodeURIComponent(url)}`, {
-        headers: { "Accept": "text/plain", "X-Return-Format": "markdown" }
+        headers: jinaHeaders()
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const t = await r.text();
@@ -3881,27 +3914,46 @@ const FETCH_METHODS = [
         `${url}${sep}smid=nytcore-ios-share`,
       ];
 
-      // Take the longest result across variants, not the first that comes back.
-      // Jina is flaky enough that a variant can answer with a stub, and the old
-      // check here ("two lines over 60 characters") let a metered preview
-      // through — so a good variant further down the list never got tried and
-      // the reader got 345 words instead of 1,595.
+      // The ladder caps each method at 15s, so this works to a slightly
+      // shorter budget and returns the best it has when the budget runs out.
+      // Without that it was being killed mid-retry and threw away a good
+      // result it had already fetched.
+      const deadline = Date.now() + 13000;
+      const left = () => deadline - Date.now();
+
+      const attempt = async (giftUrl) => {
+        const r = await Promise.race([
+          fetch(`https://r.jina.ai/${encodeURIComponent(giftUrl)}`, {
+            headers: jinaHeaders({ "X-Referer": "https://www.google.com/" }),
+          }),
+          new Promise((_, rej) => setTimeout(() => rej(new Error("slow")), Math.max(1500, Math.min(6000, left())))),
+        ]);
+        if (!r.ok) return null;
+        const t = await r.text();
+        if (t.includes("error 401") || t.includes("Unauthorized")) return null;
+        if (CHALLENGE_SIGNALS.some(sig => t.toLowerCase().includes(sig))) return null;
+        // Score on the trimmed article so navigation volume cannot win.
+        const len = trimJinaChrome(t).replace(/\s+/g, " ").trim().length;
+        return len > 600 ? { text: t, len } : null;
+      };
+
+      // Two passes over the variants, budget permitting. A cold URL very often
+      // answers with a stub on the first request and the real article on the
+      // second, so a single attempt per variant reported "no variant returned
+      // an article" for pieces that were reachable a moment later.
       let best = null;
-      for (const giftUrl of variants) {
-        try {
-          const r = await fetch(`https://r.jina.ai/${encodeURIComponent(giftUrl)}`, {
-            headers: { "Accept": "text/plain", "X-Return-Format": "markdown",
-                       "X-Referer": "https://www.google.com/" }
-          });
-          if (!r.ok) continue;
-          const t = await r.text();
-          if (t.includes("error 401") || t.includes("Unauthorized")) continue;
-          if (CHALLENGE_SIGNALS.some(sig => t.toLowerCase().includes(sig))) continue;
-          // Compare on the trimmed article, so nav volume cannot win.
-          const len = trimJinaChrome(t).replace(/\s+/g, " ").trim().length;
-          if (len > 1200 && (!best || len > best.len)) best = { text: t, len };
-          if (best && best.len > 12000) break;   // clearly the full piece
-        } catch {}
+      outer:
+      for (let pass = 0; pass < 2; pass++) {
+        for (const giftUrl of variants) {
+          if (left() < 2000) break outer;
+          try {
+            const got = await attempt(giftUrl);
+            if (got && (!best || got.len > best.len)) best = got;
+            if (best && best.len > 12000) break outer;   // clearly the full piece
+          } catch {}
+        }
+        if (best && best.len >= 4000) break;
+        if (pass === 0 && left() > 3000) await new Promise(r => setTimeout(r, 600));
       }
       if (!best) throw new Error("no sharing-param variant returned an article");
       return { type: "markdown", text: best.text };
@@ -3912,12 +3964,8 @@ const FETCH_METHODS = [
     name: "Jina+googlebot",
     fetch: async (url) => {
       const r = await fetch(`https://r.jina.ai/${encodeURIComponent(url)}`, {
-        headers: {
-          "Accept": "text/plain",
-          "X-Return-Format": "markdown",
-          "X-User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
-          "X-Referer": "https://www.google.com/search?q=" + encodeURIComponent(url.split("/").pop().replace(/-/g," ")),
-        }
+        headers: jinaHeaders({ "X-User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+          "X-Referer": "https://www.google.com/search?q=" + encodeURIComponent(url.split("/").pop().replace(/-/g," ")) })
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const t = await r.text();
@@ -3971,12 +4019,8 @@ const FETCH_METHODS = [
       const ampUrl = toAmpUrl(url);
       if (!ampUrl || ampUrl === url) throw new Error("No AMP URL available");
       const r = await fetch(`https://r.jina.ai/${encodeURIComponent(ampUrl)}`, {
-        headers: {
-          "Accept": "text/plain",
-          "X-Return-Format": "markdown",
-          "X-User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
-          "X-Referer": "https://www.google.com/search?q=" + encodeURIComponent(url.split("/").pop().replace(/-/g," ")),
-        }
+        headers: jinaHeaders({ "X-User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+          "X-Referer": "https://www.google.com/search?q=" + encodeURIComponent(url.split("/").pop().replace(/-/g," ")) })
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const t = await r.text();
@@ -4037,10 +4081,7 @@ const FETCH_METHODS = [
       // X-Referer, so this switches to that instead (same technique the
       // Jina+AMP method already uses successfully).
       const r = await fetch(`https://r.jina.ai/${encodeURIComponent(ampUrl)}`, {
-        headers: {
-          "Accept": "text/plain", "X-Return-Format": "markdown",
-          "X-Referer": "https://www.google.com/",
-        }
+        headers: jinaHeaders({ "X-Referer": "https://www.google.com/" })
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const t = await r.text();
@@ -4069,7 +4110,7 @@ const FETCH_METHODS = [
       // as a CORS proxy, which made this always fail even after finding a
       // valid snapshot URL.
       const r = await fetch(`https://r.jina.ai/${encodeURIComponent(snapUrl)}`, {
-        headers: { "Accept": "text/plain", "X-Return-Format": "markdown" }
+        headers: jinaHeaders()
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const md = await r.text();
@@ -4520,7 +4561,7 @@ async function fetchReutersApi(url) {
     // Jina fetches Reuters cleanly — Reuters is not in JINA_BLOCKED
     const r = await Promise.race([
       fetch(`https://r.jina.ai/${encodeURIComponent(url)}`, {
-        headers: { "Accept": "text/plain", "X-Return-Format": "markdown" }
+        headers: jinaHeaders()
       }),
       new Promise((_,rej) => setTimeout(rej, 12000))
     ]);
@@ -4537,7 +4578,7 @@ async function fetchReutersApi(url) {
 async function fetchRealHeadline(url) {
   try {
     const r = await Promise.race([
-      fetch(`https://r.jina.ai/${encodeURIComponent(url)}`, { headers: { "Accept": "text/plain", "X-Return-Format": "markdown" } }),
+      fetch(`https://r.jina.ai/${encodeURIComponent(url)}`, { headers: jinaHeaders() }),
       new Promise((_,rej) => setTimeout(rej, 8000))
     ]);
     if (!r.ok) return null;
@@ -4766,7 +4807,7 @@ async function fetchArticle(url, _isRetry = false) {
     // Jina+html+googlebot fetches raw HTML (not Jina's
     // markdown, which strips JSON-LD entirely) with Googlebot spoofing, so
     // our JSON-LD articleBody extraction actually gets a chance to run.
-    for (const method of pick(["Jina+gift","Jina+html+googlebot","Jina+googlebot","Wayback"])) {
+    for (const method of pick(["Jina+gift","Jina+html+googlebot","Jina+googlebot","Jina","Wayback"])) {
       loadingSub.textContent = `Trying ${method.name}…`;
       logMethod(method.name, "pending", "Connecting…");
       try {
@@ -5112,6 +5153,8 @@ function renderPanel() {
   const input = document.getElementById("workerInput");
   if (input && !input.value) input.value = WORKER_BASE;
   if (WORKER_BASE) setWorkerStatus("ok", `Using ${WORKER_BASE.replace(/^https?:\/\//, "")}`);
+  const jinaEl = document.getElementById("jinaStatus");
+  if (jinaEl && getJinaKey()) { jinaEl.className = "worker-status ok"; jinaEl.textContent = "Key configured."; }
 }
 
 function setWorkerStatus(kind, msg) {
@@ -5158,6 +5201,27 @@ async function saveWorkerBase() {
   } catch (e) {
     setWorkerStatus("bad", `Couldn't reach it: ${e.message || e}`);
   }
+}
+
+async function saveJinaKey() {
+  const input = document.getElementById("jinaInput");
+  const el = document.getElementById("jinaStatus");
+  const set = (kind, msg) => { if (el) { el.className = "worker-status " + kind; el.textContent = msg; } };
+  const raw = (input?.value || "").trim();
+
+  if (!raw) { DB.set("jinaKey", ""); set("busy", "Cleared — using anonymous requests."); return; }
+  if (!/^jina_\S{10,}$/.test(raw)) { set("bad", "Keys start with jina_ …"); return; }
+
+  set("busy", "Checking…");
+  try {
+    const r = await withTimeout(fetch("https://r.jina.ai/https%3A%2F%2Fexample.com", {
+      headers: { Authorization: `Bearer ${raw}`, Accept: "text/plain" },
+    }), 15000, "timeout");
+    if (r.status === 401) { set("bad", "That key was rejected."); return; }
+    if (!r.ok) { set("bad", `Checking failed (${r.status}).`); return; }
+    DB.set("jinaKey", raw);
+    set("ok", "Saved. Paywalled articles should load more reliably.");
+  } catch (e) { set("bad", `Couldn't check it: ${e.message || e}`); }
 }
 
 // Say plainly when no worker is set, rather than quietly serving a thin feed

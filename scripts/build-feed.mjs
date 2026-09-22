@@ -252,15 +252,20 @@ async function prefetchArticle(url) {
   }
   candidates.push(url);
 
+  // Two passes. A cold URL very often answers with a stub on the first request
+  // and the real article on the second -- measured directly: the same keyed
+  // request returned 225 bytes, then 34,679. One attempt per variant therefore
+  // reported failure for articles that were reachable a moment later.
   let best = null;
-  for (const c of candidates) {
-    try {
-      const text = await jinaFetch(c);
-      // Keep the longest result rather than the first: a variant that works
-      // returns several times more article than one that does not.
-      if (text && (!best || text.length > best.length)) best = text;
-      if (best && best.length > 20000) break;   // clearly the full piece
-    } catch {}
+  for (let pass = 0; pass < 2 && (!best || best.length < 8000); pass++) {
+    for (const c of candidates) {
+      try {
+        const text = await jinaFetch(c);
+        if (text && (!best || text.length > best.length)) best = text;
+        if (best && best.length > 20000) break;   // clearly the full piece
+      } catch {}
+    }
+    if (!best && pass === 0) await new Promise(r => setTimeout(r, 800));
   }
   return best;
 }
