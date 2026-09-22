@@ -66,6 +66,28 @@ check("does not repeat the headline block",
   (tOut.match(/^#\s+Alexandria Ocasio-Cortez on 2028/gm) || []).length === 1);
 check("still drops the trailing furniture", !/Read \d+ comments/.test(tOut));
 
+// Dow Jones wire copy, as Morningstar republishes it: the story ends at the
+// newswire terminator, and everything after it is the syndicator's own
+// disclaimers and privacy copy -- long enough to pass for article body.
+console.log("\nwire copy ends at the newswire terminator:");
+const para = (n) => `Paragraph ${n} of the wire story carries enough real reporting to count as prose, ` +
+  "with figures, attribution and a quote from an official who spoke on the record about the deal.";
+const wire = ["Title: Trade Deal Reached", "", "Markdown Content:", "", "# Trade Deal Reached", "",
+  "Provided by Dow Jones Sep 22, 2026, 6:27:00 AM", "",
+  ...[1,2,3,4,5,6].flatMap(n => [para(n), ""]),
+  "Write to A Reporter at a.reporter@wsj.com", "(END) Dow Jones Newswires",
+  "September 22, 2026 02:27 ET (06:27 GMT)", "",
+  "The articles, information, and content displayed on this webpage may include materials prepared and " +
+  "provided by third parties. ".repeat(4), "",
+  "We sell different types of products and services to both investment professionals and individual " +
+  "investors, and these products and services are usually sold through license agreements. ".repeat(3)].join("\n");
+const wOut = trimJinaChrome(wire);
+check("keeps the last paragraph of the story", wOut.includes("Paragraph 6 of the wire story"));
+check("cuts the syndicator's disclaimer", !wOut.includes("materials prepared and provided by third parties"));
+check("cuts the privacy copy", !wOut.includes("sold through license agreements"));
+const more = wire.replace("(END) Dow Jones Newswires", "(MORE TO FOLLOW) Dow Jones Newswires");
+check("a roundup's MORE TO FOLLOW also ends it", !trimJinaChrome(more).includes("third parties"));
+
 console.log("\nsafety:");
 const plain = "Title: A Story\n\nMarkdown Content:\n\n" + "Real prose. ".repeat(60);
 check("passes through text with no H1", trimJinaChrome(plain).includes("Real prose."));

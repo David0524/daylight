@@ -281,6 +281,8 @@ const PUBLISHED_ARTICLES_URL =
   process.env.PUBLISHED_ARTICLES_URL ||
   "https://raw.githubusercontent.com/David0524/daylight/data/articles.json";
 
+const MISS_RETRY_MS = 3 * 60 * 60 * 1000;
+
 async function carryForwardArticles(liveUrls) {
   try {
     const r = await withTimeout(fetch(PUBLISHED_ARTICLES_URL, {
@@ -290,10 +292,83 @@ async function carryForwardArticles(liveUrls) {
     const prev = await r.json();
     const out = {};
     for (const [k, v] of Object.entries(prev || {})) {
-      if (liveUrls.has(k) && v?.text) out[k] = v;
+      if (!liveUrls.has(k)) continue;
+      // Text is kept for as long as the story is live. A recorded miss is kept
+      // for a few hours only, so a story is not searched for again on every
+      // build, but still gets another try in case its copy was published late.
+      if (v?.text || (v?.miss && Date.now() - v.at < MISS_RETRY_MS)) out[k] = v;
     }
     return out;
   } catch { return {}; }
+}
+
+// ── Licensed copies ───────────────────────────────────────────────────────
+//
+// WSJ cannot be fetched at all: its edge refuses every client in a few
+// milliseconds, before any header is read, and no archive holds it. But Dow
+// Jones licenses much of its newswire output to Morningstar, which publishes
+// it in full and free under /news/dow-jones/. So for a WSJ story, look for
+// Morningstar's copy by headline and read that instead.
+//
+// Coverage is partial by nature -- measured at 5 of 21 on one day's WSJ feed.
+// Newswire-style stories (economy, trade, markets, energy) are syndicated;
+// features, exclusives and opinion columns are not. Those stay as the feed's
+// own summary, with "open original" for a subscriber.
+
+const LICENSED = [
+  { host: /(^|\.)wsj\.com$/i, via: "Morningstar (Dow Jones)",
+    site: "morningstar.com dow-jones",
+    match: /morningstar\.com\/news\/dow-jones\/\d+\/([a-z0-9-]+)/ },
+];
+
+const titleWords = (t) => new Set(String(t || "").toLowerCase().normalize("NFKD")
+  .replace(/[\u2019']/g, "").replace(/[^a-z0-9]+/g, " ").split(" ").filter(w => w.length > 2));
+
+function headlineOverlap(a, b) {
+  const A = titleWords(a), B = titleWords(b);
+  let n = 0; A.forEach(w => B.has(w) && n++);
+  return n / Math.max(1, Math.min(A.size, B.size));
+}
+
+async function licensedCopy(item) {
+  if (!JINA_KEY) return null;
+  const rule = LICENSED.find(r => r.host.test(hostOf(item.link)));
+  if (!rule) return null;
+  const title = String(item.title || "").replace(/^opinion\s*\|\s*/i, "");
+  if (!title) return null;
+
+  let hits = [];
+  try {
+    const q = `${rule.site} "${title}"`;
+    const r = await withTimeout(fetch(`https://s.jina.ai/?q=${encodeURIComponent(q)}`, {
+      headers: { Authorization: `Bearer ${JINA_KEY}`, Accept: "application/json",
+                 "X-Respond-With": "no-content" },
+    }), 45000, "search");
+    if (!r.ok) return null;
+    hits = (await r.json())?.data || [];
+  } catch { return null; }
+
+  // The headline has to match the copy's slug closely. Morningstar's slugs
+  // track the headline, sometimes with "-update" / "-2nd-update" appended as
+  // the story develops, so word overlap rather than equality. Its periodic
+  // "Top Markets Headlines" digests mention many stories and must not be
+  // mistaken for any one of them.
+  const candidates = hits
+    .map(h => ({ url: String(h.url || ""), m: String(h.url || "").match(rule.match) }))
+    // Roundups ("...-commodities-roundup") bundle the story with unrelated
+    // items, which under a WSJ headline would misrepresent what it said.
+    .filter(h => h.m && !/top-[a-z]+-headlines|-roundup$/.test(h.m[1]))
+    .map(h => ({ url: h.url, score: headlineOverlap(title, h.m[1].replace(/-/g, " ")) }))
+    .filter(h => h.score >= 0.7)
+    .sort((a, b) => b.score - a.score);
+
+  for (const c of candidates.slice(0, 2)) {
+    try {
+      const text = await jinaFetch(c.url);
+      if (text && text.length > 2000) return { type: "markdown", text, source: c.url, via: rule.via };
+    } catch {}
+  }
+  return null;
 }
 
 // ── Markets ─────────────────────────────────────────────────────────────────
@@ -468,22 +543,34 @@ async function main() {
     // covered: one build resolved six NYT articles out of the twenty-five in
     // its NYT tab.
     const seen = new Set();
-    const top = [...Object.values(categories).flat(),
+    const pool = [...Object.values(categories).flat(),
                  ...Object.values(papers).flatMap(p => p.items || [])]
       .filter(i => i?.link && !seen.has(canonicalUrl(i.link)) && seen.add(canonicalUrl(i.link)))
       .filter(i => !articles[canonicalUrl(i.link)])   // already carried
-      .sort((a, b) => rankScore(b) - rankScore(a))
-      .slice(0, PREFETCH_LIMIT);
+      .sort((a, b) => rankScore(b) - rankScore(a));
+    // Every WSJ story gets a lookup regardless of rank: a licensed copy is the
+    // only way its text is ever available, and each costs a single search.
+    const isLicensed = (i) => LICENSED.some(r => r.host.test(hostOf(i.link)));
+    const top = [...pool.slice(0, PREFETCH_LIMIT),
+                 ...pool.slice(PREFETCH_LIMIT).filter(isLicensed)];
     log(`  Carried ${carried} forward; prefetching ${top.length} more`);
-    let hit = 0;
+    let hit = 0, licensed = 0;
     const BATCH = 5;
     for (let i = 0; i < top.length; i += BATCH) {
       await Promise.all(top.slice(i, i + BATCH).map(async (item) => {
+        // WSJ is unreachable directly, so its stories go straight to the
+        // licensed-copy lookup rather than spending fetches on a wall.
+        if (LICENSED.some(r => r.host.test(hostOf(item.link)))) {
+          const copy = await licensedCopy(item);
+          if (copy) { articles[canonicalUrl(item.link)] = copy; hit++; licensed++; }
+          else articles[canonicalUrl(item.link)] = { miss: true, at: Date.now() };
+          return;
+        }
         const text = await prefetchArticle(item.link);
         if (text) { articles[canonicalUrl(item.link)] = { type: "markdown", text }; hit++; }
       }));
     }
-    log(`    ${hit}/${top.length} resolved (${Object.keys(articles).length} total)`);
+    log(`    ${hit}/${top.length} resolved, ${licensed} via licensed copies (${Object.values(articles).filter(a => a.text).length} total)`);
   } else {
     log(`  Prefetch skipped (no key) — carried ${carried} published articles forward`);
   }
@@ -497,7 +584,7 @@ async function main() {
       categories: Object.keys(categories).length,
       items: Object.values(categories).reduce((n, a) => n + a.length, 0),
       papers: Object.keys(papers).length,
-      articles: Object.keys(articles).length,
+      articles: Object.values(articles).filter(a => a.text).length,
       markets: markets.length,
       withImages: allItems.filter(i => i.image).length,
     },
@@ -516,7 +603,7 @@ async function main() {
 // Importable: scripts/prefetch.mjs reuses canonicalUrl() and prefetchArticle()
 // against an already-published feed, so article text can be filled in without
 // rebuilding (and re-fetching) the whole feed.
-export { canonicalUrl, prefetchArticle, rankScore };
+export { canonicalUrl, prefetchArticle, rankScore, licensedCopy, headlineOverlap };
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch(e => { console.error(e); process.exit(1); });

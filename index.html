@@ -3307,7 +3307,9 @@ function renderReader(article) {
     `;
   }
 
-  const pill = article.openVersionNote
+  const pill = article.via
+    ? `<div class="reader-meta-pill"><span style="color:var(--green)">✓</span> Licensed copy via ${escHtml(article.via)}</div>`
+    : article.openVersionNote
     ? `<div class="reader-meta-pill" style="background:var(--input-bg);color:var(--sub)">↗ ${escHtml(article.openVersionNote)}</div>`
     : article.metaOnly
     ? `<div class="reader-meta-pill" style="background:var(--input-bg);color:var(--sub)">🔒 Subscription required</div>`
@@ -4224,6 +4226,12 @@ function trimJinaChrome(text) {
     // the entire story with it.
     if (lines.slice(start, i).filter(isProse).length < 3) continue;
 
+    // Wire-copy terminators end the story unconditionally. Dow Jones closes
+    // every item with "(END) Dow Jones Newswires" -- or "(MORE TO FOLLOW)"
+    // where a roundup bundles further stories after it -- and a syndicator's
+    // long disclaimers after that would otherwise pass for article body.
+    if (/^\((end|more to follow)\)\s+dow jones newswires/i.test(t)) { end = i; break; }
+
     // Named furniture ("Read 18 comments", a share bar). NYT places its share
     // bar and comment count above the story as well as below it, so the marker
     // alone is not enough: cut only when no article body still follows.
@@ -4296,6 +4304,23 @@ const GENERIC_JUNK = [
 ];
 
 const PUBLISHER_RULES = {
+  // Morningstar republishes Dow Jones (including WSJ) stories under licence;
+  // the article is clean but arrives wrapped in its third-party-content and
+  // editorial-policy boilerplate.
+  "morningstar.com": {
+    drop: [
+      /^the articles, information, and content displayed on this webpage/i,
+      /^morningstar (makes no representations|is not responsible)/i,
+      /^users are advised to exercise their own judgment/i,
+      /^maintaining independence and editorial freedom/i,
+      /^to further protect the integrity of our editorial content/i,
+      /^© copyright \d{4} morningstar/i,
+      /^(this content was created by|\(end\) dow jones newswires|copyright \(c\) \d{4} dow jones)/i,
+      /^write to .{3,80}\bat\b.{3,80}$/i,
+      /^provided by dow jones\b.{0,40}$/i,
+      /^-{2,}$/,
+    ],
+  },
   "theguardian.com": {
     drop: [
       // The membership pitch, which Jina renders as a benefits list inside
@@ -4960,7 +4985,11 @@ async function fetchArticle(url, _isRetry = false) {
   try {
     const cached = (await loadPrebuiltArticles())[canonicalUrl(url)];
     if (cached?.text) {
-      const article = parseResult(cached, url);
+      // A licensed copy (a WSJ story read from Morningstar's Dow Jones feed)
+      // is parsed against the page it actually came from, so that site's junk
+      // rules apply, but keeps the original URL for "open original".
+      const article = parseResult(cached, cached.source || url);
+      if (article && cached.source) { article.url = url; article.via = cached.via || ""; }
       if (article) {
         logMethod("prefetched", "ok", `${article.paragraphs.length} paragraphs`);
         return article;
