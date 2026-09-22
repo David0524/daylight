@@ -1469,7 +1469,7 @@ function canonicalUrl(link) {
   try {
     const u = new URL(link);
     [...u.searchParams.keys()].forEach(k => {
-      if (/^(utm_|at_|cmpid|ref|ito|smid|fbclid|gclid|mc_cid|mc_eid|s_cid)/i.test(k))
+      if (/^(utm_|at_|cmpid|ref|ito|smid|fbclid|gclid|mc_cid|mc_eid|s_cid|mod$|reflink|st$)/i.test(k))
         u.searchParams.delete(k);
     });
     return (u.hostname.replace(/^www\./, "") + u.pathname.replace(/\/$/, "") + u.search).toLowerCase();
@@ -4231,6 +4231,9 @@ function trimJinaChrome(text) {
     // where a roundup bundles further stories after it -- and a syndicator's
     // long disclaimers after that would otherwise pass for article body.
     if (/^\((end|more to follow)\)\s+dow jones newswires/i.test(t)) { end = i; break; }
+    // Kanebridge closes each licensed WSJ story with the Dow Jones copyright
+    // line, then runs straight on into further articles.
+    if (/copyright\s+\d{4},\s*dow jones & company/i.test(t)) { end = i; break; }
 
     // Named furniture ("Read 18 comments", a share bar). NYT places its share
     // bar and comment count above the story as well as below it, so the marker
@@ -4304,6 +4307,14 @@ const GENERIC_JUNK = [
 ];
 
 const PUBLISHER_RULES = {
+  "kanebridgenewsme.com": { drop: [
+    /^(mon|tue|wed|thu|fri|sat|sun), [a-z]{3} \d{1,2}, \d{4}.{0,40}\d+ min$/i,   // date + read time
+    /^share this$/i,
+  ] },
+  "kanebridgenews.com": { drop: [
+    /^(mon|tue|wed|thu|fri|sat|sun), [a-z]{3} \d{1,2}, \d{4}.{0,40}\d+ min$/i,
+    /^share this$/i,
+  ] },
   // Morningstar republishes Dow Jones (including WSJ) stories under licence;
   // the article is clean but arrives wrapped in its third-party-content and
   // editorial-policy boilerplate.
@@ -4965,6 +4976,77 @@ async function raceFetch(url) {
   return null;
 }
 
+// ── Licensed copies of WSJ, looked up live ─────────────────────────────────
+//
+// WSJ refuses every automated fetch, but Dow Jones licenses its stories to
+// outlets that publish them free: Morningstar carries the newswire-style ones,
+// Kanebridge News a selection of features and opinion. The build looks these
+// up for stories already in the feed; this does the same for a WSJ link that
+// was pasted in or is not in the prebuilt set.
+const licSlugify = (t) => String(t || "").replace(/^opinion\s*\|\s*/i, "").toLowerCase()
+  .normalize("NFKD").replace(/[̀-ͯ]/g, "").replace(/[‘’']/g, "")
+  .replace(/&/g, "and").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+
+function licOverlap(a, b) {
+  const words = (v) => new Set(String(v || "").toLowerCase().normalize("NFKD")
+    .replace(/[’']/g, "").replace(/[^a-z0-9]+/g, " ").split(" ").filter(w => w.length > 2));
+  const A = words(a), B = words(b);
+  let n = 0; A.forEach(w => B.has(w) && n++);
+  return n / Math.max(1, Math.min(A.size, B.size));
+}
+
+async function licensedCopyLive(url) {
+  // The headline, from the feed if the story is in it, else from the URL: WSJ
+  // slugs are the headline, less the trailing article hash.
+  const known = feedEntryFor(url);
+  let slugTitle = "";
+  try { slugTitle = new URL(url).pathname.split("/").pop().replace(/-[0-9a-f]{8}$/i, "").replace(/-/g, " "); } catch {}
+  const title = String(known?.title || slugTitle).replace(/^opinion\s*\|\s*/i, "").trim();
+  if (!title) return null;
+
+  const read = async (target) => {
+    const r = await withTimeout(fetch(`https://r.jina.ai/${encodeURIComponent(target)}`,
+      { headers: jinaHeaders({ "X-Return-Format": "markdown" }) }), 25000, "read timeout");
+    return r.ok ? r.text() : "";
+  };
+
+  // Every candidate runs at once and the first real copy wins: done in turn,
+  // four Kanebridge checks and a search could run past the reader's ceiling.
+  const kanebridge = [...new Set([title, slugTitle].filter(Boolean))].flatMap(t =>
+    ["https://kanebridgenewsme.com/", "https://www.kanebridgenews.com/"].map(base => async () => {
+      const target = `${base}${licSlugify(t)}/`;
+      const text = await read(target);
+      if (text.length > 2000 && /dow jones & company/i.test(text))
+        return { type: "markdown", text, source: target, via: "Kanebridge News (WSJ)" };
+      throw new Error("no copy");
+    }));
+
+  const morningstar = async () => {
+    const q = `morningstar.com dow-jones "${title}"`;
+    const r = await withTimeout(fetch(`https://s.jina.ai/?q=${encodeURIComponent(q)}`, {
+      headers: { ...jinaHeaders(), Accept: "application/json", "X-Respond-With": "no-content" },
+    }), 30000, "search timeout");
+    const hits = r.ok ? ((await r.json())?.data || []) : [];
+    const best = hits
+      .map(h => ({ url: String(h.url || ""), m: String(h.url || "").match(/morningstar\.com\/news\/dow-jones\/\d+\/([a-z0-9-]+)/) }))
+      .filter(h => h.m && !/top-[a-z]+-headlines|-roundup$/.test(h.m[1]))
+      .map(h => ({ url: h.url, score: Math.max(licOverlap(title, h.m[1].replace(/-/g, " ")),
+                                               licOverlap(slugTitle, h.m[1].replace(/-/g, " "))) }))
+      .filter(h => h.score >= 0.7)
+      .sort((a, b) => b.score - a.score)[0];
+    if (!best) throw new Error("no match");
+    const text = await read(best.url);
+    if (text.length > 2000) return { type: "markdown", text, source: best.url, via: "Morningstar (Dow Jones)" };
+    throw new Error("empty");
+  };
+
+  try {
+    return await Promise.any([...kanebridge, morningstar].map(f => f()));
+  } catch {
+    return null;
+  }
+}
+
 async function fetchArticle(url, _isRetry = false) {
   // Guard: never fetch Google URLs (images, news blobs, search pages) as articles
   try {
@@ -5076,10 +5158,20 @@ async function fetchArticle(url, _isRetry = false) {
   // ── Tier 3b: WSJ/Barron's — no fetch can reach them ─────────────────────
   else if (inSet(JINA_BLOCKED)) {
     // WSJ refuses every automated fetch, so the only full text is a licensed
-    // copy, which the prefetch check above has already looked for. Without
-    // one, stay in the app and show the feed's own summary rather than
-    // bouncing the reader out to wsj.com -- that is what "open original" is
-    // for, when they choose it.
+    // copy. The prefetch check above covers stories the build already
+    // resolved; anything else -- a pasted link, a story newer than the last
+    // build -- is looked up live. Without one, stay in the app and show the
+    // feed's own summary rather than bouncing the reader out to wsj.com.
+    loadingSub.textContent = "Looking for a licensed copy…";
+    logMethod("Licensed copy", "pending", "Kanebridge, Morningstar…");
+    const copy = await licensedCopyLive(url).catch(() => null);
+    const article = copy && parseResult(copy, copy.source);
+    if (article) {
+      article.url = url; article.via = copy.via;
+      logMethod("Licensed copy", "ok", copy.via);
+      return article;
+    }
+    logMethod("Licensed copy", "fail", "None published");
     state.noLicensedCopy = true;
     return null;
   }
@@ -5226,7 +5318,7 @@ function feedEntryFor(url) {
 // a key of your own fixes.
 function readerFailureNote() {
   if (state.noLicensedCopy) {
-    return "Summary only — WSJ makes just some stories free, via Morningstar, and this isn't one.";
+    return "Summary only — WSJ makes just some stories free, through licensed partners, and none has published this one.";
   }
   const log = (state.errors || []).join(" ").toLowerCase();
   const rateLimited = /401|429|unauthorized|timeout|captcha|sharing-param/.test(log);

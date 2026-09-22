@@ -169,7 +169,7 @@ function canonicalUrl(link) {
   try {
     const u = new URL(link);
     [...u.searchParams.keys()].forEach(k => {
-      if (/^(utm_|at_|cmpid|ref|ito|smid|fbclid|gclid|mc_cid|mc_eid|s_cid)/i.test(k)) u.searchParams.delete(k);
+      if (/^(utm_|at_|cmpid|ref|ito|smid|fbclid|gclid|mc_cid|mc_eid|s_cid|mod$|reflink|st$)/i.test(k)) u.searchParams.delete(k);
     });
     return (u.hostname.replace(/^www\./, "") + u.pathname.replace(/\/$/, "") + u.search).toLowerCase();
   } catch { return String(link || "").toLowerCase(); }
@@ -337,12 +337,42 @@ function headlineOverlap(a, b) {
   return n / Math.max(1, Math.min(A.size, B.size));
 }
 
+// Kanebridge News republishes a selection of WSJ stories in full, under
+// licence -- including opinion columns and features, which Morningstar never
+// carries. Its URLs are the headline slugified, so a copy can be checked for
+// directly with no search. Each page carries a Dow Jones copyright line, which
+// is what confirms it is the licensed story and not an unrelated page.
+const KANEBRIDGE = ["https://kanebridgenewsme.com/", "https://www.kanebridgenews.com/"];
+
+const slugify = (t) => String(t || "").replace(/^opinion\s*\|\s*/i, "").toLowerCase()
+  .normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[\u2018\u2019']/g, "")
+  .replace(/&/g, "and").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+
+async function kanebridgeCopy(title) {
+  const slug = slugify(title);
+  if (!slug) return null;
+  for (const base of KANEBRIDGE) {
+    const url = `${base}${slug}/`;
+    try {
+      const r = await withTimeout(fetch(url, { headers: { "User-Agent": UA_BROWSER }, redirect: "follow" }), 20000, "kanebridge");
+      if (!r.ok || !/Dow Jones &(amp;)? Company/i.test(await r.text())) continue;
+      const text = await jinaFetch(url);
+      if (text && text.length > 2000) return { type: "markdown", text, source: url, via: "Kanebridge News (WSJ)" };
+    } catch {}
+  }
+  return null;
+}
+
 async function licensedCopy(item) {
   if (!JINA_KEY) return null;
   const rule = LICENSED.find(r => r.host.test(hostOf(item.link)));
   if (!rule) return null;
   const title = String(item.title || "").replace(/^opinion\s*\|\s*/i, "");
   if (!title) return null;
+
+  // The direct check is cheaper than a search, so it goes first.
+  const kb = await kanebridgeCopy(title);
+  if (kb) return kb;
 
   let hits = [];
   try {
@@ -618,7 +648,7 @@ async function main() {
 // Importable: scripts/prefetch.mjs reuses canonicalUrl() and prefetchArticle()
 // against an already-published feed, so article text can be filled in without
 // rebuilding (and re-fetching) the whole feed.
-export { canonicalUrl, prefetchArticle, rankScore, licensedCopy, headlineOverlap, resolveItem, carryForwardArticles };
+export { canonicalUrl, prefetchArticle, rankScore, licensedCopy, headlineOverlap, resolveItem, carryForwardArticles, slugify };
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch(e => { console.error(e); process.exit(1); });

@@ -88,6 +88,15 @@ check("cuts the privacy copy", !wOut.includes("sold through license agreements")
 const more = wire.replace("(END) Dow Jones Newswires", "(MORE TO FOLLOW) Dow Jones Newswires");
 check("a roundup's MORE TO FOLLOW also ends it", !trimJinaChrome(more).includes("third parties"));
 
+// Kanebridge runs straight from a licensed WSJ story into further articles,
+// with the Dow Jones copyright line as the only boundary.
+const kb = wire.replace(/Write to[\s\S]*$/, "") +
+  "\n![Image 35](https://k/copyright.svg)Copyright 2020, Dow Jones & Company, Inc. All Rights Reserved\n\n" +
+  "Related Stories\n\n" + "An unrelated story about construction skills that runs long enough to look like prose. ".repeat(5);
+const kbOut = trimJinaChrome(kb);
+check("Kanebridge: keeps the story", kbOut.includes("Paragraph 6 of the wire story"));
+check("Kanebridge: cuts the next article", !kbOut.includes("construction skills"));
+
 console.log("\nsafety:");
 const plain = "Title: A Story\n\nMarkdown Content:\n\n" + "Real prose. ".repeat(60);
 check("passes through text with no H1", trimJinaChrome(plain).includes("Real prose."));
