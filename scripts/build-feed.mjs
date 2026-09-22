@@ -225,7 +225,8 @@ async function hackerNews(limit, aiOnly) {
 
 const WALL_MARKERS = ["please complete the security check","one more step","this page maybe requiring captcha",
   "checking if the site connection is secure","ray id:","subscribe to continue reading",
-  "this article is for subscribers","you've used all your free articles"];
+  "this article is for subscribers","you've used all your free articles",
+  "already a subscriber? sign in","continue reading your article with"];
 
 async function jinaFetch(url) {
   // No X-No-Cache here, deliberately: NYT's sharing params only return the
@@ -293,6 +294,12 @@ async function carryForwardArticles(liveUrls) {
     const out = {};
     for (const [k, v] of Object.entries(prev || {})) {
       if (!liveUrls.has(k)) continue;
+      // For a licensed host, only a licensed copy or a recorded miss is worth
+      // keeping. Anything else is the host's own paywalled preview, left by a
+      // build that fetched the site directly -- and carrying it forward would
+      // mark the story done, so its licensed copy would never be looked up.
+      const host = k.split("/")[0];
+      if (LICENSED.some(r => r.host.test(host)) && !v?.source && !v?.miss) continue;
       // Text is kept for as long as the story is live. A recorded miss is kept
       // for a few hours only, so a story is not searched for again on every
       // build, but still gets another try in case its copy was published late.
@@ -369,6 +376,20 @@ async function licensedCopy(item) {
     } catch {}
   }
   return null;
+}
+
+/**
+ * The articles.json entry for one feed item, or null if nothing was resolved.
+ * WSJ is unreachable directly, so its stories go straight to the licensed-copy
+ * lookup rather than spending fetches on a wall, and a miss is recorded so the
+ * next few builds do not search for it again.
+ */
+async function resolveItem(item) {
+  if (LICENSED.some(r => r.host.test(hostOf(item.link)))) {
+    return (await licensedCopy(item)) || { miss: true, at: Date.now() };
+  }
+  const text = await prefetchArticle(item.link);
+  return text ? { type: "markdown", text } : null;
 }
 
 // ── Markets ─────────────────────────────────────────────────────────────────
@@ -558,16 +579,10 @@ async function main() {
     const BATCH = 5;
     for (let i = 0; i < top.length; i += BATCH) {
       await Promise.all(top.slice(i, i + BATCH).map(async (item) => {
-        // WSJ is unreachable directly, so its stories go straight to the
-        // licensed-copy lookup rather than spending fetches on a wall.
-        if (LICENSED.some(r => r.host.test(hostOf(item.link)))) {
-          const copy = await licensedCopy(item);
-          if (copy) { articles[canonicalUrl(item.link)] = copy; hit++; licensed++; }
-          else articles[canonicalUrl(item.link)] = { miss: true, at: Date.now() };
-          return;
-        }
-        const text = await prefetchArticle(item.link);
-        if (text) { articles[canonicalUrl(item.link)] = { type: "markdown", text }; hit++; }
+        const entry = await resolveItem(item);
+        if (!entry) return;
+        articles[canonicalUrl(item.link)] = entry;
+        if (entry.text) { hit++; if (entry.source) licensed++; }
       }));
     }
     log(`    ${hit}/${top.length} resolved, ${licensed} via licensed copies (${Object.values(articles).filter(a => a.text).length} total)`);
@@ -603,7 +618,7 @@ async function main() {
 // Importable: scripts/prefetch.mjs reuses canonicalUrl() and prefetchArticle()
 // against an already-published feed, so article text can be filled in without
 // rebuilding (and re-fetching) the whole feed.
-export { canonicalUrl, prefetchArticle, rankScore, licensedCopy, headlineOverlap };
+export { canonicalUrl, prefetchArticle, rankScore, licensedCopy, headlineOverlap, resolveItem, carryForwardArticles };
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch(e => { console.error(e); process.exit(1); });

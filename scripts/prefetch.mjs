@@ -8,14 +8,14 @@
  * feed.json, resolves the text for its top stories, and writes articles.json
  * alone, leaving the feed untouched.
  *
- *   JINA_API_KEY=… node scripts/prefetch.mjs [outDir] [feedUrlOrPath]
+ *   node scripts/prefetch.mjs [outDir] [feedUrlOrPath]
  *
  * The key is only ever read from the environment. It is never written into the
  * output, which is published to a public branch.
  */
 import { writeFileSync, mkdirSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { canonicalUrl, prefetchArticle, rankScore } from "./build-feed.mjs";
+import { canonicalUrl, resolveItem, rankScore } from "./build-feed.mjs";
 
 const OUT_DIR = process.argv[2] || "dist";
 const FEED_SRC = process.argv[3] ||
@@ -23,10 +23,6 @@ const FEED_SRC = process.argv[3] ||
 const LIMIT = Number(process.env.PREFETCH_LIMIT || 70);
 const BATCH = 5;
 
-if (!process.env.JINA_API_KEY) {
-  console.error("JINA_API_KEY is not set — nothing to do.");
-  process.exit(1);
-}
 
 async function loadFeed(src) {
   if (existsSync(src)) return JSON.parse(readFileSync(src, "utf8"));
@@ -58,8 +54,10 @@ async function main() {
   let hit = 0;
   for (let i = 0; i < top.length; i += BATCH) {
     await Promise.all(top.slice(i, i + BATCH).map(async (item) => {
-      const text = await prefetchArticle(item.link);
-      if (text) { articles[canonicalUrl(item.link)] = { type: "markdown", text }; hit++; }
+      const entry = await resolveItem(item);
+      if (entry) articles[canonicalUrl(item.link)] = entry;
+      const text = entry?.text;
+      if (text) hit++;
       const host = (() => { try { return new URL(item.link).hostname.replace(/^www\./, ""); } catch { return "?"; } })();
       console.log(`  ${text ? String(text.length).padStart(7) : "   miss"}  ${host}`);
     }));
