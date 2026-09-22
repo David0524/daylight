@@ -216,24 +216,53 @@ async function hackerNews(limit, aiOnly) {
 
 // ── Article prefetch ────────────────────────────────────────────────────────
 
+const WALL_MARKERS = ["please complete the security check","one more step","this page maybe requiring captcha",
+  "checking if the site connection is secure","ray id:","subscribe to continue reading",
+  "this article is for subscribers","you've used all your free articles"];
+
+async function jinaFetch(url) {
+  // No X-No-Cache here, deliberately: NYT's sharing params only return the
+  // full article through Jina's cache, and disabling it drops them back to the
+  // metered preview (or to a tracking-pixel redirect).
+  const r = await withTimeout(fetch(`https://r.jina.ai/${encodeURIComponent(url)}`, {
+    headers: { Authorization: `Bearer ${JINA_KEY}`, Accept: "text/plain",
+               "X-Return-Format": "markdown", "X-Timeout": "20",
+               "X-Referer": "https://www.google.com/" },
+  }), 30000, "jina");
+  if (!r.ok) return null;
+  const text = await r.text();
+  const low = text.toLowerCase();
+  if (WALL_MARKERS.some(w => low.includes(w))) return null;
+  return text.length < 1200 ? null : text;
+}
+
 async function prefetchArticle(url) {
   if (!JINA_KEY) return null;
-  try {
-    const r = await withTimeout(fetch(`https://r.jina.ai/${encodeURIComponent(url)}`, {
-      headers: { Authorization: `Bearer ${JINA_KEY}`, Accept: "text/plain", "X-Return-Format": "markdown", "X-Timeout": "20" },
-    }), 30000, "jina");
-    if (!r.ok) return null;
-    const text = await r.text();
-    const lower = text.toLowerCase();
-    // Same wall detection as the reader: a Cloudflare challenge comes back on
-    // HTTP 200 and is only ~810 bytes, so length alone never caught it.
-    const walls = ["please complete the security check","one more step","this page maybe requiring captcha",
-                   "checking if the site connection is secure","ray id:","subscribe to continue reading",
-                   "this article is for subscribers","you've used all your free articles"];
-    if (walls.some(w => lower.includes(w))) return null;
-    if (text.length < 1200) return null;
-    return text;
-  } catch { return null; }
+
+  // NYT honours its own article-sharing params server-side, returning the full
+  // text where a plain request gets the metered preview -- 1,569 words against
+  // 345 on the same article. Try those first for NYT, then fall back.
+  const candidates = [];
+  if (/(^|\.)nytimes\.com$/i.test(hostOf(url))) {
+    const sep = url.includes("?") ? "&" : "?";
+    candidates.push(
+      `${url}${sep}unlocked_article_code=1&smid=nytcore-ios-share`,
+      `${url}${sep}unlocked_article_code=1&smid=url-share`,
+    );
+  }
+  candidates.push(url);
+
+  let best = null;
+  for (const c of candidates) {
+    try {
+      const text = await jinaFetch(c);
+      // Keep the longest result rather than the first: a variant that works
+      // returns several times more article than one that does not.
+      if (text && (!best || text.length > best.length)) best = text;
+      if (best && best.length > 20000) break;   // clearly the full piece
+    } catch {}
+  }
+  return best;
 }
 
 // ── Markets ─────────────────────────────────────────────────────────────────

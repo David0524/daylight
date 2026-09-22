@@ -4084,22 +4084,45 @@ function trimJinaChrome(text) {
   const titleLine = lines.find(l => l.startsWith("Title:"));
   const title = titleLine ? titleLine.slice(6).trim() : "";
   const norm = (v) => v.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const words = (v) => new Set(norm(v).split(" ").filter(w => w.length > 3));
 
   let start = 0;
   const contentAt = lines.findIndex(l => l.trim() === "Markdown Content:");
   if (contentAt !== -1) start = contentAt + 1;
 
-  if (title) {
-    const want = norm(title);
-    const h1 = lines.findIndex(l => {
-      if (!/^#{1,2}\s/.test(l)) return false;
-      const h = norm(l.replace(/^#{1,2}\s*/, ""));
-      // Prefixes rather than equality: the H1 is sometimes lightly different
-      // (a trailing dateline, a dropped subtitle) from the meta title.
-      return h && (h === want || want.startsWith(h) || h.startsWith(want));
-    });
-    if (h1 > start) start = h1;
+  // Find the heading the article actually starts at, in order of confidence.
+  //
+  // 1. A lone top-level "# " heading. News templates use h1 once, for the
+  //    headline, and h3/h4 for nav — so this is the strongest signal and does
+  //    not depend on the meta title matching anything.
+  const h1s = [];
+  for (let i = start; i < lines.length; i++) if (/^#\s+\S/.test(lines[i])) h1s.push(i);
+
+  let anchor = -1;
+  if (h1s.length) {
+    anchor = h1s[0];
+  } else if (title) {
+    // 2. Otherwise an h1/h2 that shares most of its words with the meta title.
+    //    Prefix matching was too brittle: NYT's meta title and display
+    //    headline routinely differ in the middle ("Prime Minister Al-Zaidi
+    //    Vows to Disarm" against "Prime Minister Vows to Disarm and Disband"),
+    //    which left the article unanchored and the whole capture treated as
+    //    chrome.
+    const want = words(title);
+    let best = -1, bestScore = 0;
+    for (let i = start; i < lines.length; i++) {
+      if (!/^#{1,2}\s+\S/.test(lines[i])) continue;
+      const got = words(lines[i].replace(/^#{1,2}\s*/, ""));
+      if (!got.size) continue;
+      const shared = [...got].filter(w => want.has(w)).length;
+      const score = shared / Math.max(1, Math.min(got.size, want.size));
+      if (score > bestScore) { bestScore = score; best = i; }
+    }
+    if (bestScore >= 0.6) anchor = best;
   }
+  if (anchor > start) start = anchor;
+
+  const isProse = (l) => l.trim().length > 140 && !/^[*#\[!]/.test(l.trim());
 
   // Everything from the first of these markers on is post-article furniture.
   const END_MARKERS = [
@@ -4107,29 +4130,30 @@ function trimJinaChrome(text) {
     /^read\s+\d+\s+comments?$/i,
     /^\s*\*?\s*share full article/i,
     /^\[?subscribe to the times/i,
+    /^see more on:/i,          // NYT's trailing topic-tag list
     // Deliberately not here: "Advertisement" and empty "*" bullets. They occur
     // throughout an NYT article body, not only after it, so treating them as
     // end-of-article markers truncated the story mid-way. The per-line filters
     // in parseJinaMarkdown drop them where they appear.
   ];
-  const isProse = (l) => l.trim().length > 140 && !/^[*#\[!]/.test(l.trim());
 
   let end = lines.length;
-  // Only look past a reasonable amount of body, so a stray marker near the top
-  // cannot truncate the article to nothing.
   for (let i = start + 12; i < lines.length; i++) {
     const t = lines[i].trim();
     if (!t) continue;
+
+    // Never cut before the article has actually begun. Without this, an h2 in
+    // the navigation above an unanchored article looks like a footer and takes
+    // the entire story with it.
+    if (lines.slice(start, i).filter(isProse).length < 3) continue;
 
     // Named furniture ("## Related Content", "Read 18 comments", a share bar)
     // is unambiguous, so it cuts on sight.
     if (END_MARKERS.some(re => re.test(t))) { end = i; break; }
 
-    // Any other h2 might be the start of a site footer or might be a genuine
+    // Any other h2 might start a site footer or might be a genuine
     // mid-article subheading. Tell them apart by what follows: a footer is a
-    // dense list of links, an article section is prose. Counting remaining
-    // prose alone failed both ways -- footers carry a couple of long legal
-    // lines, and a subheading near the end of a story has little after it.
+    // dense list of links, an article section is prose.
     if (/^##\s+\S/.test(t)) {
       const after = lines.slice(i + 1).filter(l => l.trim()).slice(0, 15);
       const linky = after.filter(l => /^[*\-]\s|^\[|\]\(http/.test(l.trim())).length;
@@ -4719,14 +4743,19 @@ async function fetchArticle(url, _isRetry = false) {
     // Method order reflects current (2026) reality for NYT specifically:
     // NYT has been actively "hard blocking" Internet Archive's crawlers since
     // late 2025 — confirmed via multiple 2026 reports, not just occasional
-    // failures — so Wayback is now a long shot and moved last. Archive.ph has
+    // Jina+gift leads because it measurably wins: on a live NYT article it
+    // returned 1,569 words against plain Jina's 345. It was second here, which
+    // let Jina+html+googlebot answer first with the metered preview and
+    // preempt it. Note the sharing params only work through Jina's cache --
+    // sending X-No-Cache defeats them, so nothing in this app does.
+    // Wayback is a long shot and stays last. Archive.ph has
     // been removed entirely: it is behind a Cloudflare challenge that no
     // server-side fetch passes, and it was the source of the captcha pages
     // that were being rendered as articles.
     // Jina+html+googlebot fetches raw HTML (not Jina's
     // markdown, which strips JSON-LD entirely) with Googlebot spoofing, so
     // our JSON-LD articleBody extraction actually gets a chance to run.
-    for (const method of pick(["Jina+html+googlebot","Jina+gift","Jina+googlebot","Wayback"])) {
+    for (const method of pick(["Jina+gift","Jina+html+googlebot","Jina+googlebot","Wayback"])) {
       loadingSub.textContent = `Trying ${method.name}…`;
       logMethod(method.name, "pending", "Connecting…");
       try {

@@ -225,6 +225,26 @@ async function viaDirect(target, headers, label) {
   return { type: "html", text };
 }
 
+// NYT honours article-sharing params server-side, so a request carrying them
+// returns the full text rather than the metered preview -- measured at 1,569
+// words against 345 for the same article without them. They only take effect
+// through Jina's cache, so this must not send X-No-Cache.
+async function viaJinaGift(target, env) {
+  const sep = target.includes("?") ? "&" : "?";
+  const variants = [
+    `${target}${sep}unlocked_article_code=1&smid=nytcore-ios-share`,
+    `${target}${sep}unlocked_article_code=1&smid=url-share`,
+    `${target}${sep}smid=nytcore-ios-share`,
+  ];
+  let lastErr = "no variant worked";
+  for (const v of variants) {
+    try {
+      return await viaJina(v, env, { headers: { "X-Referer": "https://www.google.com/" } });
+    } catch (e) { lastErr = String(e.message || e); }
+  }
+  throw new Error(lastErr);
+}
+
 async function viaWayback(target, env) {
   // Ask the CDX index for a recent 200-status snapshot. The availability API
   // rate-limits aggressively; CDX holds up better.
@@ -265,10 +285,14 @@ function ladderFor(host) {
   const googlebotFirst = [
     "googlebot", "jina", "jina-googlebot", "wayback", "amp", "direct",
   ];
+  // NYT first honours its own sharing params, which return the full article
+  // where everything else gets the metered preview.
+  const nytFirst = ["jina-gift", ...googlebotFirst];
   const openSite = ["direct", "jina", "googlebot", "wayback"];
 
   // Hard paywalls: a plain fetch only ever returns the wall, so skip it.
   const hardPaywall = /(\.|^)(wsj|barrons|ft|economist|nytimes|bloomberg|theathletic|newyorker|theatlantic|washingtonpost|latimes|thetimes\.co)\.(com|uk)$/i;
+  if (/(^|\.)nytimes\.com$/i.test(host)) return nytFirst;
   if (hardPaywall.test(host)) return googlebotFirst;
   return openSite;
 }
@@ -289,6 +313,9 @@ async function runLadder(target, env) {
           break;
         case "jina":
           out = await viaJina(target, env);
+          break;
+        case "jina-gift":
+          out = await viaJinaGift(target, env);
           break;
         case "jina-googlebot":
           out = await viaJina(target, env, {

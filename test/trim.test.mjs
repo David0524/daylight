@@ -32,6 +32,24 @@ check("drops the comment count", !/Read \d+ comments/.test(out));
 check("keeps the opening paragraph", out.includes("The conflict has opened a second front"));
 check("keeps later body text", out.includes("Here is how the war restarted"));
 
+// The sharing-param capture must survive trimming with the whole article
+// intact. A previous version of the trimmer anchored on the meta title, which
+// does not match NYT's display headline, so the article went unanchored and a
+// navigation h2 was mistaken for the footer -- taking the entire story with it
+// and leaving a metered-looking stub. That is what "the gift link broke".
+console.log("\nsharing-param capture keeps the full article:");
+const gift  = readFileSync(new URL("./fixture-nyt-gift-full.md", import.meta.url), "utf8");
+const metered = readFileSync(new URL("./fixture-nyt-plain-metered.md", import.meta.url), "utf8");
+const gWords = trimJinaChrome(gift).split(/\s+/).length;
+const pWords = trimJinaChrome(metered).split(/\s+/).length;
+console.log(`  gift ${gWords}w vs plain ${pWords}w`);
+check("gift capture keeps well over 1000 words", gWords > 1000);
+check("gift yields at least 3x the metered version", gWords > pWords * 3);
+check("starts at the display headline, not the meta title",
+  /^#\s+Iraq.s Prime Minister Vows to Disarm/.test(trimJinaChrome(gift).trim()));
+check("keeps the opening paragraph", trimJinaChrome(gift).includes("pledged to disarm"));
+check("drops the nav above it", !trimJinaChrome(gift).includes("Skip to site index"));
+
 console.log("\nsafety:");
 const plain = "Title: A Story\n\nMarkdown Content:\n\n" + "Real prose. ".repeat(60);
 check("passes through text with no H1", trimJinaChrome(plain).includes("Real prose."));
