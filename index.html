@@ -2156,6 +2156,14 @@ async function fetchWeather() {
 }
 
 async function fetchMarketData() {
+  // Published quotes first. Yahoo is no more reachable from a browser than the
+  // feeds are, so without these the tiles just showed "—" forever.
+  if (PREBUILT_MARKETS?.length) {
+    applyMarketTiles(PREBUILT_MARKETS);
+    DB.set(MARKET_CACHE_KEY, { tiles: PREBUILT_MARKETS, ts: Date.now() });
+    return;
+  }
+
   // Render from cache immediately so the tiles are never blank on load.
   const cached = DB.get(MARKET_CACHE_KEY);
   if (cached?.tiles?.length) {
@@ -3100,6 +3108,7 @@ const PREBUILT_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 
 let PREBUILT_ARTICLES = null;
 let PREBUILT_PAPERS = null;
+let PREBUILT_MARKETS = null;
 
 async function loadPrebuiltFeed() {
   try {
@@ -3146,6 +3155,7 @@ async function loadFeed() {
   const prebuilt = await loadPrebuiltFeed();
   if (prebuilt) {
     PREBUILT_PAPERS = prebuilt.papers || {};
+    PREBUILT_MARKETS = prebuilt.markets || null;
     renderFeed(prebuilt.categories);
     document.getElementById("feedNotice")?.remove();
     setTimeout(() => enrichFeedMeta(prebuilt.categories), 200);

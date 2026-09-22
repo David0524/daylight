@@ -236,6 +236,54 @@ async function prefetchArticle(url) {
   } catch { return null; }
 }
 
+// ── Markets ─────────────────────────────────────────────────────────────────
+
+async function marketQuotes() {
+  const out = [];
+  for (const { id, symbol } of (SOURCES.markets || [])) {
+    try {
+      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`;
+      const data = await withTimeout(fetch(url, { headers: { "User-Agent": UA_BROWSER } }).then(r => r.json()), 15000, "market");
+      const m = data?.chart?.result?.[0]?.meta;
+      const price = m?.regularMarketPrice;
+      const prev = m?.chartPreviousClose ?? m?.previousClose;
+      if (!Number.isFinite(price) || !Number.isFinite(prev) || !prev) continue;
+      out.push({ id, price, pct: ((price - prev) / prev) * 100 });
+    } catch {}
+  }
+  return out;
+}
+
+// ── Images ──────────────────────────────────────────────────────────────────
+
+// Plenty of feeds carry no image, which left the top of the page as a row of
+// grey boxes. The browser cannot scrape og:image cross-origin, so do it here.
+async function resolveImage(url) {
+  try {
+    const r = await withTimeout(fetch(url, { headers: { "User-Agent": UA_BROWSER } }), 10000, "og");
+    if (!r.ok) return "";
+    const html = (await r.text()).slice(0, 120000);
+    const grab = (prop) =>
+      (html.match(new RegExp(`<meta[^>]+(?:property|name)=["']${prop}["'][^>]+content=["']([^"']+)["']`, "i")) || [])[1] ||
+      (html.match(new RegExp(`<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["']${prop}["']`, "i")) || [])[1] || "";
+    const img = decodeEntities(grab("og:image") || grab("twitter:image"));
+    return img.startsWith("http") ? img : "";
+  } catch { return ""; }
+}
+
+async function fillImages(items, limit) {
+  const need = items.filter(i => !i.image).slice(0, limit);
+  const BATCH = 8;
+  let filled = 0;
+  for (let i = 0; i < need.length; i += BATCH) {
+    await Promise.all(need.slice(i, i + BATCH).map(async (item) => {
+      const img = await resolveImage(item.link);
+      if (img) { item.image = img; filled++; }
+    }));
+  }
+  return filled;
+}
+
 // ── Build ───────────────────────────────────────────────────────────────────
 
 async function buildCategory(name, cfg) {
@@ -307,6 +355,15 @@ async function main() {
     if (items.length) papers[id] = { name: cfg.name, emoji: cfg.emoji, items };
   }
 
+  log("  Markets");
+  const markets = await marketQuotes();
+  log(`    ${markets.length}/${(SOURCES.markets || []).length} quotes`);
+
+  log("  Images");
+  const allItems = Object.values(categories).flat();
+  const filled = await fillImages(allItems, Number(process.env.IMAGE_LIMIT || 70));
+  log(`    ${filled} resolved (${allItems.filter(i => i.image).length}/${allItems.length} now have one)`);
+
   // Prefetch article text for the top stories so the reader opens instantly and
   // paywalled pieces are already resolved. Skipped without a key.
   const articles = {};
@@ -332,12 +389,14 @@ async function main() {
   const feed = {
     generatedAt: new Date().toISOString(),
     categoryOrder: SOURCES.categoryOrder,
-    categories, papers,
+    categories, papers, markets,
     counts: {
       categories: Object.keys(categories).length,
       items: Object.values(categories).reduce((n, a) => n + a.length, 0),
       papers: Object.keys(papers).length,
       articles: Object.keys(articles).length,
+      markets: markets.length,
+      withImages: allItems.filter(i => i.image).length,
     },
   };
   writeFileSync(join(OUT_DIR, "feed.json"), JSON.stringify(feed));
