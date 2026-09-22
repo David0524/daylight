@@ -1044,10 +1044,32 @@ const WORKER_BASE_DEFAULT = "";
 const JINA_KEY_DEFAULT = "jina_3c7c35dfe33141c59b75abdf4ef567ebfD9KFFpq_NwRB3u0Y8B5dEUDiZNs";
 
 function getJinaKey() {
+  if (JINA_KEY_EXHAUSTED) return "";
   const k = DB.get("jinaKey", "");
   if (typeof k === "string" && /^jina_/.test(k.trim())) return k.trim();
   return JINA_KEY_DEFAULT;
 }
+
+// A key that has run out of balance makes Jina answer 402 to every request,
+// which is worse than sending none: anonymous requests still work for many
+// sites. So on the first 402 the key is dropped for the rest of the session
+// and that request is retried without it. Covers every Jina call in the page,
+// since they all go through fetch.
+var JINA_KEY_EXHAUSTED = false;   // var: getJinaKey may run before this line
+(() => {
+  const realFetch = window.fetch.bind(window);
+  window.fetch = async (input, init = {}) => {
+    const url = typeof input === "string" ? input : input?.url || "";
+    const res = await realFetch(input, init);
+    if (res.status !== 402 || !/^https:\/\/[rs]\.jina\.ai\//.test(url)) return res;
+    JINA_KEY_EXHAUSTED = true;
+    const headers = new Headers(init.headers || {});
+    headers.delete("Authorization");
+    // Search needs a key; without one there is nothing to retry.
+    if (/^https:\/\/s\.jina\.ai\//.test(url)) return res;
+    return realFetch(input, { ...init, headers });
+  };
+})();
 
 // Authorization header for Jina, when a key has been configured. Anonymous
 // requests are rate-limited hard enough that a cold URL frequently answers

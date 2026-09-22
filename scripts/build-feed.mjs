@@ -381,9 +381,12 @@ async function licensedCopy(item) {
       headers: { Authorization: `Bearer ${JINA_KEY}`, Accept: "application/json",
                  "X-Respond-With": "no-content" },
     }), 45000, "search");
+    // 402 is an exhausted key, not an absent copy. Recording it as a miss
+    // would skip the story for hours after a new key is in place.
+    if (r.status === 402) throw new Error("jina key exhausted");
     if (!r.ok) return null;
     hits = (await r.json())?.data || [];
-  } catch { return null; }
+  } catch (e) { if (/exhausted/.test(e.message)) throw e; return null; }
 
   // The headline has to match the copy's slug closely. Morningstar's slugs
   // track the headline, sometimes with "-update" / "-2nd-update" appended as
@@ -416,7 +419,8 @@ async function licensedCopy(item) {
  */
 async function resolveItem(item) {
   if (LICENSED.some(r => r.host.test(hostOf(item.link)))) {
-    return (await licensedCopy(item)) || { miss: true, at: Date.now() };
+    try { return (await licensedCopy(item)) || { miss: true, at: Date.now() }; }
+    catch { return null; }   // key exhausted: record nothing, retry next build
   }
   const text = await prefetchArticle(item.link);
   return text ? { type: "markdown", text } : null;
