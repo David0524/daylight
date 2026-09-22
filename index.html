@@ -634,14 +634,6 @@
   .feed-sentinel-spinner { width: 20px; height: 20px; border: 2px solid var(--border); border-top-color: var(--gold); border-radius: 50%; animation: spin 0.7s linear infinite; opacity: 0; transition: opacity 0.3s; }
   .feed-sentinel-spinner.visible { opacity: 1; }
 
-  /* -- AI badge -- */
-  .ai-badge {
-    display: inline-block; font-family: 'DM Mono', monospace; font-size: 9px;
-    background: linear-gradient(135deg, #8B5CF6, #C084FC);
-    color: #fff; padding: 2px 6px; border-radius: 4px; letter-spacing: 0.5px;
-    vertical-align: middle; margin-left: 6px;
-  }
-
   /* -- Deep tab -- */
   .deep-wrap {
     padding: 0 0 60px;
@@ -2346,8 +2338,7 @@ function renderFeed(catMap) {
       isFirst = false;
     }
 
-    const isAI = cat === "AI";
-    html += `<div class="feed-section">${escHtml(cat)}${isAI ? '<span class="ai-badge">BETA</span>' : ""}</div>`;
+    html += `<div class="feed-section">${escHtml(cat)}</div>`;
     html += `<div class="card-strip" id="strip-${escHtml(cat)}">`;
 
     const PAGE_SIZE = 6;
