@@ -27,7 +27,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -37,10 +37,10 @@ jobs:
 
       - name: Build feed
         env:
-          # Optional. Set it under Settings -> Secrets -> Actions to also
-          # prefetch article text, which makes the reader open instantly and
-          # resolves paywalled pieces ahead of time. The key stays here and is
-          # never served to the browser.
+          # Optional override. The build falls back to the key committed in
+          # index.html, so prefetch runs without this being set. Setting it
+          # under Settings -> Secrets -> Actions swaps in a different key
+          # without a code change -- useful if the committed one is exhausted.
           JINA_API_KEY: ${{ secrets.JINA_API_KEY }}
         run: node scripts/build-feed.mjs dist
 

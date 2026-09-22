@@ -31,7 +31,7 @@ const SOURCES = JSON.parse(readFileSync(new URL("../sources.json", import.meta.u
 const JINA_KEY = process.env.JINA_API_KEY ||
   (readFileSync(new URL("../index.html", import.meta.url), "utf8")
     .match(/JINA_KEY_DEFAULT\s*=\s*"(jina_[^"]+)"/)?.[1] || "");
-const PREFETCH_LIMIT = Number(process.env.PREFETCH_LIMIT || 60);
+const PREFETCH_LIMIT = Number(process.env.PREFETCH_LIMIT || 90);
 
 const UA_BROWSER = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 const UA_GOOGLEBOT = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)";
@@ -447,13 +447,34 @@ async function main() {
   log(`    ${filled} resolved (${allItems.filter(i => i.image).length}/${allItems.length} now have one)`);
 
   // Prefetch article text for the top stories so the reader opens instantly and
-  // paywalled pieces are already resolved. Skipped without a key.
-  const articles = {};
+  // paywalled pieces are already resolved.
+  //
+  // Text already published is always carried forward first, for as long as its
+  // story is still in the feed. The prefetch budget only covers the top of the
+  // feed, so without this a story that dropped just below the cut lost the text
+  // that had already been resolved for it, and the reader went back to fetching
+  // it live.
+  const liveUrls = new Set(
+    [...Object.values(categories).flat(),
+     ...Object.values(papers).flatMap(p => p.items || [])].map(i => canonicalUrl(i.link))
+  );
+  const articles = await carryForwardArticles(liveUrls);
+  const carried = Object.keys(articles).length;
+
   if (JINA_KEY) {
-    const top = Object.values(categories).flat()
+    // Candidates come from the paper sections as well as the categories. The
+    // mastheads are the whole reason prefetch exists -- they are what a browser
+    // cannot reach -- and drawing only from the categories left them thinly
+    // covered: one build resolved six NYT articles out of the twenty-five in
+    // its NYT tab.
+    const seen = new Set();
+    const top = [...Object.values(categories).flat(),
+                 ...Object.values(papers).flatMap(p => p.items || [])]
+      .filter(i => i?.link && !seen.has(canonicalUrl(i.link)) && seen.add(canonicalUrl(i.link)))
+      .filter(i => !articles[canonicalUrl(i.link)])   // already carried
       .sort((a, b) => rankScore(b) - rankScore(a))
       .slice(0, PREFETCH_LIMIT);
-    log(`  Prefetching ${top.length} articles`);
+    log(`  Carried ${carried} forward; prefetching ${top.length} more`);
     let hit = 0;
     const BATCH = 5;
     for (let i = 0; i < top.length; i += BATCH) {
@@ -462,20 +483,9 @@ async function main() {
         if (text) { articles[canonicalUrl(item.link)] = { type: "markdown", text }; hit++; }
       }));
     }
-    log(`    ${hit}/${top.length} resolved`);
+    log(`    ${hit}/${top.length} resolved (${Object.keys(articles).length} total)`);
   } else {
-    // No key on this runner, so nothing new can be resolved. Carrying the
-    // already-published text forward matters anyway: without it every build
-    // would replace a populated articles.json with an empty one, and the text
-    // that scripts/prefetch.mjs published out of band would survive less than
-    // one build cycle. Entries are kept only while their story is still in the
-    // feed, so the file shrinks away on its own rather than growing forever.
-    const carried = await carryForwardArticles(new Set(
-      [...Object.values(categories).flat(),
-       ...Object.values(papers).flatMap(p => p.items || [])].map(i => canonicalUrl(i.link))
-    ));
-    Object.assign(articles, carried);
-    log(`  Prefetch skipped (no JINA_API_KEY) — carried ${Object.keys(carried).length} published articles forward`);
+    log(`  Prefetch skipped (no key) — carried ${carried} published articles forward`);
   }
 
   mkdirSync(OUT_DIR, { recursive: true });
