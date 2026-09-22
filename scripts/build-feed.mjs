@@ -239,17 +239,40 @@ async function prefetchArticle(url) {
 // ── Markets ─────────────────────────────────────────────────────────────────
 
 async function marketQuotes() {
+  // Yahoo rate-limits hard, and GitHub's runners share addresses with a lot of
+  // other scrapers, so a single attempt per symbol came back empty for all
+  // three. Try both hosts with a short backoff and give up quietly — the tiles
+  // are a nicety, not a reason to fail the build.
+  const hosts = ["query1.finance.yahoo.com", "query2.finance.yahoo.com"];
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+  const quote = async (symbol) => {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      for (const host of hosts) {
+        try {
+          const url = `https://${host}/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`;
+          const r = await withTimeout(fetch(url, {
+            headers: { "User-Agent": UA_BROWSER, Accept: "application/json" },
+          }), 15000, "market");
+          if (!r.ok) continue;
+          const m = (await r.json())?.chart?.result?.[0]?.meta;
+          const price = m?.regularMarketPrice;
+          const prev = m?.chartPreviousClose ?? m?.previousClose;
+          if (Number.isFinite(price) && Number.isFinite(prev) && prev) {
+            return { price, pct: ((price - prev) / prev) * 100 };
+          }
+        } catch {}
+      }
+      if (attempt === 0) await sleep(1500);
+    }
+    return null;
+  };
+
   const out = [];
   for (const { id, symbol } of (SOURCES.markets || [])) {
-    try {
-      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`;
-      const data = await withTimeout(fetch(url, { headers: { "User-Agent": UA_BROWSER } }).then(r => r.json()), 15000, "market");
-      const m = data?.chart?.result?.[0]?.meta;
-      const price = m?.regularMarketPrice;
-      const prev = m?.chartPreviousClose ?? m?.previousClose;
-      if (!Number.isFinite(price) || !Number.isFinite(prev) || !prev) continue;
-      out.push({ id, price, pct: ((price - prev) / prev) * 100 });
-    } catch {}
+    const q = await quote(symbol);
+    if (q) out.push({ id, ...q });
+    else log(`    miss  ${symbol}`);
   }
   return out;
 }

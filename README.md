@@ -29,6 +29,10 @@ papers answer normally. The page reads plain JSON, which sidesteps CORS
 entirely, needs no third-party service, and renders in ~200ms instead of
 spending ~30 seconds fetching.
 
+The same build also publishes the market quotes and resolves `og:image` for
+items whose feed carries no picture — both are cross-origin fetches a browser
+cannot make, which is why the tiles used to read "—" and the cards were grey.
+
 The `data` branch is force-pushed to a single commit each run, so the
 repository never accumulates history from half-hourly builds.
 
@@ -71,6 +75,15 @@ node scripts/build-feed.mjs dist     # build the feed locally
 npm run serve            # serve index.html against a local worker on :8080
 npm run e2e              # drive it in Chromium and report what rendered
 ```
+
+### Known gaps
+
+- **AP and Reuters** have no feed that answers anywhere any more. AP's
+  feedburner mirror returns nothing and `apnews.com` 403s; Reuters' feed host
+  is gone. Publications with no items get no tab, so they are simply absent.
+- **Substack refuses GitHub's runner IP ranges**, so `*.substack.com` feeds come
+  back empty from the build even though they work locally. The Ideas category
+  uses the publications' own domains instead.
 
 `npm run audit:feeds` is worth running occasionally. Feed URLs rot quietly, and
 the failure is invisible — a category just thins out. It reports both dead feeds
