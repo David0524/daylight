@@ -2155,6 +2155,16 @@ async function fetchWeather() {
   }, () => {}, { timeout: 8000, maximumAge: 15 * 60 * 1000 });
 }
 
+// Hide the market row entirely rather than leaving three "—" tiles sitting
+// there looking broken. Index quotes now need an API key from any address a
+// build or a browser actually runs on: Yahoo blocks cloud IPs, stooq's CSV
+// export 404s, and CNBC, MarketWatch, Google Finance and slickcharts all
+// refuse. See README for enabling it with a key.
+function hideMarketRow() {
+  const row = document.getElementById("marketRow");
+  if (row) row.style.display = "none";
+}
+
 async function fetchMarketData() {
   // Published quotes first. Yahoo is no more reachable from a browser than the
   // feeds are, so without these the tiles just showed "—" forever.
@@ -2163,6 +2173,8 @@ async function fetchMarketData() {
     DB.set(MARKET_CACHE_KEY, { tiles: PREBUILT_MARKETS, ts: Date.now() });
     return;
   }
+  // The build ran but got no quotes — don't bother trying from here.
+  if (PREBUILT_MARKETS && !PREBUILT_MARKETS.length) { hideMarketRow(); return; }
 
   // Render from cache immediately so the tiles are never blank on load.
   const cached = DB.get(MARKET_CACHE_KEY);
@@ -2205,8 +2217,10 @@ async function fetchMarketData() {
       if (tiles.length === INDICES.length) {
         DB.set(MARKET_CACHE_KEY, { tiles, ts: Date.now() });
       }
+    } else {
+      hideMarketRow();
     }
-  } catch {}
+  } catch { hideMarketRow(); }
 }
 
 function renderFeed(catMap) {

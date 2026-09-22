@@ -81,6 +81,13 @@ npm run e2e              # drive it in Chromium and report what rendered
 - **AP and Reuters** have no feed that answers anywhere any more. AP's
   feedburner mirror returns nothing and `apnews.com` 403s; Reuters' feed host
   is gone. Publications with no items get no tab, so they are simply absent.
+- **Index quotes need an API key.** Yahoo blocks cloud IP ranges, stooq's CSV
+  export 404s, and CNBC, MarketWatch, Google Finance and slickcharts all refuse
+  — there is no keyless source left that answers from a build runner or a
+  browser. The market row hides itself rather than showing three dashes. To turn
+  it on, take a free key from a quote provider, add it as a repo secret, and
+  extend `marketQuotes()` in `scripts/build-feed.mjs`; note that most free tiers
+  cover ETFs (DIA, SPY, QQQ) rather than the indices themselves.
 - **Substack refuses GitHub's runner IP ranges**, so `*.substack.com` feeds come
   back empty from the build even though they work locally. The Ideas category
   uses the publications' own domains instead.
