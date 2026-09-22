@@ -3872,12 +3872,21 @@ const FETCH_METHODS = [
     name: "Jina+gift",
     fetch: async (url) => {
       const sep = url.includes("?") ? "&" : "?";
-      // Try multiple sharing param variants — NYT checks these server-side
+      // NYT honours these server-side and returns the full article rather than
+      // the metered preview. They only take effect through Jina's cache, so
+      // this must not send X-No-Cache.
       const variants = [
         `${url}${sep}unlocked_article_code=1&smid=nytcore-ios-share`,
         `${url}${sep}unlocked_article_code=1&smid=url-share`,
         `${url}${sep}smid=nytcore-ios-share`,
       ];
+
+      // Take the longest result across variants, not the first that comes back.
+      // Jina is flaky enough that a variant can answer with a stub, and the old
+      // check here ("two lines over 60 characters") let a metered preview
+      // through — so a good variant further down the list never got tried and
+      // the reader got 345 words instead of 1,595.
+      let best = null;
       for (const giftUrl of variants) {
         try {
           const r = await fetch(`https://r.jina.ai/${encodeURIComponent(giftUrl)}`, {
@@ -3887,13 +3896,15 @@ const FETCH_METHODS = [
           if (!r.ok) continue;
           const t = await r.text();
           if (t.includes("error 401") || t.includes("Unauthorized")) continue;
-          // Check we got real content, not just the lede
-          const contentLines = t.split("\n").filter(l => l.trim().length > 60).length;
-          if (contentLines < 2) continue;
-          return { type: "markdown", text: t };
+          if (CHALLENGE_SIGNALS.some(sig => t.toLowerCase().includes(sig))) continue;
+          // Compare on the trimmed article, so nav volume cannot win.
+          const len = trimJinaChrome(t).replace(/\s+/g, " ").trim().length;
+          if (len > 1200 && (!best || len > best.len)) best = { text: t, len };
+          if (best && best.len > 12000) break;   // clearly the full piece
         } catch {}
       }
-      throw new Error("All gift variants blocked");
+      if (!best) throw new Error("no sharing-param variant returned an article");
+      return { type: "markdown", text: best.text };
     }
   },
   {
