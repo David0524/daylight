@@ -20,6 +20,7 @@
  */
 import { writeFileSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 const OUT_DIR = process.argv[2] || "dist";
 const SOURCES = JSON.parse(readFileSync(new URL("../sources.json", import.meta.url), "utf8"));
@@ -270,6 +271,25 @@ async function prefetchArticle(url) {
   return best;
 }
 
+const PUBLISHED_ARTICLES_URL =
+  process.env.PUBLISHED_ARTICLES_URL ||
+  "https://raw.githubusercontent.com/David0524/daylight/data/articles.json";
+
+async function carryForwardArticles(liveUrls) {
+  try {
+    const r = await withTimeout(fetch(PUBLISHED_ARTICLES_URL, {
+      headers: { "Cache-Control": "no-cache" },
+    }), 20000, "articles");
+    if (!r.ok) return {};
+    const prev = await r.json();
+    const out = {};
+    for (const [k, v] of Object.entries(prev || {})) {
+      if (liveUrls.has(k) && v?.text) out[k] = v;
+    }
+    return out;
+  } catch { return {}; }
+}
+
 // ── Markets ─────────────────────────────────────────────────────────────────
 
 async function marketQuotes() {
@@ -438,7 +458,18 @@ async function main() {
     }
     log(`    ${hit}/${top.length} resolved`);
   } else {
-    log("  Prefetch skipped (no JINA_API_KEY)");
+    // No key on this runner, so nothing new can be resolved. Carrying the
+    // already-published text forward matters anyway: without it every build
+    // would replace a populated articles.json with an empty one, and the text
+    // that scripts/prefetch.mjs published out of band would survive less than
+    // one build cycle. Entries are kept only while their story is still in the
+    // feed, so the file shrinks away on its own rather than growing forever.
+    const carried = await carryForwardArticles(new Set(
+      [...Object.values(categories).flat(),
+       ...Object.values(papers).flatMap(p => p.items || [])].map(i => canonicalUrl(i.link))
+    ));
+    Object.assign(articles, carried);
+    log(`  Prefetch skipped (no JINA_API_KEY) — carried ${Object.keys(carried).length} published articles forward`);
   }
 
   mkdirSync(OUT_DIR, { recursive: true });
@@ -466,4 +497,11 @@ async function main() {
   if (!feed.counts.items) { console.error("\nERROR: no items built — refusing to publish an empty feed"); process.exit(1); }
 }
 
-main().catch(e => { console.error(e); process.exit(1); });
+// Importable: scripts/prefetch.mjs reuses canonicalUrl() and prefetchArticle()
+// against an already-published feed, so article text can be filled in without
+// rebuilding (and re-fetching) the whole feed.
+export { canonicalUrl, prefetchArticle, rankScore };
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch(e => { console.error(e); process.exit(1); });
+}
