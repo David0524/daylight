@@ -160,6 +160,11 @@ export function asEntry(page, url, via, relation) {
 
 // ── The search ──────────────────────────────────────────────────────────────
 
+// Per-step tallies, logged by the build, so a failure on the runner shows up
+// as the step where the numbers stop rather than as a bare miss.
+export const stats = { stories: 0, results: 0, candidates: 0, resolved: 0, read: 0, same: 0, related: 0,
+                       searchFail: 0, resolveFail: 0, readFail: 0 };
+
 export async function findCoverage(item) {
   const title = String(item.title || "").replace(/^opinion\s*\|\s*/i, "");
   if (!title) return null;
@@ -167,7 +172,10 @@ export async function findCoverage(item) {
   const pub = Date.parse(item.pubDate || "") || Date.now();
   const keywords = [...new Set([...salient(title), ...salient(item.desc || "")])].slice(0, 8).join(" ");
 
+  stats.stories++;
   const results = [...await newsSearch(title), ...await newsSearch(keywords)];
+  stats.results += results.length;
+  if (!results.length) stats.searchFail++;
   const seen = new Set(), cands = [];
   for (const r of results) {
     const h = hostOf(r.sourceUrl);
@@ -179,6 +187,7 @@ export async function findCoverage(item) {
     if (shared >= 3 && tShared >= 2) cands.push({ ...r, host: h, score: shared / Math.max(3, Math.min(T.size, C.size)) });
   }
   cands.sort((a, b) => b.score - a.score);
+  stats.candidates += Math.min(cands.length, 5);
 
   // WSJ's summary carries the specifics ("a delegation of corporate
   // executives") that a headline on the same topic does not, so the body has
@@ -190,12 +199,16 @@ export async function findCoverage(item) {
   let related = null;
   for (const c of cands.slice(0, 5)) {
     const url = await resolveNewsLink(c.link);
-    if (!url || !isOpenHost(hostOf(url)) || /\/(video|videos|live|podcasts?)\//.test(url)) continue;
+    if (!url) { stats.resolveFail++; continue; }
+    stats.resolved++;
+    if (!isOpenHost(hostOf(url)) || /\/(video|videos|live|podcasts?)\//.test(url)) continue;
     const page = await readPage(url);
-    if (!page) continue;
+    if (!page) { stats.readFail++; continue; }
+    stats.read++;
     const k = cover(page.paras);
-    if (!opinion && (k === null ? c.score >= 0.6 : k >= 0.5)) return asEntry(page, url, c.source || c.host, "same");
+    if (!opinion && (k === null ? c.score >= 0.6 : k >= 0.5)) { stats.same++; return asEntry(page, url, c.source || c.host, "same"); }
     if (!related && (k === null || k >= 0.25)) related = asEntry(page, url, c.source || c.host, "related");
   }
+  if (related) stats.related++;
   return related;
 }

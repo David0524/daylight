@@ -21,7 +21,7 @@
 import { writeFileSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { findCoverage, readPage, asEntry } from "./coverage.mjs";
+import { findCoverage, readPage, asEntry, stats as coverageStats } from "./coverage.mjs";
 
 const OUT_DIR = process.argv[2] || "dist";
 const SOURCES = JSON.parse(readFileSync(new URL("../sources.json", import.meta.url), "utf8"));
@@ -284,7 +284,7 @@ const PUBLISHED_ARTICLES_URL =
   "https://raw.githubusercontent.com/David0524/daylight/data/articles.json";
 
 const MISS_RETRY_MS = 3 * 60 * 60 * 1000;
-const MISS_VERSION = 2;   // bump whenever the search itself changes
+const MISS_VERSION = 3;   // bump whenever the search itself changes
 
 async function carryForwardArticles(liveUrls) {
   try {
@@ -631,6 +631,7 @@ async function main() {
         if (entry.text) { hit++; if (entry.relation) covered++; else if (entry.source) licensed++; }
       }));
     }
+    log(`    coverage: ${JSON.stringify(coverageStats)}`);
     log(`    ${hit}/${top.length} resolved, ${licensed} via licensed copies, ${covered} via same-story coverage (${Object.values(articles).filter(a => a.text).length} total)`);
   } else {
     log(`  Prefetch skipped (no key) — carried ${carried} published articles forward`);
