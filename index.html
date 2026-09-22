@@ -5006,7 +5006,7 @@ async function licensedCopyLive(url) {
 
   const read = async (target) => {
     const r = await withTimeout(fetch(`https://r.jina.ai/${encodeURIComponent(target)}`,
-      { headers: jinaHeaders({ "X-Return-Format": "markdown" }) }), 25000, "read timeout");
+      { headers: jinaHeaders({ "X-Return-Format": "markdown" }) }), 12000, "read timeout");
     return r.ok ? r.text() : "";
   };
 
@@ -5025,7 +5025,7 @@ async function licensedCopyLive(url) {
     const q = `morningstar.com dow-jones "${title}"`;
     const r = await withTimeout(fetch(`https://s.jina.ai/?q=${encodeURIComponent(q)}`, {
       headers: { ...jinaHeaders(), Accept: "application/json", "X-Respond-With": "no-content" },
-    }), 30000, "search timeout");
+    }), 15000, "search timeout");
     const hits = r.ok ? ((await r.json())?.data || []) : [];
     const best = hits
       .map(h => ({ url: String(h.url || ""), m: String(h.url || "").match(/morningstar\.com\/news\/dow-jones\/\d+\/([a-z0-9-]+)/) }))
@@ -5162,9 +5162,17 @@ async function fetchArticle(url, _isRetry = false) {
     // resolved; anything else -- a pasted link, a story newer than the last
     // build -- is looked up live. Without one, stay in the app and show the
     // feed's own summary rather than bouncing the reader out to wsj.com.
+    // The build records a story it searched for and found no copy of. Within
+    // the build's retry window that answer is current, so trust it rather than
+    // make the reader wait on the same searches again.
+    let recentMiss = false;
+    try {
+      const pre = (await loadPrebuiltArticles())[canonicalUrl(url)];
+      recentMiss = !!(pre?.miss && Date.now() - pre.at < 3 * 60 * 60 * 1000);
+    } catch {}
     loadingSub.textContent = "Looking for a licensed copy…";
-    logMethod("Licensed copy", "pending", "Kanebridge, Morningstar…");
-    const copy = await licensedCopyLive(url).catch(() => null);
+    logMethod("Licensed copy", "pending", recentMiss ? "Checked recently" : "Kanebridge, Morningstar…");
+    const copy = recentMiss ? null : await licensedCopyLive(url).catch(() => null);
     const article = copy && parseResult(copy, copy.source);
     if (article) {
       article.url = url; article.via = copy.via;
