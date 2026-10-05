@@ -250,6 +250,13 @@ const DATA_BASE = process.env.PUBLISHED_DATA_BASE ||
 const MISS_RETRY_MS = 3 * 60 * 60 * 1000;
 const PARTIAL_RETRY_MS = 2 * 60 * 60 * 1000;
 const SOFT_RETRY_MS = 20 * 60 * 1000;
+// WSJ, Barron's and MarketWatch stories have no route but licensed copies,
+// which partners publish hours after the original. A missed one is tried
+// again on every build while it is in the feed; the cheap checks (newswire
+// index, partner lists, Kanebridge) each time, the news search only every
+// couple of hours, since Google throttles a runner that searches too often.
+const LICENSED_RETRY_MS = 0;
+const LICENSED_SEARCH_MS = 2 * 60 * 60 * 1000;
 const MISS_VERSION = 7;   // bump whenever the way articles are read changes
 // Likewise for text: entries read under older rules (an NYT excerpt accepted
 // as a syndicated copy, say) are read again rather than carried forward.
@@ -275,7 +282,7 @@ async function published(name) {
  * from an older way of reading (Jina markdown, or a miss recorded before the
  * current routes existed) is dropped so the story is read again.
  */
-async function carryForwardArticles(liveUrls, keepTrying = new Set(), stale = {}) {
+async function carryForwardArticles(liveUrls, keepTrying = new Set(), stale = {}, retried = {}) {
   const prev = await published("articles.json");
   const out = {};
   for (const [k, v] of Object.entries(prev || {})) {
@@ -291,9 +298,11 @@ async function carryForwardArticles(liveUrls, keepTrying = new Set(), stale = {}
       // archived copy to be had and only a few of them ever need it.
       if (v.partial && (keepTrying.has(k) || Date.now() - (v.at || 0) > PARTIAL_RETRY_MS)) continue;
       out[k] = v;
-    } else if (v?.miss && v.v === MISS_VERSION && !keepTrying.has(k)
-               && Date.now() - v.at < (v.soft ? SOFT_RETRY_MS : MISS_RETRY_MS)) {
-      out[k] = v;
+    } else if (v?.miss && v.v === MISS_VERSION && !keepTrying.has(k)) {
+      const licensed = !!licensedRule(`https://${k}`);
+      const wait = licensed ? LICENSED_RETRY_MS : v.soft ? SOFT_RETRY_MS : MISS_RETRY_MS;
+      if (Date.now() - v.at < wait) out[k] = v;
+      else if (licensed) retried[k] = v;
     }
   }
   return out;
@@ -326,7 +335,10 @@ async function resolveItem(item, ctx) {
   // once they lapse -- so a miss caused by one is retried on the next build
   // rather than three hours later.
   const soft = ctx.jina?.isBlocked?.(item.link) || undefined;
-  return { miss: true, at: Date.now(), v: MISS_VERSION, ...(soft ? { soft } : {}) };
+  // When the news search last ran for it, so a retry can skip it.
+  const searched = ctx.skipSearch ? ctx.searchedAt : Date.now();
+  return { miss: true, at: Date.now(), v: MISS_VERSION, ...(soft ? { soft } : {}),
+           ...(licensedRule(item.link) ? { searched } : {}) };
 }
 
 // ── Markets ─────────────────────────────────────────────────────────────────
@@ -527,7 +539,8 @@ async function main() {
     .map(d => ({ title: d.title, link: d.url, desc: d.desc, pubDate: "", archive: d.archive, minWords: 1000 }));
   const liveUrls = new Set([...everything, ...deepItems].map(i => canonicalUrl(i.link)));
   const staleDeep = {};
-  const articles = await carryForwardArticles(liveUrls, new Set(deepItems.map(i => canonicalUrl(i.link))), staleDeep);
+  const retried = {};
+  const articles = await carryForwardArticles(liveUrls, new Set(deepItems.map(i => canonicalUrl(i.link))), staleDeep, retried);
   const carried = Object.keys(articles).length;
   // Copies read while checking a partner's list need not be read again.
   for (const [url, art] of partnerTexts) {
@@ -558,7 +571,7 @@ async function main() {
   while (byHost.size) {
     for (const [h, list] of byHost) { todo.push(list.shift()); if (!list.length) byHost.delete(h); }
   }
-  log(`  Articles: ${carried} carried forward, reading ${todo.length}`);
+  log(`  Articles: ${carried} carried forward, reading ${todo.length} (${Object.keys(retried).length} licensed misses retried)`);
   const t0 = Date.now();
   const ctx = { jina, index, listings, log };
   let next = 0;
@@ -571,7 +584,9 @@ async function main() {
   await Promise.all(Array.from({ length: 6 }, async () => {
     while (next < todo.length && Date.now() < deadline) {
       const item = todo[next++];
-      articles[canonicalUrl(item.link)] = await resolveItem(item, ctx);
+      const prev = retried[canonicalUrl(item.link)];
+      const skipSearch = !!prev?.searched && Date.now() - prev.searched < LICENSED_SEARCH_MS;
+      articles[canonicalUrl(item.link)] = await resolveItem(item, { ...ctx, skipSearch, searchedAt: prev?.searched });
     }
   }));
   if (next < todo.length) log(`    time budget reached; ${todo.length - next} stories left for the next build`);

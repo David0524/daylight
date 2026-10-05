@@ -69,9 +69,11 @@ Safeguards that must stay:
 2. **WSJ tab from free copies only.** Every story in it opens, but there are
    only about 10–15 a day, mostly features. This is a one-line change in
    `sources.json`: make `partner:wsj-free` the paper's feed.
-3. **Retry WSJ misses every build** instead of every 3 hours
-   (`MISS_RETRY_MS` in `build-feed.mjs`). Copies often appear on Morningstar,
-   Mint or Kanebridge hours after WSJ publishes.
+3. ~~Retry WSJ misses every build~~ -- done: a missed WSJ, Barron's or
+   MarketWatch story is retried on every build while it is in the feed. The
+   newswire index, partner lists and Kanebridge are checked each time; the
+   Google News search at most every two hours per story (`LICENSED_RETRY_MS`,
+   `LICENSED_SEARCH_MS` in `build-feed.mjs`).
 4. **More licensees.** Add any partner that republishes WSJ for free with a
    list page to `LISTINGS` in `partners.mjs`. Check it from a runner first
    (see `research/` and the temporary `claude/runner-survey` workflow

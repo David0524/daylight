@@ -21,7 +21,7 @@ import { syndicatedCopy } from "./syndicated.mjs";
 const whole = (a) => a && !a.partial && a.words >= 250;
 const better = (a, b) => a && (!b || (b.partial && !a.partial) || (a.partial === b.partial && a.words > b.words));
 
-export async function resolveArticle(item, { jina, index = [], listings = [], log = () => {} } = {}) {
+export async function resolveArticle(item, { jina, index = [], listings = [], skipSearch = false, log = () => {} } = {}) {
   const notes = [];
   let best = null;
   // A hand-picked long read sets its own floor: a few hundred words of it is
@@ -46,7 +46,10 @@ export async function resolveArticle(item, { jina, index = [], listings = [], lo
     //    listed copy first (one fetch), then the newswire index and searches.
     if (licensedRule(item.link)) {
       if (take(await listedCopy(item, { index: listings, log: (s) => notes.push(s) }), "listed")) return finish(best, item);
-      const copy = await licensedCopy(item, { index, search: jina?.search, syndicated: syndicatedCopy,
+      // A story searched for in the last couple of hours gets only the cheap
+      // checks; see LICENSED_SEARCH_MS in build-feed.mjs.
+      const copy = await licensedCopy(item, { index, search: skipSearch ? null : jina?.search,
+                                              syndicated: skipSearch ? null : syndicatedCopy,
                                               log: (s) => notes.push(s.trim()) });
       take(copy, "licensed");
       return finish(best, item);
