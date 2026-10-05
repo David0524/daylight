@@ -4,7 +4,7 @@
 import { readFileSync } from "node:fs";
 import { extractFromHtml, extractFromFragment, translateUrl, siteFor } from "../scripts/extract.mjs";
 import { findInIndex } from "../scripts/licensed.mjs";
-import { credits, publisherFor } from "../scripts/syndicated.mjs";
+import { credits, publisherFor, storyKeys, sameStory } from "../scripts/syndicated.mjs";
 import { articleId, canonicalUrl, parseFeed } from "../scripts/build-feed.mjs";
 
 let pass = 0, fail = 0;
@@ -122,6 +122,20 @@ check("the news service line credits an NYT copy",
   judge("https://www.nytimes.com/2026/10/05/world/x.html", copyPage(`${paras(6)}<p>This article originally appeared in The New York Times.</p>`), "https://www.seattletimes.com/x") === true);
 check("an outlet's own report on the same news is not an NYT copy",
   judge("https://www.nytimes.com/2026/10/05/world/x.html", copyPage(`${paras(6)}<p>The New York Times first reported the deal.</p>`), "https://www.cbsnews.com/x") === false);
+
+console.log("\nre-headlined copies must tell the same story:");
+const chevron = { title: "Chevron Names Gustavson CFO as Oil Giant Eyes CEO Succession",
+  desc: "Chevron Corp. named New Energies president Jeff Gustavson as chief financial officer, part of a major leadership reshuffle." };
+const keys = storyKeys(chevron);
+check("names come from the summary, the subject from both", ["Chevron", "Jeff", "Gustavson", "Energies"].every(k => keys.includes(k)));
+check("title-cased headline words are not names", !keys.includes("Eyes") && !keys.includes("Giant"));
+check("accented names are kept whole", storyKeys({ title: "Brazil Assets Surge", desc: "Brazilian assets rose as Flávio Bolsonaro led." }).includes("Flávio"));
+const copyOf = (h, t) => ({ headline: h, paragraphs: [{ text: t }] });
+check("the wire version under its own headline is the same story",
+  sameStory(chevron, copyOf("Chevron taps Jeff Gustavson as finance chief", "Chevron Corp. named Jeff Gustavson, who runs its New Energies unit, chief financial officer.")));
+check("another story about the same company is not",
+  !sameStory(chevron, copyOf("Chevron lifts Permian output", "Chevron Corp. said Permian production rose as the oil giant ramps up drilling.")));
+check("too few names to tell is never a match", !sameStory({ title: "The Existential Imperative to Borrow", desc: "More yield-insensitive issuance." }, copyOf("x", "More yield-insensitive issuance.")));
 
 console.log("\nrouting and ids:");
 check("NYT goes through the translation proxy first", siteFor("https://www.nytimes.com/x").routes[0] === "translate");
