@@ -249,6 +249,9 @@ const MISS_RETRY_MS = 3 * 60 * 60 * 1000;
 const PARTIAL_RETRY_MS = 2 * 60 * 60 * 1000;
 const SOFT_RETRY_MS = 20 * 60 * 1000;
 const MISS_VERSION = 5;   // bump whenever the way articles are read changes
+// Likewise for text: entries read under older rules (an NYT excerpt accepted
+// as a syndicated copy, say) are read again rather than carried forward.
+const ARTICLE_VERSION = 2;
 
 async function published(name) {
   try {
@@ -268,7 +271,7 @@ async function carryForwardArticles(liveUrls) {
   const out = {};
   for (const [k, v] of Object.entries(prev || {})) {
     if (!liveUrls.has(k) || v?.relation) continue;
-    if (v?.type === "article" && v.paragraphs?.length) {
+    if (v?.type === "article" && v.paragraphs?.length && v.av === ARTICLE_VERSION) {
       // A paywalled preview is kept until something better turns up, but
       // retried rather than trusted as the final answer.
       if (v.partial && Date.now() - (v.at || 0) > PARTIAL_RETRY_MS) continue;
@@ -302,7 +305,7 @@ async function resolveItem(item, ctx) {
     const other = await findCoverage(item).catch(() => null);
     if (other) return other;
   }
-  if (entry) return { ...entry, at: Date.now() };
+  if (entry) return { ...entry, at: Date.now(), av: ARTICLE_VERSION };
   // Jina's anonymous blocks last an hour or so, and NYT is read through Jina
   // once they lapse -- so a miss caused by one is retried on the next build
   // rather than three hours later.
@@ -551,7 +554,7 @@ async function main() {
   }
   for (const [key, e] of Object.entries(articles)) {
     if (!e?.paragraphs) continue;
-    const { how, at, ...pub } = e;
+    const { how, at, av, ...pub } = e;
     writeFileSync(join(OUT_DIR, "a", `${articleId(key)}.json`), JSON.stringify(pub));
   }
 

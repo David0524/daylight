@@ -54,7 +54,7 @@ async function main() {
   for (const [key, e] of Object.entries(articles)) {
     if (!e?.paragraphs) continue;
     hit++;
-    const { how, at, ...pub } = e;
+    const { how, at, av, ...pub } = e;
     writeFileSync(join(OUT_DIR, "a", `${articleId(key)}.json`), JSON.stringify(pub));
   }
   for (const i of items) {

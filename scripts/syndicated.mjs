@@ -3,7 +3,8 @@
  *
  * Bloomberg's newswire runs in full on Yahoo Finance, BNN Bloomberg, the
  * Financial Post and dozens of papers; FT and WSJ pieces are republished by
- * partners too. Google News indexes those copies, its search answers from a
+ * partners too. (NYT is defined here but not routed here: its reposted
+ * copies were excerpts as often as not -- see scripts/extract.mjs.) Google News indexes those copies, its search answers from a
  * GitHub runner, and its link resolver turns a result into the partner's URL.
  *
  * A candidate only counts if it is the same story *and* credits the original

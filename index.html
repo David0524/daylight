@@ -3252,8 +3252,13 @@ async function loadPrebuiltFeed() {
     // Cache-bust per half hour so a republished feed is picked up promptly
     // without defeating caching entirely.
     const bust = Math.floor(Date.now() / (30 * 60 * 1000));
-    const r = await withTimeout(fetch(`${FEED_DATA_BASE}/feed.json?v=${bust}`), 12000, "prebuilt timeout");
-    if (!r.ok) return null;
+    // A second try before giving up on it: the fallback is a live fetch that
+    // cannot reach the major papers at all.
+    let r = null;
+    for (let attempt = 0; attempt < 2 && !r?.ok; attempt++) {
+      r = await withTimeout(fetch(`${FEED_DATA_BASE}/feed.json?v=${bust}`), 10000, "prebuilt timeout").catch(() => null);
+    }
+    if (!r?.ok) return null;
     const data = await r.json();
     if (!data?.categories || !Object.keys(data.categories).length) return null;
 
@@ -3297,11 +3302,16 @@ async function loadPrebuiltArticle(url) {
   if (known && !known.a && PREBUILT_PAPERS) return null;
   const id = known?.a || articleId(canonicalUrl(url));
   if (PREBUILT_ARTICLE_CACHE.has(id)) return PREBUILT_ARTICLE_CACHE.get(id);
+  // Two tries: a dropped connection should not send a story the build already
+  // read down the live routes, which take far longer and often fail.
   let entry = null;
-  try {
-    const r = await withTimeout(fetch(`${FEED_DATA_BASE}/a/${id}.json`), 10000, "article timeout");
-    entry = r.ok ? await r.json() : null;
-  } catch {}
+  for (let attempt = 0; attempt < 2 && !entry; attempt++) {
+    try {
+      const r = await withTimeout(fetch(`${FEED_DATA_BASE}/a/${id}.json`), 7000, "article timeout");
+      if (r.status === 404) break;
+      entry = r.ok ? await r.json() : null;
+    } catch {}
+  }
   if (entry) PREBUILT_ARTICLE_CACHE.set(id, entry);
   return entry;
 }

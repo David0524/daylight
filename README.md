@@ -53,7 +53,7 @@ way that actually works from a GitHub runner, measured with
 | The publisher's feed (`content:encoded`) | Politico, The Atlantic, Fortune, Tech Review, Substack-style newsletters |
 | Licensed copies (Morningstar, Kanebridge, Livemint) | WSJ, MarketWatch, Barron's |
 | Jina Reader, as Discord's link crawler | NYT (see Known gaps) |
-| A partner's syndicated copy, found through Google News and credit-checked | Bloomberg, FT, NYT |
+| A partner's syndicated copy, found through Google News and credit-checked | Bloomberg, FT |
 | Jina Reader | last resort for anything else |
 
 Text is carried forward between builds while its story is live, so anything

@@ -54,7 +54,10 @@ export const SITES = {
   // GitHub); Jina does from anywhere, whenever its rolling anonymous block on
   // nytimes.com has lapsed, and always with a key.
   "nytimes.com": {
-    routes: ["translate", "direct", "jina", "syndicated"],
+    // No syndicated copies: the ones Google News turns up are excerpts as
+    // often as not (431 of 542 words, wrapped in the reposting site's own
+    // furniture), and a summary is better than a mangled story.
+    routes: ["translate", "direct", "jina"],
     ua: ["discord", "facebook"],
     // Through Jina: as Discord's crawler -- measured at the whole article,
     // 1,366 of 1,366 words -- then with NYT's article-sharing parameters,
@@ -203,6 +206,7 @@ const JUNK = [
   /^the views expressed (by|in) .{0,80}\b(are (their|the author'?s) own|do not)/i,
   /^updated on:\s/i,
   /^(•\s*)?(https?:\/\/\S+\s*)+$/,                              // a line that is only links
+  /^\/[\w\-./,]+$/,                                             // a bare site path
   /^this (story|article) was originally (featured|published) on\b/i,
   /^(get the latest updates from|discover special offers)\b/i,
   /^follow (us|bbc|cnn|npr)\b.{0,200}\b(twitter|facebook|instagram|x|tiktok)\b/i,
