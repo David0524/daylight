@@ -57,6 +57,15 @@ const split = page(`<title>Split</title>`, `<article><h1>Split</h1>
   <div class="block">${paras(3, 4)}</div><figure><img src="b.jpg"></figure><div class="block">${paras(4, 7)}</div></article>`);
 const sp = extractFromHtml(split, "https://www.bbc.co.uk/news/articles/x");
 check("keeps every block of a story split around photos", sp && sp.paragraphs.length === 10);
+// A page that preloads the next story (Kanebridge): the next one is longer,
+// but the page's JSON-LD says which story the page is for.
+const mine = Array.from({ length: 14 }, (_, i) => `This page's own story, sentence ${i + 1}, says something particular about the subject at hand.`);
+const next = paras(14, 50);
+const preload = extractFromHtml(page(
+  `<title>Mine</title><script type="application/ld+json">${JSON.stringify({ "@type": "NewsArticle", headline: "Mine", articleBody: mine.join("\n\n") })}</script>`,
+  `<h1>Mine</h1><div class="teaser">${mine[0].slice(0, 40)}…</div><article><h2>Next story</h2>${next}</article>`),
+  "https://kanebridgenews.com/mine/");
+check("a preloaded next story never stands in for the page's own", preload && preload.paragraphs[0].text.startsWith("This page's own story") && !preload.paragraphs.some(p => p.text.startsWith("Paragraph 5")));
 check("captions are not body text", !sp.paragraphs.some(p => /caption/.test(p.text)));
 
 const ldOnly = page(`<title>Walled</title>` + ld({ "@type": "NewsArticle", headline: "Walled",

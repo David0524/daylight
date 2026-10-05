@@ -431,6 +431,13 @@ export function extractFromHtml(html, url, { minWords = 120 } = {}) {
   const ldBody = typeof ld?.articleBody === "string" ? fromArticleBody(ld.articleBody) : [];
   const count = (ps) => wordsIn(ps.map(p => p.text).join(" "));
   if (count(ldBody) > count(paragraphs) * 1.3 && count(ldBody) > 150) paragraphs = ldBody;
+  // Pages that load the next stories as you scroll (Kanebridge) can hand the
+  // extractor another story than the one the page is for. The page's own
+  // JSON-LD body settles which: if the text found does not contain its
+  // opening, it was the wrong story.
+  const opening = (ps) => ps.find(p => p.text.length > 60)?.text.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().slice(0, 80);
+  const has = (ps, o) => ps.map(p => p.text).join(" ").toLowerCase().replace(/[^a-z0-9]+/g, " ").includes(o);
+  if (count(ldBody) > 150 && opening(ldBody) && !has(paragraphs, opening(ldBody))) paragraphs = ldBody;
 
   // The headline and standfirst often open the body as well.
   const norm = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
