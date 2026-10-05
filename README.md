@@ -126,7 +126,6 @@ npm run e2e              # drive it in Chromium and report what rendered
   features and opinion sometimes. Morningstar's listing holds only a few hours
   of newswire, so each build adds to an index (`licensed-index.json`) that is
   carried forward.
-
 - **AP and Reuters** have no feed that answers anywhere any more. AP's
   feedburner mirror returns nothing and `apnews.com` 403s; Reuters' feed host
   is gone. Publications with no items get no tab, so they are simply absent.
