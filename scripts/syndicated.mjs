@@ -14,7 +14,7 @@
  */
 import { parseHTML } from "linkedom";
 import { newsSearch, resolveNewsLink } from "./coverage.mjs";
-import { extractFromHtml, fetchHtml, hostOf, headlineOverlap } from "./extract.mjs";
+import { extractFromHtml, fetchHtml, hostOf, headlineOverlap, titleWords } from "./extract.mjs";
 import { readCopy, DIGEST } from "./licensed.mjs";
 
 export const PUBLISHERS = {
@@ -22,8 +22,12 @@ export const PUBLISHERS = {
   // marks   lines in the story only the original's copy carries
   // stamps  the same, looked for anywhere in the page: they are cut from the
   //         text as furniture, so the paragraphs no longer hold them
+  // Bloomberg's partners take the wire version of a story, which often runs
+  // under a different headline from bloomberg.com's, so its copies are also
+  // looked for by the story's names and figures (see `keywords`).
   "bloomberg.com": {
     name: "Bloomberg",
+    keywords: true,
     credit: /\bbloomberg\b/i,
     marks: [/^\(bloomberg\)\s*[-—–]/i, /bloomberg l\.p\./i, /^[-—–]+\s*with assistance from\b/i],
     stamps: [/\(Bloomberg\)\s*(--|—|–)/],
@@ -95,6 +99,37 @@ export function credits(html, art, pub, url) {
   return ends.some(t => pub.marks.some(re => re.test(t)));
 }
 
+// The names and figures that identify a story. Headlines are title-cased, so
+// names come from the summary, which is in sentence case: its capitalised
+// words other than a sentence's first. Figures come from both.
+const COMMON = /^(the|and|for|with|after|as|in|on|its|is|to|of|a|an|says|new|how|why|what|this|that|from|at|by|more|than|but|will|has|have|are|was|it|i|we|they)$/i;
+export function storyKeys(item) {
+  const clean = (t) => String(t || "").replace(/[’']s\b/g, "");
+  const names = [];
+  const inTitle = new Set(clean(item.title).toLowerCase().split(/[^\p{L}\d]+/u));
+  for (const sentence of clean(item.desc).split(/(?<=[.!?])\s+/)) {
+    sentence.split(/\s+/).forEach((w, i) => {
+      const m = w.match(/^[“"(]?(\p{Lu}[\p{L}-]+)/u);
+      // A sentence's first word is capitalised anyway; it counts as a name
+      // only when the headline names it too ("Chevron Corp. named...").
+      if (m && (i > 0 || inTitle.has(m[1].toLowerCase()))) names.push(m[1]);
+    });
+  }
+  const figures = `${clean(item.title)} ${clean(item.desc)}`.match(/\$?\d[\d.,]*%?/g) || [];
+  return [...new Set([...names, ...figures].map(w => w.replace(/[.,]$/, "")).filter(w => w.length > 1 && !COMMON.test(w)))];
+}
+
+// Whether a page found by keywords tells the same story: most of the story's
+// names and figures appear in its opening paragraphs. Two Bloomberg stories on
+// the same subject share a few of them, not most.
+export function sameStory(item, art) {
+  const keys = storyKeys(item);
+  if (keys.length < 4) return false;
+  const opening = art.paragraphs.slice(0, 8).map(p => p.text).join(" ") + " " + (art.headline || "");
+  const found = keys.filter(k => new RegExp(`(^|[^\\p{L}\\d])${k.replace(/[.$%]/g, "\\$&")}`, "iu").test(opening));
+  return found.length / keys.length >= 0.6;
+}
+
 /**
  * A partner's licensed copy of `item`, or null. Costs one or two news
  * searches and a fetch or two; callers should record a miss so a story is not
@@ -111,7 +146,16 @@ export async function syndicatedCopy(item, { log } = {}) {
   // the same news, each costing a fetch only to fail the credit check.
   const cands = [], seen = new Set();
   let results = 0;
-  for (const q of pub.loose ? [`"${title}"`, title] : [`"${title}"`]) {
+  const queries = [`"${title}"`, ...(pub.loose || pub.keywords ? [title] : [])];
+  // Google News sometimes finds nothing for a whole headline that it finds
+  // for its main words; and a search by the story's names and figures turns
+  // up re-headlined copies, at the price of a looser headline match -- which
+  // sameStory() below makes up for.
+  const keys = pub.keywords ? storyKeys(item) : [];
+  if (pub.keywords) queries.push([...titleWords(title)].slice(0, 5).join(" "));
+  if (keys.length >= 4) queries.push(keys.slice(0, 6).join(" "));
+  for (const q of queries) {
+    const byKeys = keys.length >= 4 && !q.startsWith('"') && q !== title;
     const res = await newsSearch(q).catch(() => []);
     results += res.length;
     for (const r of res) {
@@ -120,7 +164,7 @@ export async function syndicatedCopy(item, { log } = {}) {
       if (!h || DENY.test(h) || DIGEST.test(r.title) || seen.has(r.link)) continue;
       seen.add(r.link);
       const score = headlineOverlap(title, r.title);
-      if (score >= 0.8) cands.push({ ...r, host: h, score });
+      if (score >= 0.8 || (byKeys && score >= 0.4)) cands.push({ ...r, host: h, score, byKeys: score < 0.8 });
     }
     if (cands.length) break;
   }
@@ -143,7 +187,9 @@ export async function syndicatedCopy(item, { log } = {}) {
       if (!got.html) continue;
       const art = extractFromHtml(got.html, got.url || url);
       if (!art || art.partial || art.words < 150) continue;
-      if (headlineOverlap(title, art.headline || c.title) < 0.6) continue;
+      if (c.byKeys ? !sameStory(item, art) : headlineOverlap(title, art.headline || c.title) < 0.6) {
+        log?.(`    ${c.host}: another story`); break;
+      }
       if (!credits(got.html, art, pub, got.url || url)) { log?.(`    ${c.host}: not credited to ${pub.name}`); break; }
       return { type: "article", ...art, source: got.url || url, via: `${c.source || c.host} (${pub.name})` };
     }
