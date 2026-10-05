@@ -137,6 +137,9 @@ check("the wire version under its own headline is the same story",
   sameStory(chevron, copyOf("Chevron taps Jeff Gustavson as finance chief", "Chevron Corp. named Jeff Gustavson, who runs its New Energies unit, chief financial officer.")));
 check("another story about the same company is not",
   !sameStory(chevron, copyOf("Chevron lifts Permian output", "Chevron Corp. said Permian production rose as the oil giant ramps up drilling.")));
+check("figures with % and $ are matched literally",
+  sameStory({ title: "Kuwait Oil Output at 75% of Prewar", desc: "Kuwait is pumping oil at 75% of the level before the Iran war, with $2 billion of crude in tankers off the Strait of Hormuz." },
+            copyOf("Kuwait pumps at 75% of prewar levels", "Kuwait is pumping 75% of its prewar oil as tankers worth $2 billion wait near the Strait of Hormuz after the Iran war.")));
 check("too few names to tell is never a match", !sameStory({ title: "The Existential Imperative to Borrow", desc: "More yield-insensitive issuance." }, copyOf("x", "More yield-insensitive issuance.")));
 
 console.log("\nrouting and ids:");

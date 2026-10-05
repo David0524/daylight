@@ -21,6 +21,10 @@
 import { parseHTML } from "linkedom";
 import { UA, extractFromHtml, fetchHtml, hostOf, headlineOverlap, titleWords } from "./extract.mjs";
 
+// The same test syndicated.mjs applies; defined here too, since that module
+// imports this one.
+const subscriberOnly = (html) => /"isAccessibleForFree"\s*:\s*(false|"false")/i.test(html);
+
 export const LICENSED = [
   { host: /(^|\.)wsj\.com$/i, lists: ["dow-jones"], kanebridge: true },
   { host: /(^|\.)barrons\.com$/i, lists: ["dow-jones"] },
@@ -128,6 +132,7 @@ export const slugify = (t) => stripOpinion(t).toLowerCase()
 export async function readCopy(url, via) {
   const got = /morningstar\.com/.test(url) ? await fetchPatient(url) : await fetchHtml(url, "browser", 25000);
   if (!got.html) return null;
+  if (subscriberOnly(got.html)) return null;
   // Kanebridge also hosts its own stories; the Dow Jones copyright line is
   // what confirms a page is the licensed WSJ piece.
   if (/kanebridge/.test(url) && !/Dow Jones &(amp;)? Company/i.test(got.html)) return null;

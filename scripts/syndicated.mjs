@@ -67,6 +67,14 @@ export const publisherFor = (url) => {
   return k ? PUBLISHERS[k] : null;
 };
 
+/**
+ * Whether the partner marks its copy for subscribers only. Mint, for one,
+ * sends the whole story to every visitor and hides it behind a sign-in in the
+ * browser; taking the text a publisher has walled off is getting past its
+ * paywall, so such a copy counts as walled whatever the page contains.
+ */
+export const subscriberOnly = (html) => /"isAccessibleForFree"\s*:\s*(false|"false")/i.test(html);
+
 /** Does this page credit the original publisher, not merely mention it? */
 export function credits(html, art, pub, url) {
   if (pub.credit.test(hostOf(url)) && pub.name === "Bloomberg") return true;   // bnnbloomberg.ca
@@ -127,7 +135,8 @@ export function sameStory(item, art) {
   const keys = storyKeys(item);
   if (keys.length < 4) return false;
   const opening = art.paragraphs.slice(0, 8).map(p => p.text).join(" ") + " " + (art.headline || "");
-  const found = keys.filter(k => new RegExp(`(^|[^\\p{L}\\d])${k.replace(/[.$%]/g, "\\$&")}`, "iu").test(opening));
+  const escape = (k) => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const found = keys.filter(k => new RegExp(`(^|[^\\p{L}\\d])${escape(k)}`, "iu").test(opening));
   return found.length / keys.length >= 0.6;
 }
 
@@ -186,6 +195,7 @@ export async function syndicatedCopy(item, { log } = {}) {
     for (const ua of ["browser", "googlebot"]) {
       const got = await fetchHtml(url, ua, 20000).catch(() => ({}));
       if (!got.html) { log?.(`    ${c.host}: ${ua} ${got.status || "failed"}`); continue; }
+      if (subscriberOnly(got.html)) { log?.(`    ${c.host}: subscriber-only`); break; }
       const art = extractFromHtml(got.html, got.url || url);
       if (!art || art.partial || art.words < 150) { log?.(`    ${c.host}: ${art ? art.words + "w" + (art.partial ? " partial" : "") : "unreadable"}`); continue; }
       if (c.byKeys ? !sameStory(item, art) : headlineOverlap(title, art.headline || c.title) < 0.6) {
