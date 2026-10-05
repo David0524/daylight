@@ -68,7 +68,7 @@ export async function resolveArticle(item, { jina, index = [], log = () => {} } 
       }
       if (take(art, route)) break;
     }
-    if (item.archive && !enough(best)) take(await archivedCopy(item), "archive");
+    if (item.archive && !enough(best)) take(await archivedCopy(item, (n) => notes.push(n)), "archive");
     if (item.minWords && best && !enough(best)) best.partial = true;
     return finish(best, item);
   } finally {
@@ -80,10 +80,11 @@ export async function resolveArticle(item, { jina, index = [], log = () => {} } 
 // date: the publisher's own HTML, without the archive's toolbar. Only asked
 // for pieces chosen by hand, whose publishers have since put them behind a
 // wall -- a capture from before then holds the whole article.
-async function archivedCopy(item) {
+async function archivedCopy(item, note = () => {}) {
   for (let attempt = 0; attempt < 3; attempt++) {
     const got = await fetchHtml(`https://web.archive.org/web/${item.archive}id_/${item.link}`, "browser", 60000)
-      .catch(() => ({}));
+      .catch((e) => ({ status: e.name === "TimeoutError" ? "timeout" : "error" }));
+    note(`wayback:${got.html ? (got.url || "").match(/\/web\/(\d{8})/)?.[1] || "ok" : got.status || "none"}`);
     if (got.html) {
       const art = extractFromHtml(got.html, item.link);
       const at = (got.url || "").match(/\/web\/(\d{4})(\d{2})(\d{2})/);
