@@ -125,6 +125,12 @@ npm run e2e              # drive it in Chromium and report what rendered
   With `JINA_API_KEY` set, the blocks do not apply and every build reads them.
   A key pasted under ⋯ in the app does the same for NYT stories opened live,
   and stories the build missed are then fetched live automatically.
+- **Bloomberg's tab lists the Bloomberg stories Yahoo Finance runs**
+  (`finance.yahoo.com/topic/bloomberg`), each checked once for Bloomberg's
+  credit and read from Yahoo: every one opens in full, but Yahoo chooses which
+  of Bloomberg's stories they are, so its exclusives, newsletters and opinion
+  are mostly absent. The Finance category takes its Bloomberg stories the same
+  way. The rest of this note is about Bloomberg stories found anywhere else.
 - **Bloomberg and the FT** refuse every route, and so does Yahoo's search, so
   their stories are readable only where a partner republishes them openly --
   Yahoo Finance and Transport Topics for Bloomberg's wire, measured -- and
@@ -133,9 +139,13 @@ npm run e2e              # drive it in Chromium and report what rendered
   and must carry most of them as well as Bloomberg's credit. Newsletters,
   opinion and most exclusives are never republished: on a measured day, 1 or 2
   of 13 Bloomberg stories had a copy anywhere, and the rest show their summary.
-- **WSJ** is readable only where Dow Jones has licensed a copy (Morningstar,
-  Kanebridge, Livemint): its markets, business and economy news usually, its
-  features and opinion sometimes. Morningstar's listing holds only a few hours
+- **WSJ** is readable only where Dow Jones has licensed a free copy
+  (Morningstar, Kanebridge, Livemint): its markets and business news
+  sometimes, its features occasionally -- about one story in five. Mint carries
+  far more of WSJ, but marks most of it for its subscribers, and those copies
+  are never used: taking text a publisher has walled off is getting past its
+  paywall. The WSJ tab adds the free copies Mint and Kanebridge publish and
+  lists readable stories first. Morningstar's listing holds only a few hours
   of newswire, so each build adds to an index (`licensed-index.json`) that is
   carried forward.
 - **AP and Reuters** have no feed that answers anywhere any more. AP's
@@ -166,7 +176,7 @@ endpoints answer 200 with a full payload whose newest item is from January 2025.
 | `scripts/build-feed.mjs` | the build that runs in Actions |
 | `scripts/resolve.mjs` | reads one story: feed, licensed copy, then the site's routes |
 | `scripts/extract.mjs` | per-site routes and cleanup; HTML to paragraphs |
-| `scripts/licensed.mjs`, `scripts/syndicated.mjs` | licensed and syndicated copies |
+| `scripts/licensed.mjs`, `scripts/syndicated.mjs`, `scripts/partners.mjs` | licensed and syndicated copies, and partners' lists of them |
 | `research/survey.mjs` | which user agent reads which outlet, from wherever it runs |
 | `.github/workflows/build-feed.yml` | schedule and publishing |
 | `worker/` | optional Cloudflare Worker fallback |

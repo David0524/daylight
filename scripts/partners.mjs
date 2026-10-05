@@ -28,6 +28,11 @@ export const LISTINGS = [
     via: "Yahoo Finance (Bloomberg)",
     link: /https:\/\/finance\.yahoo\.com\/(?:[a-z0-9-]+\/)*articles\/([a-z0-9-]+)-(\d{6,})\.html/g,
     url: (m) => m[0] },
+  // Kanebridge's front page mixes its own stories with WSJ's; the Dow Jones
+  // copyright line on a page is what marks a WSJ one.
+  { list: "kanebridge-wsj", page: "https://kanebridgenews.com/", original: /(^|\.)wsj\.com$/, via: "Kanebridge News (WSJ)",
+    link: /https:\/\/kanebridgenews\.com\/([a-z0-9]+(?:-[a-z0-9]+){3,})\/?(?=["'<\s])/g,
+    url: (m) => `https://kanebridgenews.com/${m[1]}/` },
 ];
 const INDEX_DAYS = 4;
 
@@ -42,6 +47,7 @@ async function listing(spec) {
   for (const m of got.html.matchAll(spec.link)) {
     const url = spec.url(m);
     const slug = spec.list === "mint-wsj" ? m[2] : m[1];
+    if (spec.list === "kanebridge-wsj" && /^(advertise|about|contact|privacy|terms|subscribe|category|tag|author)/.test(slug)) continue;
     if (!out.has(url)) out.set(url, { list: spec.list, url, words: slugWords(slug), at: new Date().toISOString() });
   }
   return [...out.values()];
@@ -103,4 +109,76 @@ export async function listedCopy(item, { index = [], log = () => {} } = {}) {
     return { type: "article", ...art, source: got.url || e.url, via: spec.via };
   }
   return null;
+}
+
+// ── Partner feeds ───────────────────────────────────────────────────────────
+//
+// A partner's list read as a feed in its own right, for a tab that shows the
+// original's stories as partners publish them openly: Bloomberg's tab lists
+// the Bloomberg stories Yahoo Finance runs, and WSJ's tab adds the WSJ stories
+// Mint and Kanebridge make free. Each copy is checked once -- free, credited
+// to the original, readable -- and the verdict is kept in the index, so a
+// build fetches only what is new on the lists.
+
+// Bump when the checks below change, so copies turned down under the old
+// ones are looked at again.
+const CHECK_VERSION = 1;
+
+export const PARTNER_FEEDS = {
+  "yahoo-bloomberg": { lists: ["yahoo-bloomberg"], origin: "bloomberg.com" },
+  "wsj-free": { lists: ["mint-wsj", "kanebridge-wsj"], origin: "wsj.com" },
+};
+
+const metaContent = (html, prop) =>
+  (html.match(new RegExp(`<meta[^>]+(?:property|name)=["']${prop}["'][^>]+content=["']([^"']*)["']`, "i")) ||
+   html.match(new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]+(?:property|name)=["']${prop}["']`, "i")) || [])[1] || "";
+const unescape = (t) => t.replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#0?39;|&apos;/g, "'")
+  .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&#x27;/g, "'");
+
+async function check(entry, origin, via) {
+  const pub = publisherFor(`https://www.${origin}/x`);
+  const got = await fetchHtml(entry.url, "browser", 20000).catch(() => ({}));
+  entry.checked = new Date().toISOString();
+  entry.cv = CHECK_VERSION;
+  if (!got.html) { entry.ok = false; entry.why = `http${got.status || "-"}`; delete entry.checked; return null; }
+  if (subscriberOnly(got.html)) { entry.ok = false; entry.why = "subscriber-only"; return null; }
+  const art = extractFromHtml(got.html, got.url || entry.url);
+  if (!art || art.partial || art.words < 150) { entry.ok = false; entry.why = art ? `${art.words}w` : "unreadable"; return null; }
+  if (!credits(got.html, art, pub, got.url || entry.url)) { entry.ok = false; entry.why = "uncredited"; return null; }
+  const when = Date.parse(art.date) || Date.parse(entry.at);
+  entry.ok = true;
+  entry.item = {
+    title: art.headline,
+    desc: unescape(metaContent(got.html, "og:description") || metaContent(got.html, "description")).slice(0, 300),
+    image: art.image || "",
+    pubDate: new Date(when).toISOString(),
+  };
+  return { type: "article", ...art, source: got.url || entry.url, via };
+}
+
+/**
+ * The items of a partner feed, newest first, and the text of any copy read
+ * while checking it (keyed by URL), so the article step need not read it again.
+ */
+export async function partnerFeed(name, index, { log = () => {}, limit = 30 } = {}) {
+  const feed = PARTNER_FEEDS[name];
+  if (!feed) return { items: [], texts: new Map() };
+  const texts = new Map();
+  const entries = index.filter(e => feed.lists.includes(e.list))
+    .sort((a, b) => (Date.parse(b.at) || 0) - (Date.parse(a.at) || 0));
+  let fresh = 0;
+  for (const e of entries) {
+    if (e.checked && e.cv === CHECK_VERSION) continue;
+    const spec = LISTINGS.find(s => s.list === e.list);
+    const art = await check(e, feed.origin, spec.via);
+    fresh++;
+    if (art) texts.set(e.url, art);
+  }
+  const items = entries.filter(e => e.ok && e.item?.title)
+    .map(e => ({ ...e.item, link: e.url, source: feed.origin, origin: feed.origin }))
+    .sort((a, b) => (Date.parse(b.pubDate) || 0) - (Date.parse(a.pubDate) || 0))
+    .slice(0, limit);
+  const rejected = entries.filter(e => e.ok === false).reduce((m, e) => (m[e.why] = (m[e.why] || 0) + 1, m), {});
+  log(`    ${String(items.length).padStart(3)}  partner:${name} (${fresh} checked this build; turned down: ${JSON.stringify(rejected)})`);
+  return { items, texts };
 }

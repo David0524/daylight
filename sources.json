@@ -76,7 +76,7 @@
     "Finance": {
       "feeds": [
         "https://feeds.content.dowjones.io/public/rss/RSSMarketsMain",
-        "https://www.bloomberg.com/feeds/markets/news.rss",
+        "partner:yahoo-bloomberg",
         "https://www.ft.com/world?format=rss",
         "https://www.cnbc.com/id/100003114/device/rss/rss.html",
         "https://feeds.content.dowjones.io/public/rss/mw_topstories"
@@ -141,7 +141,7 @@
       "name": "Bloomberg",
       "emoji": "💹",
       "feeds": [
-        "https://www.bloomberg.com/feeds/markets/news.rss"
+        "partner:yahoo-bloomberg"
       ],
       "domain": "bloomberg.com"
     },
@@ -213,7 +213,11 @@
         "https://feeds.content.dowjones.io/public/rss/WSJcomUSBusiness",
         "https://feeds.content.dowjones.io/public/rss/RSSMarketsMain"
       ],
-      "domain": "wsj.com"
+      "domain": "wsj.com",
+      "add": [
+        "partner:wsj-free"
+      ],
+      "readableFirst": true
     }
   },
   "categoryOrder": [

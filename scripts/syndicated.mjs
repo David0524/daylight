@@ -46,6 +46,8 @@ export const PUBLISHERS = {
     credit: /dow jones|wall street journal/i,
     marks: [/dow jones & company/i, /\(end\) dow jones newswires/i, /@wsj\.com\b/i],
     stamps: [/\((END|MORE TO FOLLOW)\) Dow Jones Newswires/, /Copyright \(c\) \d{4} Dow Jones &(amp;)? Company/i,
+             // Kanebridge's form of the licence line.
+             /Copyright \d{4}, Dow Jones &(amp;)? Company, Inc\. All Rights Reserved/i,
              /Write to [^<]{3,160}@wsj\.com/],
   },
   // NYT licenses its stories to papers worldwide through its news service,

@@ -26,7 +26,7 @@ import { findCoverage } from "./coverage.mjs";
 import { resolveArticle } from "./resolve.mjs";
 import { createJina } from "./jina.mjs";
 import { refreshIndex, licensedRule, headlineOverlap, slugify } from "./licensed.mjs";
-import { refreshListings } from "./partners.mjs";
+import { refreshListings, partnerFeed } from "./partners.mjs";
 
 const OUT_DIR = process.argv[2] || "dist";
 const SOURCES = JSON.parse(readFileSync(new URL("../sources.json", import.meta.url), "utf8"));
@@ -173,7 +173,8 @@ function rankScore(item) {
   const hours = Number.isFinite(t) ? Math.max(0, (Date.now() - t) / 3600000) : Infinity;
   const recency = Number.isFinite(hours) ? 55 * Math.pow(0.5, hours / 6) : 0;
 
-  const h = hostOf(item.link);
+  // A partner's copy ranks as the original it is (Bloomberg's story on Yahoo).
+  const h = item.origin || hostOf(item.link);
   const quality = (isQuality(h) ? 18 : 0) + (WIRES.has(h) ? 7 : 0);
 
   const raw = Number(item.engagement) || 0;
@@ -253,6 +254,10 @@ const MISS_VERSION = 7;   // bump whenever the way articles are read changes
 // Likewise for text: entries read under older rules (an NYT excerpt accepted
 // as a syndicated copy, say) are read again rather than carried forward.
 const ARTICLE_VERSION = 2;
+// Copies read from a partner (licensed, syndicated or listed) are read again
+// when the rules for which copies may be used change: since version 1, never a
+// copy the partner marks for its subscribers.
+const SOURCE_VERSION = 1;
 // The Deep pieces are kept for good, so a change to how one site's pages are
 // cleaned would otherwise never reach them; this re-reads just those.
 const DEEP_VERSION = 1;
@@ -278,6 +283,7 @@ async function carryForwardArticles(liveUrls, keepTrying = new Set(), stale = {}
     // Read again under the current rules, but held on to in case the read
     // fails -- the archive throttles, and text it gave once is better than none.
     if (keepTrying.has(k) && v?.dv !== DEEP_VERSION) { if (v?.paragraphs) stale[k] = v; continue; }
+    if (v?.source && v.sv !== SOURCE_VERSION) continue;
     if (v?.type === "article" && v.paragraphs?.length && v.av === ARTICLE_VERSION) {
       // A paywalled preview is kept until something better turns up, but
       // retried rather than trusted as the final answer -- on every build for
@@ -315,7 +321,7 @@ async function resolveItem(item, ctx) {
     const other = await findCoverage(item).catch(() => null);
     if (other) return other;
   }
-  if (entry) return { ...entry, at: Date.now(), av: ARTICLE_VERSION };
+  if (entry) return { ...entry, at: Date.now(), av: ARTICLE_VERSION, ...(entry.source ? { sv: SOURCE_VERSION } : {}) };
   // Jina's anonymous blocks last an hour or so, and NYT is read through Jina
   // once they lapse -- so a miss caused by one is retried on the next build
   // rather than three hours later.
@@ -395,9 +401,29 @@ async function fillImages(items, limit) {
 
 // ── Build ───────────────────────────────────────────────────────────────────
 
+// Partner feeds (scripts/partners.mjs) are named "partner:<name>" in
+// sources.json. Read once per build and shared by every category and paper
+// that lists them.
+let partnerIndex = [];
+const partnerTexts = new Map();
+const partnerFeeds = new Map();
+function readPartnerFeed(name) {
+  if (!partnerFeeds.has(name)) {
+    partnerFeeds.set(name, partnerFeed(name, partnerIndex, { log }).then(({ items, texts }) => {
+      texts.forEach((v, k) => partnerTexts.set(k, v));
+      return items;
+    }).catch(() => []));
+  }
+  return partnerFeeds.get(name);
+}
+const partnerName = (u) => u.startsWith("partner:") ? u.slice(8) : null;
+
 async function buildCategory(name, cfg) {
   const maxAge = cfg.maxAgeDays || 2;
   const results = await Promise.all(cfg.feeds.map(async (u) => {
+    if (partnerName(u)) {
+      return (await readPartnerFeed(partnerName(u))).filter(i => isRecent(i.pubDate, maxAge)).slice(0, cfg.perFeed || 8);
+    }
     const xml = await fetchFeed(u);
     if (!xml) { log(`    miss  ${u}`); return []; }
     const items = parseFeed(xml, cfg.perFeed || 8).filter(i => isRecent(i.pubDate, maxAge));
@@ -414,7 +440,7 @@ async function buildCategory(name, cfg) {
   items = dedupe(items)
     .sort((a, b) => rankScore(b) - rankScore(a))
     .filter(i => {
-      const h = hostOf(i.link);
+      const h = i.origin || hostOf(i.link);
       counts[h] = (counts[h] || 0) + 1;
       return counts[h] <= 3;
     })
@@ -426,6 +452,11 @@ async function buildCategory(name, cfg) {
 async function main() {
   const started = Date.now();
   const categories = {};
+
+  // Partners' lists come first: some categories and papers are built from them.
+  log("  Partner lists");
+  partnerIndex = await refreshListings(await published("partner-index.json") || [], log);
+  log(`    ${partnerIndex.length} partner copies listed`);
 
   for (const [name, cfg] of Object.entries(SOURCES.categories)) {
     log(`  ${name}`);
@@ -445,21 +476,34 @@ async function main() {
   for (const [id, cfg] of Object.entries(SOURCES.papers)) {
     let items = [];
     for (const u of cfg.feeds) {
-      const xml = await fetchFeed(u);
-      if (!xml) continue;
-      let parsed = parseFeed(xml, 30).filter(i => isRecent(i.pubDate, 3));
+      let parsed;
+      if (partnerName(u)) parsed = (await readPartnerFeed(partnerName(u))).filter(i => isRecent(i.pubDate, 3));
+      else {
+        const xml = await fetchFeed(u);
+        if (!xml) continue;
+        parsed = parseFeed(xml, 30).filter(i => isRecent(i.pubDate, 3));
+      }
       // A publication tab must only ever show that publication. Without this a
       // mis-mapped feed fills the NYT tab with, say, BBC stories and nothing
       // about the result looks wrong.
       if (cfg.domain) {
         parsed = parsed.filter(i => {
-          const h = hostOf(i.link);
+          const h = i.origin || hostOf(i.link);
           return h === cfg.domain || h.endsWith("." + cfg.domain);
         });
       }
       if (parsed.length) { items = parsed; break; }
     }
-    items = dedupe(items).sort((a, b) => rankScore(b) - rankScore(a)).slice(0, 30);
+    // Free partner copies of the paper's stories, ahead of its own items so
+    // that where both carry a story, the readable one is kept.
+    // Partners republish features days after the paper does, so a week.
+    let added = 0;
+    for (const u of cfg.add || []) {
+      const extra = (await readPartnerFeed(partnerName(u) || u)).filter(i => isRecent(i.pubDate, 7));
+      items = [...extra, ...items];
+      added += extra.length;
+    }
+    items = dedupe(items).sort((a, b) => rankScore(b) - rankScore(a)).slice(0, 30 + added);
     log(`    ${String(items.length).padStart(3)}  ${cfg.name}`);
     if (items.length) papers[id] = { name: cfg.name, emoji: cfg.emoji, items };
   }
@@ -485,12 +529,16 @@ async function main() {
   const staleDeep = {};
   const articles = await carryForwardArticles(liveUrls, new Set(deepItems.map(i => canonicalUrl(i.link))), staleDeep);
   const carried = Object.keys(articles).length;
+  // Copies read while checking a partner's list need not be read again.
+  for (const [url, art] of partnerTexts) {
+    const k = canonicalUrl(url);
+    if (liveUrls.has(k) && !articles[k]) articles[k] = { ...art, at: Date.now(), av: ARTICLE_VERSION, sv: SOURCE_VERSION, how: "listed" };
+  }
 
   log("  Licensed index");
   const index = await refreshIndex(await published("licensed-index.json") || [], log);
   log(`    ${index.length} stories indexed`);
-  const listings = await refreshListings(await published("partner-index.json") || [], log);
-  log(`    ${listings.length} partner copies listed`);
+  const listings = partnerIndex;
 
   const jina = createJina(JINA_KEY, log);
   const seen = new Set();
@@ -535,11 +583,19 @@ async function main() {
     else if (e) e.dv = DEEP_VERSION;
   }
 
+  // A paper that asks for it lists its readable stories first, keeping its
+  // own order otherwise (WSJ, whose free copies are a minority).
+  for (const [id, cfg] of Object.entries(SOURCES.papers)) {
+    if (!cfg.readableFirst || !papers[id]) continue;
+    const has = (i) => (articles[canonicalUrl(i.link)]?.paragraphs && !articles[canonicalUrl(i.link)]?.partial) ? 0 : 1;
+    papers[id].items = papers[id].items.map((i, n) => [i, n]).sort((a, b) => has(a[0]) - has(b[0]) || a[1] - b[1]).map(([i]) => i);
+  }
+
   // Per-outlet tallies, so a site that stops answering shows up in the log as
   // a falling number rather than as a reader quietly showing summaries.
   const tally = {};
   for (const i of everything) {
-    const h = hostOf(i.link), e = articles[canonicalUrl(i.link)];
+    const h = i.origin || hostOf(i.link), e = articles[canonicalUrl(i.link)];
     const t = (tally[h] ||= { n: 0, full: 0, partial: 0 });
     if (t.seen?.has(i.link)) continue;
     (t.seen ||= new Set()).add(i.link);
@@ -579,7 +635,7 @@ async function main() {
   }
   for (const [key, e] of Object.entries(articles)) {
     if (!e?.paragraphs) continue;
-    const { how, at, av, dv, ...pub } = e;
+    const { how, at, av, dv, sv, ...pub } = e;
     writeFileSync(join(OUT_DIR, "a", `${articleId(key)}.json`), JSON.stringify(pub));
   }
 
@@ -612,7 +668,7 @@ async function main() {
   // The whole set, read back by the next build to carry text forward.
   writeFileSync(join(OUT_DIR, "articles.json"), JSON.stringify(articles));
   writeFileSync(join(OUT_DIR, "licensed-index.json"), JSON.stringify(index));
-  writeFileSync(join(OUT_DIR, "partner-index.json"), JSON.stringify(listings));
+  writeFileSync(join(OUT_DIR, "partner-index.json"), JSON.stringify(partnerIndex));
 
   const kb = (p) => Math.round(readFileSync(join(OUT_DIR, p)).length / 1024);
   log(`\n  feed.json     ${kb("feed.json")} KB  (${feed.counts.items} items, ${feed.counts.categories} categories, ${feed.counts.papers} papers)`);

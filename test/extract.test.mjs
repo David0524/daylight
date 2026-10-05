@@ -123,6 +123,8 @@ const judge = (orig, html, url) => {
 };
 check("Bloomberg's dateline credits a Yahoo copy",
   judge("https://www.bloomberg.com/news/articles/x", copyPage(`<p>(Bloomberg) -- ${para(1)}</p>${paras(6, 2)}`), "https://finance.yahoo.com/news/x.html") === true);
+check("Kanebridge's Dow Jones licence line credits its WSJ copy",
+  judge("https://www.wsj.com/business/x", copyPage(`${paras(6)}<footer>Copyright 2020, Dow Jones &amp; Company, Inc. All Rights Reserved Worldwide.</footer>`), "https://kanebridgenews.com/x/") === true);
 check("a byline crediting Bloomberg News credits a trade paper's copy",
   judge("https://www.bloomberg.com/news/articles/x", page(`<title>Copy</title>`, `<article><h1>Copy</h1><div class="field--name-field-byline"><a>Kevin Crowley</a> | Bloomberg News</div>${paras(6)}</article>`), "https://www.ttnews.com/articles/x") === true);
 check("a story that only cites Bloomberg is not a copy",
