@@ -90,8 +90,9 @@ export function credits(html, art, pub, url) {
   for (const m of document.querySelectorAll('meta[name="author"], meta[property="article:author"], meta[name="provider"], meta[name="article:source"]')) {
     names.push(m.getAttribute("content") || "");
   }
-  // Yahoo labels a partner story with the provider's name beside the byline.
-  for (const el of document.querySelectorAll('[class*="provider"], [data-testid*="provider"], [class*="caas-attr"]')) {
+  // Yahoo labels a partner story with the provider's name beside the byline;
+  // trade papers put it in the byline itself ("Kevin Crowley | Bloomberg News").
+  for (const el of document.querySelectorAll('[class*="provider"], [data-testid*="provider"], [class*="caas-attr"], [class*="byline"]')) {
     names.push(el.textContent || "");
   }
   if (names.some(n => pub.credit.test(n))) return true;

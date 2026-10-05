@@ -128,6 +128,13 @@ export const SITES = {
   // partners that carry them under licence.
   "bloomberg.com": { routes: ["syndicated", "jina"], ua: ["browser"] },
   "ft.com": { routes: ["syndicated"], ua: ["browser"] },
+  // Transport Topics carries Bloomberg's wire, wrapped in its own summary.
+  "ttnews.com": {
+    ua: ["browser"],
+    drop: [".key-takeaways", ".photo-credit", ".photo-combined-full", ".pubdate-before-body",
+           '[class*="field-subheadline"]', "figure", "aside"],
+    skip: [/^\W*stay on top of transportation news\b/i],
+  },
   "newyorker.com": {
     ua: ["browser", "googlebot"],
     drop: ["figure", "aside", ".journey-unit", ".consumer-marketing-unit"],
