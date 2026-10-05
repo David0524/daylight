@@ -11,11 +11,14 @@ name: Build feed
 
 on:
   schedule:
-    - cron: "*/30 * * * *"      # every 30 minutes
+    # Every 30 minutes, off the top and bottom of the hour. GitHub delays and
+    # drops scheduled runs under load, worst at :00 and :30 -- builds were
+    # landing three to six hours apart -- and odd minutes fare better.
+    - cron: "17,47 * * * *"
   workflow_dispatch:             # and on demand, from the Actions tab
   push:
     branches: [main]
-    paths: ["sources.json", "scripts/**", ".github/workflows/build-feed.yml"]
+    paths: ["sources.json", "scripts/**", "package.json", "package-lock.json", ".github/workflows/build-feed.yml"]
 
 permissions:
   contents: write
@@ -33,14 +36,19 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
+          cache: npm
+
+      # Readability and an HTML parser, for reading articles on the runner.
+      - run: npm ci --omit=dev
 
       - name: Build feed
         env:
-          # Optional override. The build falls back to the key committed in
-          # index.html, so prefetch runs without this being set. Setting it
-          # under Settings -> Secrets -> Actions swaps in a different key
-          # without a code change -- useful if the committed one is exhausted.
+          # Optional. Articles are read without any key; Jina is only a
+          # fallback for the few pages nothing else reaches, and a key there
+          # just lifts its anonymous rate limit. Without this secret the build
+          # tries the key committed in index.html, and drops it on the first
+          # refusal.
           JINA_API_KEY: ${{ secrets.JINA_API_KEY }}
         run: node scripts/build-feed.mjs dist
 

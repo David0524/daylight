@@ -16,10 +16,10 @@ So the fetching happens on GitHub's servers instead:
 ```
 .github/workflows/build-feed.yml     every 30 minutes
         │
-        ├── scripts/build-feed.mjs   fetch → parse → rank → dedupe
+        ├── scripts/build-feed.mjs   fetch → parse → rank → dedupe → read articles
         │        reads sources.json
         │
-        └── force-pushes feed.json + articles.json to the `data` branch
+        └── force-pushes feed.json + a/<id>.json to the `data` branch
                  │
                  └── index.html reads it at load
 ```
@@ -39,23 +39,41 @@ repository never accumulates history from half-hourly builds.
 **Nothing to set up.** The repo is public, so Actions minutes are free, and the
 workflow runs on its own schedule.
 
-### Optional: prefetched article text
+### Article text
 
-Set a `JINA_API_KEY` repository secret (Settings → Secrets and variables →
-Actions; free key at <https://jina.ai/reader>) and the build also resolves the
-text of the top stories ahead of time. Tapping one then opens instantly, and
-paywalled pieces are already resolved. The key stays in Actions and is never
-served to the browser.
+The same build reads every story in the feed, so tapping one opens at once —
+one small file (`a/<id>.json` on the `data` branch) rather than a fetch through
+a reader service from the phone. **No key is needed.** Each outlet is read the
+way that actually works from a GitHub runner, measured with
+`research/survey.mjs` (see `scripts/extract.mjs` for the per-site table):
 
-Without it the reader falls back to fetching in the browser, which works for
-open sites and is hit-or-miss on paywalled ones.
+| Route | Used for |
+|---|---|
+| The publisher's own page, parsed with Readability | most sites; WaPo answers Bing's crawler, The Hill Facebook's |
+| The publisher's feed (`content:encoded`) | Politico, The Atlantic, Fortune, Tech Review, Substack-style newsletters |
+| Licensed copies (Morningstar, Kanebridge, Livemint) | WSJ, MarketWatch, Barron's |
+| A partner's syndicated copy, found through Google News and credit-checked | Bloomberg, FT, NYT |
+| Google's translation proxy, as Discord's link crawler | NYT, where the network allows it |
+| Jina Reader | last resort for anything else |
+
+Text is carried forward between builds while its story is live, so anything
+read once stays readable. A story nothing could read is recorded as a miss and
+retried a few hours later; the page shows its summary at once, with a live
+retry and an archived-copy link, instead of half a minute of failed fetches.
+
+`JINA_API_KEY` (Settings → Secrets and variables → Actions; free key at
+<https://jina.ai/reader>) is optional. With it, the Jina fallback is no longer
+subject to the anonymous rate limit and to Jina's habit of blocking anonymous
+access to whole domains — `nytimes.com` most of all — which is what makes NYT
+reliable (see Known gaps). A key that runs out of balance is detected and
+dropped for the rest of the run rather than failing every request.
 
 ## Fallbacks
 
 The page degrades in order:
 
 1. **Published feed** (`data` branch) — the normal path.
-2. **Live fetching** — used if the published feed is missing or over 6 hours
+2. **Live fetching** — used if the published feed is missing or over 36 hours
    stale. Works for the feeds that allow browser access; the major papers will
    be thin or absent.
 3. **Fetch service** — an optional Cloudflare Worker (`worker/`) whose URL can
@@ -63,20 +81,52 @@ The page degrades in order:
    needed for the feed, but it still helps the reader with arbitrary pasted
    URLs. See `worker/README.md`.
 
+A published feed is used for up to 36 hours. GitHub runs scheduled workflows
+late under load — builds land hours apart against the 30-minute schedule — and
+the live fallback cannot reach the major papers at all, so an older prebuilt
+feed is the better of the two. Run **Build feed** from the Actions tab to
+refresh it on demand.
+
+For an article that is not in the published set (a pasted link, or a story
+newer than the last build) the page reads it live through Jina. The public
+CORS proxies it once used (AllOrigins, codetabs, corsproxy) are all dead and
+are no longer waited on.
+
 ## Working on it
 
 ```sh
 npm install
 
-npm test                 # ranking + wall-detection unit tests
+npm test                 # ranking, extraction, matching and wall-detection tests
 npm run audit:feeds      # which feeds are reachable, and which have gone stale
-node scripts/build-feed.mjs dist     # build the feed locally
+node scripts/build-feed.mjs dist     # build the feed and article text locally
+npm run survey           # which routes read which outlet from this machine
 
 npm run serve            # serve index.html against a local worker on :8080
 npm run e2e              # drive it in Chromium and report what rendered
 ```
 
 ### Known gaps
+
+- **NYT from GitHub's servers needs a Jina key.** NYT refuses every GitHub
+  runner (Ubuntu, ARM, macOS and Windows alike, measured), Google's translation
+  proxy refuses them too, and Jina blocks *anonymous* access to `nytimes.com`
+  for an hour at a time whenever someone abuses it — which is most hours.
+  Without a key, an NYT story is read only when a build lands in a gap between
+  those blocks or a licensed copy turns up through Google News, and the rest
+  show their summary with a link to an archived copy. With `JINA_API_KEY` set,
+  the blocks do not apply and the build asks Jina for the page as Discord's
+  link crawler (which NYT serves in full) and with NYT's own sharing
+  parameters. A key pasted under ⋯ in the app does the same for NYT stories
+  opened live, and stories the build missed are then fetched live
+  automatically.
+- **Bloomberg and the FT** refuse every route and are rarely syndicated in a
+  form that can be found and verified; most of their stories are summary only.
+- **WSJ** is readable only where Dow Jones has licensed a copy (Morningstar,
+  Kanebridge, Livemint): its markets, business and economy news usually, its
+  features and opinion sometimes. Morningstar's listing holds only a few hours
+  of newswire, so each build adds to an index (`licensed-index.json`) that is
+  carried forward.
 
 - **AP and Reuters** have no feed that answers anywhere any more. AP's
   feedburner mirror returns nothing and `apnews.com` 403s; Reuters' feed host
@@ -104,6 +154,10 @@ endpoints answer 200 with a full payload whose newest item is from January 2025.
 | `index.html` | the entire app |
 | `sources.json` | every feed URL, shared by the builder and the page |
 | `scripts/build-feed.mjs` | the build that runs in Actions |
+| `scripts/resolve.mjs` | reads one story: feed, licensed copy, then the site's routes |
+| `scripts/extract.mjs` | per-site routes and cleanup; HTML to paragraphs |
+| `scripts/licensed.mjs`, `scripts/syndicated.mjs` | licensed and syndicated copies |
+| `research/survey.mjs` | which user agent reads which outlet, from wherever it runs |
 | `.github/workflows/build-feed.yml` | schedule and publishing |
 | `worker/` | optional Cloudflare Worker fallback |
 | `test/` | unit tests, feed audit, local server, browser E2E |

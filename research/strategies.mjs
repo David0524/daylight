@@ -158,7 +158,7 @@ export const STRATEGIES = {
 
   // --- Jina variants --------------------------------------------------------
   "jina":              (u) => jina(u),
-  "jina-googlebot":    (u) => jina(u, { extra: { "X-Set-User-Agent": UA.googlebot } }),
+  "jina-googlebot":    (u) => jina(u, { extra: { "X-User-Agent": UA.googlebot } }),
   "jina-google-ref":   (u) => jina(u, { extra: { "X-Referer": "https://www.google.com/" } }),
   "jina-browser":      (u) => jina(u, { extra: { "X-Engine": "browser" } }),
   "jina-html":         (u) => jina(u, { fmt: "html" }),

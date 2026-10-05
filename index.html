@@ -1043,11 +1043,21 @@ const WORKER_BASE_DEFAULT = "";
 // under the ... tab still wins, so a device can always override it.
 const JINA_KEY_DEFAULT = "jina_3c7c35dfe33141c59b75abdf4ef567ebfD9KFFpq_NwRB3u0Y8B5dEUDiZNs";
 
-function getJinaKey() {
-  if (JINA_KEY_EXHAUSTED) return "";
+function configuredJinaKey() {
   const k = DB.get("jinaKey", "");
   if (typeof k === "string" && /^jina_/.test(k.trim())) return k.trim();
   return JINA_KEY_DEFAULT;
+}
+
+function getJinaKey() {
+  if (JINA_KEY_EXHAUSTED) return "";
+  const key = configuredJinaKey();
+  // A key refused for lack of balance stays refused for a while; remembering
+  // that saves every later session a wasted round trip on its first article.
+  // A different key -- one entered under the ... tab -- is tried afresh.
+  const dead = DB.get("jinaKeyDead", null);
+  if (dead && dead.k === key.slice(-8) && Date.now() - dead.at < 12 * 3600e3) return "";
+  return key;
 }
 
 // A key that has run out of balance makes Jina answer 402 to every request,
@@ -1056,13 +1066,35 @@ function getJinaKey() {
 // and that request is retried without it. Covers every Jina call in the page,
 // since they all go through fetch.
 var JINA_KEY_EXHAUSTED = false;   // var: getJinaKey may run before this line
+
+// Jina also blocks *anonymous* access to a whole domain for an hour or so when
+// someone abuses it -- nytimes.com more often than not. Every later request
+// for that domain fails the same way, and the NYT ladder made seven of them
+// before giving up: 88 seconds to an error screen. The first such answer now
+// short-circuits the rest of the session's anonymous requests to that domain.
+var JINA_BLOCKED_HOSTS = new Set();
 (() => {
   const realFetch = window.fetch.bind(window);
+  const jinaTarget = (url) => {
+    const m = url.match(/^https:\/\/r\.jina\.ai\/(.+)$/);
+    if (!m) return "";
+    try { return new URL(decodeURIComponent(m[1])).hostname.replace(/^www\./, ""); } catch { return ""; }
+  };
   window.fetch = async (input, init = {}) => {
     const url = typeof input === "string" ? input : input?.url || "";
+    const target = jinaTarget(url);
+    const keyed = new Headers(init.headers || {}).has("Authorization");
+    if (target && !keyed && JINA_BLOCKED_HOSTS.has(target)) {
+      return new Response('{"code":403,"name":"AbuseAlleviationError"}', { status: 403 });
+    }
     const res = await realFetch(input, init);
+    if (target && !keyed && res.status === 403) {
+      const body = await res.clone().text().catch(() => "");
+      if (/AbuseAlleviation|blocked until/i.test(body)) JINA_BLOCKED_HOSTS.add(target);
+    }
     if (res.status !== 402 || !/^https:\/\/[rs]\.jina\.ai\//.test(url)) return res;
     JINA_KEY_EXHAUSTED = true;
+    try { DB.set("jinaKeyDead", { k: configuredJinaKey().slice(-8), at: Date.now() }); } catch {}
     const headers = new Headers(init.headers || {});
     headers.delete("Authorization");
     // Search needs a key; without one there is nothing to retry.
@@ -1104,6 +1136,14 @@ const PUBLIC_PROXIES = [
   // already failed, so it must not route back through the worker.
   { kind: "raw",     build: (u) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}` },
 ];
+
+// The last-resort lookups (og:image, Google News and Yahoo searches, meta
+// previews) were written against a proxy helper that no longer exists, so
+// every call threw a ReferenceError and was swallowed. No public proxy is left
+// to point it at -- AllOrigins hangs, codetabs answers 522 -- so it fetches
+// directly: that succeeds where a target allows cross-origin reads and fails
+// at once, rather than after a long hang, where it does not.
+const rawProxy = (u) => u;
 
 
 let state = {
@@ -3196,11 +3236,14 @@ function applyFilters(catMap) {
 const FEED_DATA_BASE =
   "https://raw.githubusercontent.com/David0524/daylight/data";
 
-// Anything older than this and we prefer refetching live over showing staleness
-// (the Action runs every 30 minutes, so this only trips if it has been failing).
-const PREBUILT_MAX_AGE_MS = 6 * 60 * 60 * 1000;
+// Anything older than this and we prefer refetching live over showing staleness.
+// GitHub runs scheduled workflows late under load -- builds have landed three
+// to six hours apart against a 30-minute schedule -- and a six-hour limit threw
+// the prebuilt feed away whenever that happened, papers and article text with
+// it, for a live fetch that cannot reach the major papers at all. A day-old
+// prebuilt feed is still far better than that.
+const PREBUILT_MAX_AGE_MS = 36 * 60 * 60 * 1000;
 
-let PREBUILT_ARTICLES = null;
 let PREBUILT_PAPERS = null;
 let PREBUILT_MARKETS = null;
 
@@ -3231,16 +3274,55 @@ async function loadPrebuiltFeed() {
   } catch { return null; }
 }
 
-// Prefetched article text, loaded lazily — it is the larger file and is only
-// needed once something is actually opened.
-async function loadPrebuiltArticles() {
-  if (PREBUILT_ARTICLES) return PREBUILT_ARTICLES;
+// Article text the build already read. Each story is its own small file, named
+// by a hash of its canonical URL, so opening one costs one ~5 KB request rather
+// than downloading every article at once. scripts/build-feed.mjs computes the
+// same id.
+function articleId(key) {
+  let h1 = 0x811c9dc5, h2 = 0x5bd1e995;
+  for (let i = 0; i < key.length; i++) {
+    const c = key.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 0x01000193) >>> 0;
+    h2 = Math.imul(h2 ^ c, 0x5bd1e995) >>> 0;
+  }
+  return h1.toString(16).padStart(8, "0") + h2.toString(16).padStart(8, "0");
+}
+
+const PREBUILT_ARTICLE_CACHE = new Map();
+async function loadPrebuiltArticle(url) {
+  const known = feedEntryFor(url);
+  // A story the prebuilt feed lists without text was tried and not read;
+  // asking for its file would only be a 404. (Items from the live fallback
+  // carry no such marks, so for those the file is simply tried.)
+  if (known && !known.a && PREBUILT_PAPERS) return null;
+  const id = known?.a || articleId(canonicalUrl(url));
+  if (PREBUILT_ARTICLE_CACHE.has(id)) return PREBUILT_ARTICLE_CACHE.get(id);
+  let entry = null;
   try {
-    const bust = Math.floor(Date.now() / (30 * 60 * 1000));
-    const r = await withTimeout(fetch(`${FEED_DATA_BASE}/articles.json?v=${bust}`), 12000, "articles timeout");
-    PREBUILT_ARTICLES = r.ok ? await r.json() : {};
-  } catch { PREBUILT_ARTICLES = {}; }
-  return PREBUILT_ARTICLES;
+    const r = await withTimeout(fetch(`${FEED_DATA_BASE}/a/${id}.json`), 10000, "article timeout");
+    entry = r.ok ? await r.json() : null;
+  } catch {}
+  if (entry) PREBUILT_ARTICLE_CACHE.set(id, entry);
+  return entry;
+}
+
+// A prebuilt entry, as the reader's article shape. The build has already cut
+// the page down to the story; the per-publisher junk rules run once more over
+// its paragraphs, since they were derived from what each site actually emits.
+function articleFromEntry(entry, url) {
+  const junk = junkRulesFor(entry.source || url);
+  const paragraphs = (entry.paragraphs || [])
+    .filter(p => p && typeof p.text === "string" && p.text.trim())
+    .filter(p => !matchesJunk(junk, p.text, p.text))
+    .map(p => ({ tag: ["h2", "blockquote"].includes(p.tag) ? p.tag : "p", text: p.text }));
+  if (!paragraphs.some(p => p.tag === "p")) return null;
+  const wordCount = paragraphs.reduce((n, p) => n + p.text.split(/\s+/).length, 0);
+  return {
+    headline: entry.headline || feedEntryFor(url)?.title || "",
+    author: entry.author || "", date: entry.date || "", heroImage: entry.image || "",
+    paragraphs, wordCount, readTime: Math.max(1, Math.round(wordCount / 230)),
+    url, via: entry.via || "", partial: !!entry.partial,
+  };
 }
 
 async function loadFeed() {
@@ -3252,7 +3334,8 @@ async function loadFeed() {
     PREBUILT_MARKETS = prebuilt.markets || null;
     renderFeed(prebuilt.categories);
     document.getElementById("feedNotice")?.remove();
-    setTimeout(() => enrichFeedMeta(prebuilt.categories), 200);
+    // No enrichment pass: the build resolved og:image for every item it could,
+    // server-side, and the browser has no working route to do better.
     return;
   }
 
@@ -3337,6 +3420,8 @@ function renderReader(article) {
     ? `<div class="reader-meta-pill" style="background:var(--input-bg);color:var(--sub)">Related coverage from ${escHtml(article.via)} · WSJ's piece isn't free</div>`
     : article.via
     ? `<div class="reader-meta-pill"><span style="color:var(--green)">✓</span> Licensed copy via ${escHtml(article.via)}</div>`
+    : article.partial
+    ? `<div class="reader-meta-pill" style="background:var(--input-bg);color:var(--sub)">🔒 Preview — the rest is for subscribers</div>`
     : article.openVersionNote
     ? `<div class="reader-meta-pill" style="background:var(--input-bg);color:var(--sub)">↗ ${escHtml(article.openVersionNote)}</div>`
     : article.metaOnly
@@ -3369,7 +3454,7 @@ function renderReader(article) {
     }
   });
 
-  if (article.metaOnly) {
+  if (article.metaOnly || article.partial) {
     const siteHost = (() => { try { return new URL(article.url).hostname.replace(/^www\./, ""); } catch { return ""; } })();
     const siteName = siteHost.includes("wsj") ? "The Wall Street Journal"
       : siteHost.includes("reuters") ? "Reuters"
@@ -3393,12 +3478,13 @@ function renderReader(article) {
             <span>↗</span>
             <span>Read on ${escHtml(siteName)}</span>
           </a>
-          <div style="margin-top:10px;text-align:center">
+          <div style="margin-top:12px;display:flex;flex-wrap:wrap;justify-content:center;gap:6px 16px;font-family:'DM Mono',monospace;font-size:10px">
+            ${state.buildMiss ? `<a href="#" data-live-retry="${escHtml(article.url)}" style="color:var(--sub);text-decoration:none">↻ Try a live fetch</a>` : ""}
+            <a href="https://archive.ph/newest/${escHtml(article.url)}" target="_blank" rel="noreferrer"
+              style="color:var(--sub);text-decoration:none">🗄 Archived copy</a>
             <a href="https://www.google.com/search?q=${encodeURIComponent((article.headline||"").split(" ").slice(0,8).join(" "))}"
               target="_blank" rel="noreferrer"
-              style="font-family:'DM Mono',monospace;font-size:10px;color:var(--sub);opacity:0.6;text-decoration:none">
-              🔍 Search for coverage elsewhere
-            </a>
+              style="color:var(--sub);opacity:0.7;text-decoration:none">🔍 Coverage elsewhere</a>
           </div>
         </div>
       </div>`;
@@ -3415,6 +3501,10 @@ function renderReader(article) {
 
   container.innerHTML = html;
   applyReaderFont(state.readerFont);
+  container.querySelector("[data-live-retry]")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    startRead(e.currentTarget.dataset.liveRetry, false, { live: true });
+  });
 
   // Update bookmark button state
   const bookmarkBtn = document.getElementById("bookmarkBtn");
@@ -3940,25 +4030,29 @@ const FETCH_METHODS = [
       // NYT honours these server-side and returns the full article rather than
       // the metered preview. They only take effect through Jina's cache, so
       // this must not send X-No-Cache.
+      // First as Discord's link-preview crawler, which NYT serves the whole
+      // server-rendered article; then the sharing params.
+      const DISCORD = "Mozilla/5.0 (compatible; Discordbot/2.0; +https://discordapp.com)";
       const variants = [
-        `${url}${sep}unlocked_article_code=1&smid=nytcore-ios-share`,
-        `${url}${sep}unlocked_article_code=1&smid=url-share`,
-        `${url}${sep}smid=nytcore-ios-share`,
+        { u: url, ua: DISCORD },
+        { u: `${url}${sep}unlocked_article_code=1&smid=nytcore-ios-share` },
+        { u: `${url}${sep}unlocked_article_code=1&smid=url-share` },
+        { u: `${url}${sep}smid=nytcore-ios-share` },
       ];
 
-      // The ladder caps each method at 15s, so this works to a slightly
-      // shorter budget and returns the best it has when the budget runs out.
-      // Without that it was being killed mid-retry and threw away a good
-      // result it had already fetched.
-      const deadline = Date.now() + 13000;
+      // The ladder caps each method at LIVE_METHOD_MS, so this works to a
+      // slightly shorter budget and returns the best it has when the budget
+      // runs out. Without that it was being killed mid-retry and threw away a
+      // good result it had already fetched.
+      const deadline = Date.now() + 23000;
       const left = () => deadline - Date.now();
 
-      const attempt = async (giftUrl) => {
+      const attempt = async ({ u: giftUrl, ua }) => {
         const r = await Promise.race([
           fetch(`https://r.jina.ai/${encodeURIComponent(giftUrl)}`, {
-            headers: jinaHeaders({ "X-Referer": "https://www.google.com/" }),
+            headers: jinaHeaders({ "X-Referer": "https://www.google.com/", ...(ua ? { "X-User-Agent": ua } : {}) }),
           }),
-          new Promise((_, rej) => setTimeout(() => rej(new Error("slow")), Math.max(1500, Math.min(6000, left())))),
+          new Promise((_, rej) => setTimeout(() => rej(new Error("slow")), Math.max(1500, Math.min(20000, left())))),
         ]);
         if (!r.ok) return null;
         const t = await r.text();
@@ -4368,8 +4462,10 @@ const PUBLISHER_RULES = {
       /^(far fewer asks for support|ad-free reading|unlimited access to|regular dispatches from the newsroom)/i,
       /^support the guardian/i,
       /^(one-time|monthly|annual)\b.{0,30}$/i,
-      // Byline glued to the correspondent's title, with no sentence punctuation.
-      /^[A-Z][a-z]+ [A-Z][a-z]+ [a-z][a-z\s]{6,40}(correspondent|editor|reporter)$/,
+      // Byline glued to the correspondent's title, with no sentence punctuation:
+      // "Robert Booth UK technology editor".
+      /^[A-Z][a-z]+ [A-Z][\w'’-]+ [A-Za-z][\w\s]{2,40}(correspondent|editor|reporter)$/,
+      /^we welcome support of any size\b/i,
     ],
   },
   "npr.org": {
@@ -4771,7 +4867,7 @@ const JINA_ONLY = new Set([
 const REUTERS_DOMAINS = new Set(["reuters.com"]);
 
 const JINA_BLOCKED = new Set([
-  "wsj.com","barrons.com","thetimes.co.uk",
+  "wsj.com","barrons.com","marketwatch.com","thetimes.co.uk",
 ]);
 
 // TIER 3c — NYT: gift URL + googlebot UA.
@@ -4948,6 +5044,11 @@ function headlineFromUrl(url) {
   } catch { return ""; }
 }
 
+// How long one live method may take. Anonymous Jina renders a page in a real
+// browser and was measured at 19 seconds for an ordinary article; the old
+// fifteen-second cap timed it out just short of answering.
+const LIVE_METHOD_MS = 25000;
+
 // Get a named fetch method by name
 function pick(names) {
   return names.map(n => FETCH_METHODS.find(m => m.name === n)).filter(Boolean);
@@ -4980,14 +5081,14 @@ function parseResult(result, url) {
 // Race corsproxy and Jina simultaneously — take whichever returns valid content first.
 // Both run with a 12s timeout. Used for CF-protected / ambiguous domains (Tier 2).
 async function raceFetch(url) {
-  // Runs the two independent paths at once and takes the first that returns
-  // usable content. AllOrigins leads because it is the only public proxy still
-  // answering with correct CORS headers; codetabs has been returning 522.
-  // The old archive.ph tiebreaker is gone -- it sits behind a Cloudflare
-  // challenge and was the source of the captcha pages shown in the reader.
-  const proxy = FETCH_METHODS.find(m => m.name === "AllOrigins");
+  // Once a race between a public CORS proxy and Jina; the proxies are all dead
+  // now, so it is Jina alone. The old archive.ph tiebreaker is gone too -- it
+  // sits behind a Cloudflare challenge and was the source of the captcha pages
+  // shown in the reader.
+  // The proxy half of the race is gone with the public proxies themselves;
+  // what is left is Jina with the same timeout and validation.
   const jina  = FETCH_METHODS.find(m => m.name === "Jina");
-  const TIMEOUT = 12000;
+  const TIMEOUT = LIVE_METHOD_MS;
 
   const attempt = (method) => Promise.race([
     method.fetch(url),
@@ -4999,7 +5100,7 @@ async function raceFetch(url) {
   });
 
   try {
-    return await Promise.any([proxy, jina].filter(Boolean).map(attempt));
+    return await attempt(jina);
   } catch {}
   return null;
 }
@@ -5034,14 +5135,15 @@ async function licensedCopyLive(url) {
 
   const read = async (target) => {
     const r = await withTimeout(fetch(`https://r.jina.ai/${encodeURIComponent(target)}`,
-      { headers: jinaHeaders({ "X-Return-Format": "markdown" }) }), 12000, "read timeout");
+      { headers: jinaHeaders({ "X-Return-Format": "markdown" }) }), 25000, "read timeout");
     return r.ok ? r.text() : "";
   };
 
   // Every candidate runs at once and the first real copy wins: done in turn,
   // four Kanebridge checks and a search could run past the reader's ceiling.
-  const kanebridge = [...new Set([title, slugTitle].filter(Boolean))].flatMap(t =>
-    ["https://kanebridgenewsme.com/", "https://www.kanebridgenews.com/"].map(base => async () => {
+  const list = /marketwatch\.com/.test(url) ? "marketwatch" : "dow-jones";
+  const kanebridge = list === "marketwatch" ? [] : [...new Set([title, slugTitle].filter(Boolean))].flatMap(t =>
+    ["https://kanebridgenews.com/", "https://kanebridgenewsme.com/"].map(base => async () => {
       const target = `${base}${licSlugify(t)}/`;
       const text = await read(target);
       if (text.length > 2000 && /dow jones & company/i.test(text))
@@ -5050,13 +5152,13 @@ async function licensedCopyLive(url) {
     }));
 
   const morningstar = async () => {
-    const q = `morningstar.com dow-jones "${title}"`;
+    const q = `morningstar.com ${list} "${title}"`;
     const r = await withTimeout(fetch(`https://s.jina.ai/?q=${encodeURIComponent(q)}`, {
       headers: { ...jinaHeaders(), Accept: "application/json", "X-Respond-With": "no-content" },
     }), 15000, "search timeout");
     const hits = r.ok ? ((await r.json())?.data || []) : [];
     const best = hits
-      .map(h => ({ url: String(h.url || ""), m: String(h.url || "").match(/morningstar\.com\/news\/dow-jones\/\d+\/([a-z0-9-]+)/) }))
+      .map(h => ({ url: String(h.url || ""), m: String(h.url || "").match(new RegExp(`morningstar\\.com/news/${list}/\\d+/([a-z0-9-]+)`)) }))
       .filter(h => h.m && !/top-[a-z]+-headlines|-roundup$/.test(h.m[1]))
       .map(h => ({ url: h.url, score: Math.max(licOverlap(title, h.m[1].replace(/-/g, " ")),
                                                licOverlap(slugTitle, h.m[1].replace(/-/g, " "))) }))
@@ -5064,7 +5166,8 @@ async function licensedCopyLive(url) {
       .sort((a, b) => b.score - a.score)[0];
     if (!best) throw new Error("no match");
     const text = await read(best.url);
-    if (text.length > 2000) return { type: "markdown", text, source: best.url, via: "Morningstar (Dow Jones)" };
+    if (text.length > 2000) return { type: "markdown", text, source: best.url,
+      via: list === "marketwatch" ? "Morningstar (MarketWatch)" : "Morningstar (Dow Jones)" };
     throw new Error("empty");
   };
 
@@ -5088,30 +5191,34 @@ async function fetchArticle(url, _isRetry = false) {
   const host = (() => { try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return ""; } })();
 
   // ── Prefetched text ──────────────────────────────────────────────────────
-  // The build Action resolves the top stories ahead of time using a key that
-  // lives in repo secrets and never reaches the browser. When it has the
-  // article already, opening it costs nothing and paywalled pieces are
-  // resolved without the page hitting a rate limit or a bot wall.
+  // The build reads every story in the feed ahead of time, from the server
+  // side where the papers are reachable. When it has the article, opening it
+  // costs one small request, and paywalled pieces are already resolved.
   try {
-    const cached = (await loadPrebuiltArticles())[canonicalUrl(url)];
-    // Another outlet's article is never shown in place of the one tapped.
-    if (cached?.text && !cached.relation) {
-      // A licensed copy (a WSJ story read from Morningstar's Dow Jones feed)
-      // is parsed against the page it actually came from, so that site's junk
-      // rules apply, but keeps the original URL for "open original".
-      const article = parseResult(cached, cached.source || url);
-      if (article && cached.source) {
-        article.url = url; article.via = cached.via || ""; article.relation = cached.relation || "";
-        // Someone else's article keeps its own link as the original, so "open
-        // original" goes to what was actually read.
-        if (cached.relation) article.url = cached.source;
-      }
-      if (article) {
-        logMethod("prefetched", "ok", `${article.paragraphs.length} paragraphs`);
-        return article;
-      }
+    loadingSub.textContent = "Opening…";
+    const entry = await loadPrebuiltArticle(url);
+    const article = entry && articleFromEntry(entry, url);
+    if (article) {
+      logMethod("prefetched", "ok", `${article.paragraphs.length} paragraphs`);
+      return article;
     }
   } catch {}
+
+  // The build tried this story within the last few hours and nothing could
+  // read it -- which, for the walled papers, is what every route here would
+  // find too, after half a minute of trying. Say so at once; the summary view
+  // offers a live attempt for anyone who wants it anyway.
+  // With a key of one's own saved under ... the live routes are quick and get
+  // past Jina's anonymous blocks, so those stories are fetched after all --
+  // except the Dow Jones titles, which no route reaches.
+  const known = feedEntryFor(url);
+  const ownKey = getJinaKey() && getJinaKey() !== JINA_KEY_DEFAULT;
+  const walled = /(^|\.)(wsj|barrons|marketwatch)\.com$/.test(host);
+  if (known?.am && !state.forceLive && (!ownKey || walled)) {
+    logMethod("prefetched", "fail", "Not readable from the build");
+    state.buildMiss = true;
+    return null;
+  }
 
   // ── Worker first ─────────────────────────────────────────────────────────
   // The worker runs the whole extraction ladder server-side with real browser
@@ -5176,11 +5283,13 @@ async function fetchArticle(url, _isRetry = false) {
     // Jina+html+googlebot fetches raw HTML (not Jina's
     // markdown, which strips JSON-LD entirely) with Googlebot spoofing, so
     // our JSON-LD articleBody extraction actually gets a chance to run.
-    for (const method of pick(["Jina+gift","Jina+html+googlebot","Jina+googlebot","Jina","Wayback"])) {
+    // No Wayback: NYT has blocked the Internet Archive's crawlers since late
+    // 2025, so it only ever spent its fifteen seconds finding no snapshot.
+    for (const method of pick(["Jina+gift","Jina+html+googlebot","Jina+googlebot","Jina"])) {
       loadingSub.textContent = `Trying ${method.name}…`;
       logMethod(method.name, "pending", "Connecting…");
       try {
-        const result = await Promise.race([method.fetch(url), new Promise((_,rej)=>setTimeout(()=>rej(new Error("Timeout")),15000))]);
+        const result = await Promise.race([method.fetch(url), new Promise((_,rej)=>setTimeout(()=>rej(new Error("Timeout")),LIVE_METHOD_MS))]);
         const article = parseResult(result, url);
         if (!article) { logMethod(method.name, "fail", "No content"); continue; }
         logMethod(method.name, "ok", `${article.paragraphs.length} paragraphs`);
@@ -5196,17 +5305,9 @@ async function fetchArticle(url, _isRetry = false) {
     // resolved; anything else -- a pasted link, a story newer than the last
     // build -- is looked up live. Without one, stay in the app and show the
     // feed's own summary rather than bouncing the reader out to wsj.com.
-    // The build records a story it searched for and found no copy of. Within
-    // the build's retry window that answer is current, so trust it rather than
-    // make the reader wait on the same searches again.
-    let recentMiss = false;
-    try {
-      const pre = (await loadPrebuiltArticles())[canonicalUrl(url)];
-      recentMiss = !!(pre?.miss && Date.now() - pre.at < 3 * 60 * 60 * 1000);
-    } catch {}
     loadingSub.textContent = "Looking for a licensed copy…";
-    logMethod("Licensed copy", "pending", recentMiss ? "Checked recently" : "Kanebridge, Morningstar…");
-    const copy = recentMiss ? null : await licensedCopyLive(url).catch(() => null);
+    logMethod("Licensed copy", "pending", "Kanebridge, Morningstar…");
+    const copy = await licensedCopyLive(url).catch(() => null);
     const article = copy && parseResult(copy, copy.source);
     if (article) {
       article.url = url; article.via = copy.via;
@@ -5220,11 +5321,11 @@ async function fetchArticle(url, _isRetry = false) {
 
   // ── Reuters: Jina markdown → Jina+proxy → Wayback ───────────────────────
   else if (inSet(REUTERS_DOMAINS)) {
-    for (const method of pick(["Jina","Jina+proxy","Wayback"])) {
+    for (const method of pick(["Jina","Wayback"])) {
       loadingSub.textContent = `Trying ${method.name}…`;
       logMethod(method.name, "pending", "Connecting…");
       try {
-        const result = await Promise.race([method.fetch(url), new Promise((_,rej)=>setTimeout(()=>rej(new Error("Timeout")),15000))]);
+        const result = await Promise.race([method.fetch(url), new Promise((_,rej)=>setTimeout(()=>rej(new Error("Timeout")),LIVE_METHOD_MS))]);
         const article = parseResult(result, url);
         if (!article) { logMethod(method.name, "fail", "No content"); continue; }
         logMethod(method.name, "ok", `${article.paragraphs.length} paragraphs`);
@@ -5235,11 +5336,11 @@ async function fetchArticle(url, _isRetry = false) {
 
   // ── Tier 3a: Hard paywalls ───────────────────────────────────────────────
   else if (inSet(JINA_ONLY)) {
-    for (const method of pick(["Jina","Jina+proxy","Wayback"])) {
+    for (const method of pick(["Jina","Wayback"])) {
       loadingSub.textContent = `Trying ${method.name}…`;
       logMethod(method.name, "pending", "Connecting…");
       try {
-        const result = await Promise.race([method.fetch(url), new Promise((_,rej)=>setTimeout(()=>rej(new Error("Timeout")),15000))]);
+        const result = await Promise.race([method.fetch(url), new Promise((_,rej)=>setTimeout(()=>rej(new Error("Timeout")),LIVE_METHOD_MS))]);
         const article = parseResult(result, url);
         if (!article) { logMethod(method.name, "fail", "No content"); continue; }
         logMethod(method.name, "ok", `${article.paragraphs.length} paragraphs`);
@@ -5251,19 +5352,19 @@ async function fetchArticle(url, _isRetry = false) {
   // ── Tier 2: Race (CF-protected / ambiguous) ──────────────────────────────
   else if (inSet(RACE_DOMAINS)) {
     loadingSub.textContent = "Fetching…";
-    logMethod("codetabs + Jina", "pending", "Racing…");
+    logMethod("Jina", "pending", "Connecting…");
     const raceResult = await raceFetch(url);
     if (raceResult) {
       logMethod(raceResult.method, "ok", `${raceResult.article.paragraphs.length} paragraphs`);
       return raceResult.article;
     }
-    logMethod("codetabs + Jina", "fail", "Both failed");
+    logMethod("Jina", "fail", "No content");
     // Fall through to Wayback/Archive as last resort
     for (const method of pick(["Wayback"])) {
       loadingSub.textContent = `Trying ${method.name}…`;
       logMethod(method.name, "pending", "Connecting…");
       try {
-        const result = await Promise.race([method.fetch(url), new Promise((_,rej)=>setTimeout(()=>rej(new Error("Timeout")),15000))]);
+        const result = await Promise.race([method.fetch(url), new Promise((_,rej)=>setTimeout(()=>rej(new Error("Timeout")),LIVE_METHOD_MS))]);
         const article = parseResult(result, url);
         if (!article) { logMethod(method.name, "fail", "No content"); continue; }
         logMethod(method.name, "ok", `${article.paragraphs.length} paragraphs`);
@@ -5280,14 +5381,16 @@ async function fetchArticle(url, _isRetry = false) {
     // moved after the methods that actually work right now. PROXY_ONLY
     // previously had no non-codetabs fallback at all, so those domains could
     // never open an article; Jina is added here as a real fallback.
-    const methods = inSet(PROXY_ONLY)
-      ? pick(["Jina","AMP","Wayback","AllOrigins","codetabs"])
-      : pick(["Jina","Jina+proxy","AMP","Wayback","AllOrigins","codetabs"]);
+    // The public CORS proxies (AllOrigins, codetabs, corsproxy) are all dead
+    // -- measured October 2026: a 20s hang, 522 and 401 -- and each cost up to
+    // fifteen seconds of waiting per article, so the live ladder is Jina's
+    // routes and the Wayback Machine only.
+    const methods = pick(["Jina","AMP","Wayback"]);
     for (const method of methods) {
       loadingSub.textContent = `Trying ${method.name}…`;
       logMethod(method.name, "pending", "Connecting…");
       try {
-        const result = await Promise.race([method.fetch(url), new Promise((_,rej)=>setTimeout(()=>rej(new Error("Timeout")),15000))]);
+        const result = await Promise.race([method.fetch(url), new Promise((_,rej)=>setTimeout(()=>rej(new Error("Timeout")),LIVE_METHOD_MS))]);
         const article = parseResult(result, url);
         if (!article) { logMethod(method.name, "fail", "No content"); continue; }
         logMethod(method.name, "ok", `${article.paragraphs.length} paragraphs`);
@@ -5362,6 +5465,19 @@ function readerFailureNote() {
   if (state.noLicensedCopy) {
     return "Summary only — WSJ makes just some stories free, through licensed partners, and none has published this one.";
   }
+  if (state.buildMiss) {
+    const host = (() => { try { return new URL(state.lastUrl || "").hostname; } catch { return ""; } })();
+    if (/(^|\.)(wsj|barrons|marketwatch)\.com$/.test(host)) {
+      return "Summary only — Dow Jones makes just some stories free, through licensed partners, and none has published this one yet.";
+    }
+    return "Summary only — this story couldn't be read in full when the feed was built.";
+  }
+  // Jina refusing anonymous requests for this site (NYT, usually): only a key
+  // gets past that, so say so rather than suggesting the original is the way.
+  const host = (() => { try { return new URL(state.lastUrl || "").hostname.replace(/^www\./, ""); } catch { return ""; } })();
+  if (host && JINA_BLOCKED_HOSTS.has(host) && !getJinaKey()) {
+    return "Couldn't load the full text — the reader service is refusing anonymous requests for this site right now. A free Jina key under ⋯ gets past that.";
+  }
   const log = (state.errors || []).join(" ").toLowerCase();
   const rateLimited = /401|429|unauthorized|timeout|captcha|sharing-param/.test(log);
   const onSharedKey = getJinaKey() === JINA_KEY_DEFAULT;
@@ -5371,7 +5487,7 @@ function readerFailureNote() {
   return "Couldn't load the full text for this one. Open the original to read it.";
 }
 
-async function startRead(rawUrl, addToHistory = true) {
+async function startRead(rawUrl, addToHistory = true, opts = {}) {
   if (!rawUrl || isGoogleUrl(rawUrl)) return; // silently ignore unresolved google URLs
   let url = rawUrl.trim();
   if (!url) return;
@@ -5390,6 +5506,9 @@ async function startRead(rawUrl, addToHistory = true) {
   document.getElementById("loadingSub").textContent = "Initializing…";
   state.errors = [];
   state.noLicensedCopy = false;
+  state.buildMiss = false;
+  state.forceLive = !!opts.live;
+  state.lastUrl = url;
 
   if (addToHistory) pushHistory(url);
 
@@ -5668,8 +5787,10 @@ async function saveJinaKey() {
       headers: { Authorization: `Bearer ${raw}`, Accept: "text/plain" },
     }), 15000, "timeout");
     if (r.status === 401) { set("bad", "That key was rejected."); return; }
+    if (r.status === 402) { set("bad", "That key has no balance left."); return; }
     if (!r.ok) { set("bad", `Checking failed (${r.status}).`); return; }
     DB.set("jinaKey", raw);
+    JINA_KEY_EXHAUSTED = false;
     set("ok", "Saved. Paywalled articles should load more reliably.");
   } catch (e) { set("bad", `Couldn't check it: ${e.message || e}`); }
 }

@@ -14,14 +14,18 @@
  *
  *   node scripts/build-feed.mjs [outDir]
  *
- * With JINA_API_KEY set it also prefetches article text for the top stories,
- * so tapping one opens instantly and paywalled pieces are already resolved.
- * Without it the page falls back to fetching articles in the browser.
+ * It also resolves the text of every story, so tapping one opens instantly and
+ * paywalled pieces are already resolved -- see scripts/resolve.mjs for how each
+ * outlet is read. None of that needs a key; JINA_API_KEY, where set, only adds
+ * a fallback for the few pages nothing else reaches.
  */
 import { writeFileSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { findCoverage, readPage, asEntry, stats as coverageStats } from "./coverage.mjs";
+import { findCoverage } from "./coverage.mjs";
+import { resolveArticle } from "./resolve.mjs";
+import { createJina } from "./jina.mjs";
+import { refreshIndex, licensedRule, headlineOverlap, slugify } from "./licensed.mjs";
 
 const OUT_DIR = process.argv[2] || "dist";
 const SOURCES = JSON.parse(readFileSync(new URL("../sources.json", import.meta.url), "utf8"));
@@ -32,7 +36,7 @@ const SOURCES = JSON.parse(readFileSync(new URL("../sources.json", import.meta.u
 const JINA_KEY = process.env.JINA_API_KEY ||
   (readFileSync(new URL("../index.html", import.meta.url), "utf8")
     .match(/JINA_KEY_DEFAULT\s*=\s*"(jina_[^"]+)"/)?.[1] || "");
-const PREFETCH_LIMIT = Number(process.env.PREFETCH_LIMIT || 90);
+const PREFETCH_LIMIT = Number(process.env.PREFETCH_LIMIT || 400);
 
 const UA_BROWSER = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 const UA_GOOGLEBOT = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)";
@@ -90,7 +94,8 @@ function parseFeed(xml, limit) {
   const blocks = [...xml.matchAll(/<(item|entry)(?:\s[^>]*)?>([\s\S]*?)<\/\1>/gi)].map(m => m[2]);
   const out = [];
   for (const b of blocks.slice(0, limit)) {
-    const title = decodeEntities(tag(b, "title"));
+    // Some feeds mark up their titles (The Atlantic italicises its own name).
+    const title = decodeEntities(tag(b, "title")).replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
 
     // RSS puts the URL in the element text; Atom puts it in link/@href.
     let link = tag(b, "link");
@@ -107,6 +112,10 @@ function parseFeed(xml, limit) {
     if (!isArticleUrl(link)) continue;
 
     const descRaw = tag(b, "description") || tag(b, "summary") || tag(b, "content:encoded");
+    // Some publishers put the whole article in the feed. Kept in memory for
+    // the article step and never written to feed.json.
+    const content = tag(b, "content:encoded") || (/<content[^>]+type=["'](html|xhtml)/i.test(b) ? tag(b, "content") : "");
+    const author = decodeEntities(tag(b, "dc:creator") || tag(b, "name")).replace(/<[^>]+>/g, "").replace(/^by\s+/i, "").trim();
     const image =
       (b.match(/<enclosure[^>]+type=["']image[^"']*["'][^>]+url=["']([^"']+)["']/i) || [])[1] ||
       (b.match(/<enclosure[^>]+url=["']([^"']+)["'][^>]+type=["']image/i) || [])[1] ||
@@ -120,6 +129,9 @@ function parseFeed(xml, limit) {
       image: image.startsWith("http") ? decodeEntities(image) : "",
       pubDate: new Date(ts).toISOString(),
       source: (() => { try { return new URL(link).hostname.replace(/^www\./, ""); } catch { return ""; } })(),
+      // CDATA content is already HTML; escaped content needs decoding once.
+      ...(content.length > 1500 ? { _content: /<[a-z]/i.test(content) ? content : decodeEntities(content) } : {}),
+      ...(author && author.length < 80 ? { _author: author } : {}),
     });
   }
   return out;
@@ -147,6 +159,9 @@ function isArticleUrl(link) {
     if (h.endsWith(".github.io")) return false;
     const ext = u.pathname.split(".").pop().toLowerCase();
     if (MEDIA_EXT.has(ext)) return false;
+    // Video and audio pages have nothing to read, and a reader tapping one
+    // waited out every route before seeing the summary.
+    if (/\/(videos?|audio|podcasts?)\//i.test(u.pathname)) return false;
     return u.pathname.length >= 5;   // bare domains are section fronts, not stories
   } catch { return false; }
 }
@@ -222,226 +237,71 @@ async function hackerNews(limit, aiOnly) {
   } catch { return []; }
 }
 
-// ── Article prefetch ────────────────────────────────────────────────────────
+// ── Articles ────────────────────────────────────────────────────────────────
 
-const WALL_MARKERS = ["please complete the security check","one more step","this page maybe requiring captcha",
-  "checking if the site connection is secure","ray id:","subscribe to continue reading",
-  "this article is for subscribers","you've used all your free articles",
-  "already a subscriber? sign in","continue reading your article with"];
+const DATA_BASE = process.env.PUBLISHED_DATA_BASE ||
+  "https://raw.githubusercontent.com/David0524/daylight/data";
 
-async function jinaFetch(url) {
-  // No X-No-Cache here, deliberately: NYT's sharing params only return the
-  // full article through Jina's cache, and disabling it drops them back to the
-  // metered preview (or to a tracking-pixel redirect).
-  const r = await withTimeout(fetch(`https://r.jina.ai/${encodeURIComponent(url)}`, {
-    headers: { Authorization: `Bearer ${JINA_KEY}`, Accept: "text/plain",
-               "X-Return-Format": "markdown", "X-Timeout": "20",
-               "X-Referer": "https://www.google.com/" },
-  }), 30000, "jina");
-  if (!r.ok) return null;
-  const text = await r.text();
-  const low = text.toLowerCase();
-  if (WALL_MARKERS.some(w => low.includes(w))) return null;
-  return text.length < 1200 ? null : text;
-}
-
-async function prefetchArticle(url) {
-  if (!JINA_KEY) return null;
-
-  // NYT honours its own article-sharing params server-side, returning the full
-  // text where a plain request gets the metered preview -- 1,569 words against
-  // 345 on the same article. Try those first for NYT, then fall back.
-  const candidates = [];
-  if (/(^|\.)nytimes\.com$/i.test(hostOf(url))) {
-    const sep = url.includes("?") ? "&" : "?";
-    candidates.push(
-      `${url}${sep}unlocked_article_code=1&smid=nytcore-ios-share`,
-      `${url}${sep}unlocked_article_code=1&smid=url-share`,
-    );
-  }
-  candidates.push(url);
-
-  // Two passes. A cold URL very often answers with a stub on the first request
-  // and the real article on the second -- measured directly: the same keyed
-  // request returned 225 bytes, then 34,679. One attempt per variant therefore
-  // reported failure for articles that were reachable a moment later.
-  let best = null;
-  for (let pass = 0; pass < 2 && (!best || best.length < 8000); pass++) {
-    for (const c of candidates) {
-      try {
-        const text = await jinaFetch(c);
-        if (text && (!best || text.length > best.length)) best = text;
-        if (best && best.length > 20000) break;   // clearly the full piece
-      } catch {}
-    }
-    if (!best && pass === 0) await new Promise(r => setTimeout(r, 800));
-  }
-  return best;
-}
-
-const PUBLISHED_ARTICLES_URL =
-  process.env.PUBLISHED_ARTICLES_URL ||
-  "https://raw.githubusercontent.com/David0524/daylight/data/articles.json";
-
+// A story nothing could read is recorded as a miss, so the next builds do not
+// spend the same fetches on it again, but only for a while: copies get
+// published late, and a site that refused one build may answer the next.
 const MISS_RETRY_MS = 3 * 60 * 60 * 1000;
-const MISS_VERSION = 3;   // bump whenever the search itself changes
+const PARTIAL_RETRY_MS = 2 * 60 * 60 * 1000;
+const MISS_VERSION = 4;   // bump whenever the way articles are read changes
 
-async function carryForwardArticles(liveUrls) {
+async function published(name) {
   try {
-    const r = await withTimeout(fetch(PUBLISHED_ARTICLES_URL, {
-      headers: { "Cache-Control": "no-cache" },
-    }), 20000, "articles");
-    if (!r.ok) return {};
-    const prev = await r.json();
-    const out = {};
-    for (const [k, v] of Object.entries(prev || {})) {
-      if (!liveUrls.has(k)) continue;
-      // Drop other outlets' articles published while same-story coverage was on.
-      if (v?.relation && process.env.SAME_STORY_COVERAGE !== "1") continue;
-      // For a licensed host, only a licensed copy or a recorded miss is worth
-      // keeping. Anything else is the host's own paywalled preview, left by a
-      // build that fetched the site directly -- and carrying it forward would
-      // mark the story done, so its licensed copy would never be looked up.
-      const host = k.split("/")[0];
-      if (LICENSED.some(r => r.host.test(host)) && !v?.source && !v?.miss) continue;
-      // Text is kept for as long as the story is live. A recorded miss is kept
-      // for a few hours only, so a story is not searched for again on every
-      // build, but still gets another try in case its copy was published late.
-      // A miss only counts if it was recorded by the current search: one from
-      // before same-story coverage existed never looked for coverage at all.
-      if (v?.text || (v?.miss && v.v === MISS_VERSION && Date.now() - v.at < MISS_RETRY_MS)) out[k] = v;
-    }
-    return out;
-  } catch { return {}; }
-}
-
-// ── Licensed copies ───────────────────────────────────────────────────────
-//
-// WSJ cannot be fetched at all: its edge refuses every client in a few
-// milliseconds, before any header is read, and no archive holds it. But Dow
-// Jones licenses much of its newswire output to Morningstar, which publishes
-// it in full and free under /news/dow-jones/. So for a WSJ story, look for
-// Morningstar's copy by headline and read that instead.
-//
-// Coverage is partial by nature -- measured at 5 of 21 on one day's WSJ feed.
-// Newswire-style stories (economy, trade, markets, energy) are syndicated;
-// features, exclusives and opinion columns are not. Those stay as the feed's
-// own summary, with "open original" for a subscriber.
-
-const LICENSED = [
-  { host: /(^|\.)wsj\.com$/i, via: "Morningstar (Dow Jones)",
-    site: "morningstar.com dow-jones",
-    match: /morningstar\.com\/news\/dow-jones\/\d+\/([a-z0-9-]+)/ },
-];
-
-const titleWords = (t) => new Set(String(t || "").toLowerCase().normalize("NFKD")
-  .replace(/[\u2019']/g, "").replace(/[^a-z0-9]+/g, " ").split(" ").filter(w => w.length > 2));
-
-function headlineOverlap(a, b) {
-  const A = titleWords(a), B = titleWords(b);
-  let n = 0; A.forEach(w => B.has(w) && n++);
-  return n / Math.max(1, Math.min(A.size, B.size));
-}
-
-// Kanebridge News republishes a selection of WSJ stories in full, under
-// licence -- including opinion columns and features, which Morningstar never
-// carries. Its URLs are the headline slugified, so a copy can be checked for
-// directly with no search. Each page carries a Dow Jones copyright line, which
-// is what confirms it is the licensed story and not an unrelated page.
-const KANEBRIDGE = ["https://kanebridgenewsme.com/", "https://www.kanebridgenews.com/"];
-
-const slugify = (t) => String(t || "").replace(/^opinion\s*\|\s*/i, "").toLowerCase()
-  .normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[\u2018\u2019']/g, "")
-  .replace(/&/g, "and").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-
-async function kanebridgeCopy(title) {
-  const slug = slugify(title);
-  if (!slug) return null;
-  for (const base of KANEBRIDGE) {
-    const url = `${base}${slug}/`;
-    try {
-      const r = await withTimeout(fetch(url, { headers: { "User-Agent": UA_BROWSER }, redirect: "follow" }), 20000, "kanebridge");
-      if (!r.ok || !/Dow Jones &(amp;)? Company/i.test(await r.text())) continue;
-      // Read directly rather than through Jina, so this needs no key.
-      const page = await readPage(url);
-      if (page) return asEntry(page, url, "Kanebridge News (WSJ)");
-    } catch {}
-  }
-  return null;
-}
-
-async function licensedCopy(item) {
-  const rule = LICENSED.find(r => r.host.test(hostOf(item.link)));
-  if (!rule) return null;
-  const title = String(item.title || "").replace(/^opinion\s*\|\s*/i, "");
-  if (!title) return null;
-
-  // The direct check is cheaper than a search, and needs no key, so it goes first.
-  const kb = await kanebridgeCopy(title);
-  if (kb) return kb;
-  if (!JINA_KEY) return null;
-
-  let hits = [];
-  try {
-    const q = `${rule.site} "${title}"`;
-    const r = await withTimeout(fetch(`https://s.jina.ai/?q=${encodeURIComponent(q)}`, {
-      headers: { Authorization: `Bearer ${JINA_KEY}`, Accept: "application/json",
-                 "X-Respond-With": "no-content" },
-    }), 45000, "search");
-    // 402 is an exhausted key, not an absent copy. Recording it as a miss
-    // would skip the story for hours after a new key is in place.
-    if (r.status === 402) throw new Error("jina key exhausted");
-    if (!r.ok) return null;
-    hits = (await r.json())?.data || [];
-  } catch (e) { if (/exhausted/.test(e.message)) throw e; return null; }
-
-  // The headline has to match the copy's slug closely. Morningstar's slugs
-  // track the headline, sometimes with "-update" / "-2nd-update" appended as
-  // the story develops, so word overlap rather than equality. Its periodic
-  // "Top Markets Headlines" digests mention many stories and must not be
-  // mistaken for any one of them.
-  const candidates = hits
-    .map(h => ({ url: String(h.url || ""), m: String(h.url || "").match(rule.match) }))
-    // Roundups ("...-commodities-roundup") bundle the story with unrelated
-    // items, which under a WSJ headline would misrepresent what it said.
-    .filter(h => h.m && !/top-[a-z]+-headlines|-roundup$/.test(h.m[1]))
-    .map(h => ({ url: h.url, score: headlineOverlap(title, h.m[1].replace(/-/g, " ")) }))
-    .filter(h => h.score >= 0.7)
-    .sort((a, b) => b.score - a.score);
-
-  for (const c of candidates.slice(0, 2)) {
-    try {
-      const text = await jinaFetch(c.url);
-      if (text && text.length > 2000) return { type: "markdown", text, source: c.url, via: rule.via };
-    } catch {}
-  }
-  return null;
+    const r = await withTimeout(fetch(`${DATA_BASE}/${name}`, { headers: { "Cache-Control": "no-cache" } }), 20000, name);
+    return r.ok ? await r.json() : null;
+  } catch { return null; }
 }
 
 /**
- * The articles.json entry for one feed item, or null if nothing was resolved.
- * WSJ is unreachable directly, so its stories go straight to the licensed-copy
- * lookup rather than spending fetches on a wall, and a miss is recorded so the
- * next few builds do not search for it again.
+ * Entries from the last published articles.json that are still worth keeping:
+ * text for as long as its story is in the feed, and recent misses. Anything
+ * from an older way of reading (Jina markdown, or a miss recorded before the
+ * current routes existed) is dropped so the story is read again.
  */
-async function resolveItem(item) {
-  if (LICENSED.some(r => r.host.test(hostOf(item.link)))) {
-    // WSJ's own text where a licensee has published it; otherwise another
-    // outlet's full article on the same story, labelled as such. An exhausted
-    // key only rules out the Morningstar search, not the rest.
-    let copy = null;
-    try { copy = await licensedCopy(item); } catch {}
-    if (copy) return copy;
-    // Another outlet's article on the same story is not WSJ's reporting, and
-    // was never asked for, so it stays off unless explicitly enabled.
-    if (process.env.SAME_STORY_COVERAGE === "1") {
-      const other = await findCoverage(item).catch(() => null);
-      if (other) return other;
+async function carryForwardArticles(liveUrls) {
+  const prev = await published("articles.json");
+  const out = {};
+  for (const [k, v] of Object.entries(prev || {})) {
+    if (!liveUrls.has(k) || v?.relation) continue;
+    if (v?.type === "article" && v.paragraphs?.length) {
+      // A paywalled preview is kept until something better turns up, but
+      // retried rather than trusted as the final answer.
+      if (v.partial && Date.now() - (v.at || 0) > PARTIAL_RETRY_MS) continue;
+      out[k] = v;
+    } else if (v?.miss && v.v === MISS_VERSION && Date.now() - v.at < MISS_RETRY_MS) {
+      out[k] = v;
     }
-    return { miss: true, at: Date.now(), v: MISS_VERSION };
   }
-  const text = await prefetchArticle(item.link);
-  return text ? { type: "markdown", text } : null;
+  return out;
+}
+
+// Each article is also published as its own small file, named by a hash of
+// its canonical URL, so the page fetches only the story that was tapped
+// rather than every article at once. index.html computes the same id.
+function articleId(key) {
+  let h1 = 0x811c9dc5, h2 = 0x5bd1e995;
+  for (let i = 0; i < key.length; i++) {
+    const c = key.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 0x01000193) >>> 0;
+    h2 = Math.imul(h2 ^ c, 0x5bd1e995) >>> 0;
+  }
+  return h1.toString(16).padStart(8, "0") + h2.toString(16).padStart(8, "0");
+}
+
+/** An item's articles.json entry, or a miss record when nothing was read. */
+async function resolveItem(item, ctx) {
+  const entry = await resolveArticle(item, ctx).catch(() => null);
+  // Another outlet's article on the same story is not the original's
+  // reporting and was never asked for, so it stays off unless enabled.
+  if (!entry && licensedRule(item.link) && process.env.SAME_STORY_COVERAGE === "1") {
+    const other = await findCoverage(item).catch(() => null);
+    if (other) return other;
+  }
+  return entry ? { ...entry, at: Date.now() } : { miss: true, at: Date.now(), v: MISS_VERSION };
 }
 
 // ── Markets ─────────────────────────────────────────────────────────────────
@@ -589,61 +449,106 @@ async function main() {
   const markets = await marketQuotes();
   log(`    ${markets.length}/${(SOURCES.markets || []).length} quotes`);
 
-  log("  Images");
-  const allItems = Object.values(categories).flat();
-  const filled = await fillImages(allItems, Number(process.env.IMAGE_LIMIT || 70));
-  log(`    ${filled} resolved (${allItems.filter(i => i.image).length}/${allItems.length} now have one)`);
-
-  // Prefetch article text for the top stories so the reader opens instantly and
-  // paywalled pieces are already resolved.
+  // ── Article text ──────────────────────────────────────────────────────────
   //
-  // Text already published is always carried forward first, for as long as its
-  // story is still in the feed. The prefetch budget only covers the top of the
-  // feed, so without this a story that dropped just below the cut lost the text
-  // that had already been resolved for it, and the reader went back to fetching
-  // it live.
-  const liveUrls = new Set(
-    [...Object.values(categories).flat(),
-     ...Object.values(papers).flatMap(p => p.items || [])].map(i => canonicalUrl(i.link))
-  );
+  // Every story in the feed, categories and paper sections alike. Text already
+  // published is carried forward for as long as its story is live, so each
+  // build only reads what is new -- and a story read once stays readable even
+  // if its site refuses a later build.
+  const allItems = Object.values(categories).flat();
+  const everything = [...allItems, ...Object.values(papers).flatMap(p => p.items || [])];
+  const liveUrls = new Set(everything.map(i => canonicalUrl(i.link)));
   const articles = await carryForwardArticles(liveUrls);
   const carried = Object.keys(articles).length;
 
-  if (JINA_KEY) {
-    // Candidates come from the paper sections as well as the categories. The
-    // mastheads are the whole reason prefetch exists -- they are what a browser
-    // cannot reach -- and drawing only from the categories left them thinly
-    // covered: one build resolved six NYT articles out of the twenty-five in
-    // its NYT tab.
-    const seen = new Set();
-    const pool = [...Object.values(categories).flat(),
-                 ...Object.values(papers).flatMap(p => p.items || [])]
-      .filter(i => i?.link && !seen.has(canonicalUrl(i.link)) && seen.add(canonicalUrl(i.link)))
-      .filter(i => !articles[canonicalUrl(i.link)])   // already carried
-      .sort((a, b) => rankScore(b) - rankScore(a));
-    // Every WSJ story gets a lookup regardless of rank: a licensed copy is the
-    // only way its text is ever available, and each costs a single search.
-    const isLicensed = (i) => LICENSED.some(r => r.host.test(hostOf(i.link)));
-    const top = [...pool.slice(0, PREFETCH_LIMIT),
-                 ...pool.slice(PREFETCH_LIMIT).filter(isLicensed)];
-    log(`  Carried ${carried} forward; prefetching ${top.length} more`);
-    let hit = 0, licensed = 0, covered = 0;
-    const BATCH = 5;
-    for (let i = 0; i < top.length; i += BATCH) {
-      await Promise.all(top.slice(i, i + BATCH).map(async (item) => {
-        const entry = await resolveItem(item);
-        if (!entry) return;
-        articles[canonicalUrl(item.link)] = entry;
-        if (entry.text) { hit++; if (entry.relation) covered++; else if (entry.source) licensed++; }
-      }));
+  log("  Licensed index");
+  const index = await refreshIndex(await published("licensed-index.json") || [], log);
+  log(`    ${index.length} stories indexed`);
+
+  const jina = createJina(JINA_KEY, log);
+  const seen = new Set();
+  const todo = everything
+    .filter(i => i?.link && !seen.has(canonicalUrl(i.link)) && seen.add(canonicalUrl(i.link)))
+    .filter(i => !articles[canonicalUrl(i.link)])
+    .filter(i => !/\/(videos?|podcasts?|audio)\//.test(i.link))
+    .sort((a, b) => rankScore(b) - rankScore(a))
+    .slice(0, PREFETCH_LIMIT);
+  // Requests to one host go one at a time, so a run of top stories from the
+  // same paper would leave the other workers queued behind it. Dealing the
+  // list out a host at a time keeps every worker on a different site while
+  // still taking each site's stories best-first.
+  const byHost = new Map();
+  for (const i of todo) { const h = hostOf(i.link); byHost.set(h, [...(byHost.get(h) || []), i]); }
+  todo.length = 0;
+  while (byHost.size) {
+    for (const [h, list] of byHost) { todo.push(list.shift()); if (!list.length) byHost.delete(h); }
+  }
+  log(`  Articles: ${carried} carried forward, reading ${todo.length}`);
+  const t0 = Date.now();
+  const ctx = { jina, index, log };
+  let next = 0;
+  // Stories are read best-first within a time budget, so a slow day leaves
+  // the least important ones for the next build instead of overrunning the
+  // job's limit; anything not reached gets no miss record and is tried again.
+  const deadline = t0 + Number(process.env.ARTICLE_BUDGET_S || 900) * 1000;
+  // Six at a time overall; scripts/extract.mjs also keeps it to one request
+  // at a time per host.
+  await Promise.all(Array.from({ length: 6 }, async () => {
+    while (next < todo.length && Date.now() < deadline) {
+      const item = todo[next++];
+      articles[canonicalUrl(item.link)] = await resolveItem(item, ctx);
     }
-    log(`    coverage: ${JSON.stringify(coverageStats)}`);
-    log(`    ${hit}/${top.length} resolved, ${licensed} via licensed copies, ${covered} via same-story coverage (${Object.values(articles).filter(a => a.text).length} total)`);
-  } else {
-    log(`  Prefetch skipped (no key) — carried ${carried} published articles forward`);
+  }));
+  if (next < todo.length) log(`    time budget reached; ${todo.length - next} stories left for the next build`);
+
+  // Per-outlet tallies, so a site that stops answering shows up in the log as
+  // a falling number rather than as a reader quietly showing summaries.
+  const tally = {};
+  for (const i of everything) {
+    const h = hostOf(i.link), e = articles[canonicalUrl(i.link)];
+    const t = (tally[h] ||= { n: 0, full: 0, partial: 0 });
+    if (t.seen?.has(i.link)) continue;
+    (t.seen ||= new Set()).add(i.link);
+    t.n++;
+    if (e?.paragraphs) e.partial ? t.partial++ : t.full++;
+  }
+  const withText = Object.values(articles).filter(a => a.paragraphs).length;
+  log(`    ${withText}/${liveUrls.size} stories have text (${Math.round((Date.now() - t0) / 1000)}s)`);
+  for (const [h, t] of Object.entries(tally).sort((a, b) => b[1].n - a[1].n).slice(0, 30)) {
+    log(`    ${String(t.full).padStart(3)}/${String(t.n).padEnd(3)} ${h}${t.partial ? `  (+${t.partial} preview only)` : ""}`);
   }
 
-  mkdirSync(OUT_DIR, { recursive: true });
+  log("  Images");
+  // Most image-less items now have one from the article that was just read;
+  // only the rest cost a page fetch.
+  for (const i of everything) {
+    const e = articles[canonicalUrl(i.link)];
+    if (!i.image && e?.image) i.image = e.image;
+  }
+  const filled = await fillImages(allItems, Number(process.env.IMAGE_LIMIT || 70));
+  log(`    ${filled} resolved (${allItems.filter(i => i.image).length}/${allItems.length} now have one)`);
+
+  // ── Output ────────────────────────────────────────────────────────────────
+
+  mkdirSync(join(OUT_DIR, "a"), { recursive: true });
+  for (const i of everything) {
+    const key = canonicalUrl(i.link), e = articles[key];
+    delete i._content; delete i._author;
+    // Tried this build or recently and nothing could read it: the page goes
+    // straight to the summary instead of spending half a minute finding out.
+    if (e?.miss) i.am = 1;
+    if (!e?.paragraphs) continue;
+    // The item says its text is published, so the page knows to fetch it
+    // rather than trying the live routes.
+    i.a = articleId(key);
+    if (e.partial) i.ap = 1;
+  }
+  for (const [key, e] of Object.entries(articles)) {
+    if (!e?.paragraphs) continue;
+    const { how, at, ...pub } = e;
+    writeFileSync(join(OUT_DIR, "a", `${articleId(key)}.json`), JSON.stringify(pub));
+  }
+
   const feed = {
     generatedAt: new Date().toISOString(),
     categoryOrder: SOURCES.categoryOrder,
@@ -652,26 +557,27 @@ async function main() {
       categories: Object.keys(categories).length,
       items: Object.values(categories).reduce((n, a) => n + a.length, 0),
       papers: Object.keys(papers).length,
-      articles: Object.values(articles).filter(a => a.text).length,
+      articles: withText,
       markets: markets.length,
       withImages: allItems.filter(i => i.image).length,
     },
   };
   writeFileSync(join(OUT_DIR, "feed.json"), JSON.stringify(feed));
+  // The whole set, read back by the next build to carry text forward.
   writeFileSync(join(OUT_DIR, "articles.json"), JSON.stringify(articles));
+  writeFileSync(join(OUT_DIR, "licensed-index.json"), JSON.stringify(index));
 
   const kb = (p) => Math.round(readFileSync(join(OUT_DIR, p)).length / 1024);
   log(`\n  feed.json     ${kb("feed.json")} KB  (${feed.counts.items} items, ${feed.counts.categories} categories, ${feed.counts.papers} papers)`);
-  log(`  articles.json ${kb("articles.json")} KB  (${feed.counts.articles} prefetched)`);
+  log(`  articles.json ${kb("articles.json")} KB  (${feed.counts.articles} with text)`);
   log(`  built in ${Math.round((Date.now() - started) / 1000)}s`);
 
   if (!feed.counts.items) { console.error("\nERROR: no items built — refusing to publish an empty feed"); process.exit(1); }
 }
 
-// Importable: scripts/prefetch.mjs reuses canonicalUrl() and prefetchArticle()
-// against an already-published feed, so article text can be filled in without
-// rebuilding (and re-fetching) the whole feed.
-export { canonicalUrl, prefetchArticle, rankScore, licensedCopy, headlineOverlap, resolveItem, carryForwardArticles, slugify };
+// Importable: scripts/prefetch.mjs fills in article text for an already
+// published feed, and the tests check the matching and URL helpers.
+export { canonicalUrl, rankScore, headlineOverlap, resolveItem, carryForwardArticles, slugify, articleId, parseFeed };
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch(e => { console.error(e); process.exit(1); });
