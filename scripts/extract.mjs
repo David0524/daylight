@@ -130,7 +130,7 @@ export const SITES = {
   },
   // Bloomberg and the FT refuse every route; their stories are read from
   // partners that carry them under licence.
-  "bloomberg.com": { routes: ["syndicated", "jina"], ua: ["browser"] },
+  "bloomberg.com": { routes: ["listed", "syndicated", "jina"], ua: ["browser"] },
   "ft.com": { routes: ["syndicated"], ua: ["browser"] },
   // Transport Topics carries Bloomberg's wire, wrapped in its own summary.
   "ttnews.com": {

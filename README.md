@@ -51,7 +51,8 @@ way that actually works from a GitHub runner, measured with
 |---|---|
 | The publisher's own page, parsed with Readability | most sites; WaPo answers Bing's crawler, The Hill Facebook's |
 | The publisher's feed (`content:encoded`) | Politico, The Atlantic, Fortune, Tech Review, Substack-style newsletters |
-| Licensed copies (Morningstar, Kanebridge, Livemint) | WSJ, MarketWatch, Barron's |
+| Licensed copies (Morningstar, Kanebridge, Livemint), free ones only | WSJ, MarketWatch, Barron's |
+| Partners' own lists of what they republish (Yahoo Finance, Mint) | Bloomberg, WSJ |
 | Jina Reader, as Discord's link crawler | NYT (see Known gaps) |
 | A partner's syndicated copy, found through Google News and credit-checked | Bloomberg, FT |
 | Jina Reader | last resort for anything else |

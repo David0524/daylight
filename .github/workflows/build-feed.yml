@@ -50,6 +50,9 @@ jobs:
           # tries the key committed in index.html, and drops it on the first
           # refusal.
           JINA_API_KEY: ${{ secrets.JINA_API_KEY }}
+          # Yahoo Finance answers with more header than Node accepts by
+          # default (16 KB), which fails the request outright.
+          NODE_OPTIONS: --max-http-header-size=131072
         run: node scripts/build-feed.mjs dist
 
       - name: Publish to the data branch

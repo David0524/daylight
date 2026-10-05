@@ -26,6 +26,7 @@ import { findCoverage } from "./coverage.mjs";
 import { resolveArticle } from "./resolve.mjs";
 import { createJina } from "./jina.mjs";
 import { refreshIndex, licensedRule, headlineOverlap, slugify } from "./licensed.mjs";
+import { refreshListings } from "./partners.mjs";
 
 const OUT_DIR = process.argv[2] || "dist";
 const SOURCES = JSON.parse(readFileSync(new URL("../sources.json", import.meta.url), "utf8"));
@@ -248,7 +249,7 @@ const DATA_BASE = process.env.PUBLISHED_DATA_BASE ||
 const MISS_RETRY_MS = 3 * 60 * 60 * 1000;
 const PARTIAL_RETRY_MS = 2 * 60 * 60 * 1000;
 const SOFT_RETRY_MS = 20 * 60 * 1000;
-const MISS_VERSION = 6;   // bump whenever the way articles are read changes
+const MISS_VERSION = 7;   // bump whenever the way articles are read changes
 // Likewise for text: entries read under older rules (an NYT excerpt accepted
 // as a syndicated copy, say) are read again rather than carried forward.
 const ARTICLE_VERSION = 2;
@@ -488,6 +489,8 @@ async function main() {
   log("  Licensed index");
   const index = await refreshIndex(await published("licensed-index.json") || [], log);
   log(`    ${index.length} stories indexed`);
+  const listings = await refreshListings(await published("partner-index.json") || [], log);
+  log(`    ${listings.length} partner copies listed`);
 
   const jina = createJina(JINA_KEY, log);
   const seen = new Set();
@@ -509,7 +512,7 @@ async function main() {
   }
   log(`  Articles: ${carried} carried forward, reading ${todo.length}`);
   const t0 = Date.now();
-  const ctx = { jina, index, log };
+  const ctx = { jina, index, listings, log };
   let next = 0;
   // Stories are read best-first within a time budget, so a slow day leaves
   // the least important ones for the next build instead of overrunning the
@@ -609,6 +612,7 @@ async function main() {
   // The whole set, read back by the next build to carry text forward.
   writeFileSync(join(OUT_DIR, "articles.json"), JSON.stringify(articles));
   writeFileSync(join(OUT_DIR, "licensed-index.json"), JSON.stringify(index));
+  writeFileSync(join(OUT_DIR, "partner-index.json"), JSON.stringify(listings));
 
   const kb = (p) => Math.round(readFileSync(join(OUT_DIR, p)).length / 1024);
   log(`\n  feed.json     ${kb("feed.json")} KB  (${feed.counts.items} items, ${feed.counts.categories} categories, ${feed.counts.papers} papers)`);

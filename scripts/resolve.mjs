@@ -15,12 +15,13 @@
  */
 import { extractFromFragment, extractFromHtml, fetchHtml, readPage, siteFor, UA } from "./extract.mjs";
 import { licensedCopy, licensedRule } from "./licensed.mjs";
+import { listedCopy } from "./partners.mjs";
 import { syndicatedCopy } from "./syndicated.mjs";
 
 const whole = (a) => a && !a.partial && a.words >= 250;
 const better = (a, b) => a && (!b || (b.partial && !a.partial) || (a.partial === b.partial && a.words > b.words));
 
-export async function resolveArticle(item, { jina, index = [], log = () => {} } = {}) {
+export async function resolveArticle(item, { jina, index = [], listings = [], log = () => {} } = {}) {
   const notes = [];
   let best = null;
   // A hand-picked long read sets its own floor: a few hundred words of it is
@@ -41,8 +42,10 @@ export async function resolveArticle(item, { jina, index = [], log = () => {} } 
       if (take(art, "feed")) return finish(best, item);
     }
 
-    // 2. WSJ, Barron's and MarketWatch: licensed copies only.
+    // 2. WSJ, Barron's and MarketWatch: licensed copies only -- a partner's
+    //    listed copy first (one fetch), then the newswire index and searches.
     if (licensedRule(item.link)) {
+      if (take(await listedCopy(item, { index: listings, log: (s) => notes.push(s) }), "listed")) return finish(best, item);
       const copy = await licensedCopy(item, { index, search: jina?.search, syndicated: syndicatedCopy,
                                               log: (s) => notes.push(s.trim()) });
       take(copy, "licensed");
@@ -54,6 +57,8 @@ export async function resolveArticle(item, { jina, index = [], log = () => {} } 
       let art = null;
       if (route === "direct" || route === "translate") {
         art = await readPage(item.link, { via: route, log: (s) => notes.push(s) });
+      } else if (route === "listed") {
+        art = await listedCopy(item, { index: listings, log: (s) => notes.push(s) });
       } else if (route === "syndicated") {
         art = await syndicatedCopy(item, { log: (s) => notes.push(s.trim()) });
       } else if (route === "jina" && jina) {
