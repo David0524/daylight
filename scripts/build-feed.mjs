@@ -248,7 +248,7 @@ const DATA_BASE = process.env.PUBLISHED_DATA_BASE ||
 const MISS_RETRY_MS = 3 * 60 * 60 * 1000;
 const PARTIAL_RETRY_MS = 2 * 60 * 60 * 1000;
 const SOFT_RETRY_MS = 20 * 60 * 1000;
-const MISS_VERSION = 5;   // bump whenever the way articles are read changes
+const MISS_VERSION = 6;   // bump whenever the way articles are read changes
 // Likewise for text: entries read under older rules (an NYT excerpt accepted
 // as a syndicated copy, say) are read again rather than carried forward.
 const ARTICLE_VERSION = 2;
@@ -266,15 +266,17 @@ async function published(name) {
  * from an older way of reading (Jina markdown, or a miss recorded before the
  * current routes existed) is dropped so the story is read again.
  */
-async function carryForwardArticles(liveUrls) {
+async function carryForwardArticles(liveUrls, keepTrying = new Set()) {
   const prev = await published("articles.json");
   const out = {};
   for (const [k, v] of Object.entries(prev || {})) {
     if (!liveUrls.has(k) || v?.relation) continue;
     if (v?.type === "article" && v.paragraphs?.length && v.av === ARTICLE_VERSION) {
       // A paywalled preview is kept until something better turns up, but
-      // retried rather than trusted as the final answer.
-      if (v.partial && Date.now() - (v.at || 0) > PARTIAL_RETRY_MS) continue;
+      // retried rather than trusted as the final answer -- on every build for
+      // a Deep piece, which has an archived copy to be had and only a few of
+      // them ever need it.
+      if (v.partial && (keepTrying.has(k) || Date.now() - (v.at || 0) > PARTIAL_RETRY_MS)) continue;
       out[k] = v;
     } else if (v?.miss && v.v === MISS_VERSION && Date.now() - v.at < (v.soft ? SOFT_RETRY_MS : MISS_RETRY_MS)) {
       out[k] = v;
@@ -472,7 +474,7 @@ async function main() {
   const deepItems = (SOURCES.deep || []).flatMap(s => s.items)
     .map(d => ({ title: d.title, link: d.url, desc: d.desc, pubDate: "", archive: d.archive, minWords: 1000 }));
   const liveUrls = new Set([...everything, ...deepItems].map(i => canonicalUrl(i.link)));
-  const articles = await carryForwardArticles(liveUrls);
+  const articles = await carryForwardArticles(liveUrls, new Set(deepItems.map(i => canonicalUrl(i.link))));
   const carried = Object.keys(articles).length;
 
   log("  Licensed index");
