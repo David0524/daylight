@@ -52,8 +52,8 @@ way that actually works from a GitHub runner, measured with
 | The publisher's own page, parsed with Readability | most sites; WaPo answers Bing's crawler, The Hill Facebook's |
 | The publisher's feed (`content:encoded`) | Politico, The Atlantic, Fortune, Tech Review, Substack-style newsletters |
 | Licensed copies (Morningstar, Kanebridge, Livemint) | WSJ, MarketWatch, Barron's |
+| Jina Reader, as Discord's link crawler | NYT (see Known gaps) |
 | A partner's syndicated copy, found through Google News and credit-checked | Bloomberg, FT, NYT |
-| Google's translation proxy, as Discord's link crawler | NYT, where the network allows it |
 | Jina Reader | last resort for anything else |
 
 Text is carried forward between builds while its story is live, so anything
@@ -108,18 +108,17 @@ npm run e2e              # drive it in Chromium and report what rendered
 
 ### Known gaps
 
-- **NYT from GitHub's servers needs a Jina key.** NYT refuses every GitHub
-  runner (Ubuntu, ARM, macOS and Windows alike, measured), Google's translation
-  proxy refuses them too, and Jina blocks *anonymous* access to `nytimes.com`
-  for an hour at a time whenever someone abuses it — which is most hours.
-  Without a key, an NYT story is read only when a build lands in a gap between
-  those blocks or a licensed copy turns up through Google News, and the rest
-  show their summary with a link to an archived copy. With `JINA_API_KEY` set,
-  the blocks do not apply and the build asks Jina for the page as Discord's
-  link crawler (which NYT serves in full) and with NYT's own sharing
-  parameters. A key pasted under ⋯ in the app does the same for NYT stories
-  opened live, and stories the build missed are then fetched live
-  automatically.
+- **NYT is read through Jina, which a key makes reliable.** NYT refuses every
+  GitHub runner (Ubuntu, ARM, macOS and Windows alike, measured) and gives
+  everything but Discord's link crawler a metered preview. Jina, asked to
+  fetch as Discord's crawler, gets the whole article — but Jina blocks
+  *anonymous* access to `nytimes.com` for an hour at a time whenever someone
+  abuses it, which is often. Without a key, NYT stories are read by whichever
+  builds land between those blocks (a miss caused by a block is retried on the
+  next build, and text once read is kept), and the rest show their summary.
+  With `JINA_API_KEY` set, the blocks do not apply and every build reads them.
+  A key pasted under ⋯ in the app does the same for NYT stories opened live,
+  and stories the build missed are then fetched live automatically.
 - **Bloomberg and the FT** refuse every route and are rarely syndicated in a
   form that can be found and verified; most of their stories are summary only.
 - **WSJ** is readable only where Dow Jones has licensed a copy (Morningstar,

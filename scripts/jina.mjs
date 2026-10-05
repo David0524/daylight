@@ -73,5 +73,8 @@ export function createJina(key, log = () => {}) {
     } catch { return []; }
   }
 
-  return { html, search, get keyOk() { return keyOk; } };
+  /** Whether Jina refused this host for anonymous use during this run. */
+  const isBlocked = (url) => !keyOk && blocked.has(hostOf(url));
+
+  return { html, search, isBlocked, get keyOk() { return keyOk; } };
 }

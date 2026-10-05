@@ -48,15 +48,17 @@ export const UA = {
  *           a site has one, it alone decides whether a page is a preview
  */
 export const SITES = {
-  // NYT refuses a runner's address whatever it sends, and gives everything but
-  // Discord's crawler the metered preview. Through the translation proxy,
-  // Discord's crawler gets the whole article, word for word.
+  // NYT refuses every GitHub runner whatever it sends, and gives everything
+  // but Discord's crawler the metered preview. Google's translation proxy
+  // passes Discord's crawler through where the network allows (not from
+  // GitHub); Jina does from anywhere, whenever its rolling anonymous block on
+  // nytimes.com has lapsed, and always with a key.
   "nytimes.com": {
-    routes: ["translate", "direct", "syndicated", "jina"],
+    routes: ["translate", "direct", "jina", "syndicated"],
     ua: ["discord", "facebook"],
-    // Through Jina: as Discord's crawler, then with NYT's own article-sharing
-    // parameters, which it honours server-side (measured with a key: 1,569
-    // words against 345 for the plain URL).
+    // Through Jina: as Discord's crawler -- measured at the whole article,
+    // 1,366 of 1,366 words -- then with NYT's article-sharing parameters,
+    // which once did the same and now mostly return the preview.
     jinaUrls: (u) => [u, `${u}${u.includes("?") ? "&" : "?"}unlocked_article_code=1&smid=nytcore-ios-share`],
     body: 'section[name="articleBody"]',
     // Every NYT page is flagged paid in its JSON-LD, so that flag says nothing;

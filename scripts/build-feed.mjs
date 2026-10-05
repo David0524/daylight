@@ -247,6 +247,7 @@ const DATA_BASE = process.env.PUBLISHED_DATA_BASE ||
 // published late, and a site that refused one build may answer the next.
 const MISS_RETRY_MS = 3 * 60 * 60 * 1000;
 const PARTIAL_RETRY_MS = 2 * 60 * 60 * 1000;
+const SOFT_RETRY_MS = 20 * 60 * 1000;
 const MISS_VERSION = 4;   // bump whenever the way articles are read changes
 
 async function published(name) {
@@ -272,7 +273,7 @@ async function carryForwardArticles(liveUrls) {
       // retried rather than trusted as the final answer.
       if (v.partial && Date.now() - (v.at || 0) > PARTIAL_RETRY_MS) continue;
       out[k] = v;
-    } else if (v?.miss && v.v === MISS_VERSION && Date.now() - v.at < MISS_RETRY_MS) {
+    } else if (v?.miss && v.v === MISS_VERSION && Date.now() - v.at < (v.soft ? SOFT_RETRY_MS : MISS_RETRY_MS)) {
       out[k] = v;
     }
   }
@@ -301,7 +302,12 @@ async function resolveItem(item, ctx) {
     const other = await findCoverage(item).catch(() => null);
     if (other) return other;
   }
-  return entry ? { ...entry, at: Date.now() } : { miss: true, at: Date.now(), v: MISS_VERSION };
+  if (entry) return { ...entry, at: Date.now() };
+  // Jina's anonymous blocks last an hour or so, and NYT is read through Jina
+  // once they lapse -- so a miss caused by one is retried on the next build
+  // rather than three hours later.
+  const soft = ctx.jina?.isBlocked?.(item.link) || undefined;
+  return { miss: true, at: Date.now(), v: MISS_VERSION, ...(soft ? { soft } : {}) };
 }
 
 // ── Markets ─────────────────────────────────────────────────────────────────
