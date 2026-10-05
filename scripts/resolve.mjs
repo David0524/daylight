@@ -84,42 +84,48 @@ export async function resolveArticle(item, { jina, index = [], log = () => {} } 
 // (measured from a runner: one request in four answered when asked a few
 // seconds apart), so each is asked for patiently.
 const WAYBACK = "https://web.archive.org";
+const ARCHIVE_BUDGET_MS = 3 * 60 * 1000;
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-async function captures(item) {
+
+async function captures(item, deadline) {
   const q = `${WAYBACK}/cdx/search/cdx?url=${encodeURIComponent(item.link)}&output=json&filter=statuscode:200`
           + `&from=${item.archive}&limit=6&fl=timestamp`;
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < 2 && Date.now() < deadline; attempt++) {
     try {
-      const r = await fetch(q, { signal: AbortSignal.timeout(60000) });
+      const r = await fetch(q, { signal: AbortSignal.timeout(30000) });
       if (r.ok) return (await r.json()).slice(1).map(row => row[0]);
     } catch {}
-    await sleep(15000 * (attempt + 1));
+    await sleep(10000);
   }
   return [];
 }
 
-async function archivedCopy(item, note = () => {}) {
-  const stamps = await captures(item);
+// Bounded: a few minutes per piece at most, so a slow archive cannot hold the
+// build. A piece not read this time is retried on a later build.
+export async function archivedCopy(item, note = () => {}) {
+  const deadline = Date.now() + ARCHIVE_BUDGET_MS;
+  const stamps = (await captures(item, deadline)).slice(0, 3);
   note(`wayback:${stamps.length} captures`);
-  let best = null;
-  for (const ts of stamps.slice(0, 3)) {
-    for (let attempt = 0; attempt < 4; attempt++) {
-      await sleep(attempt ? 30000 * attempt : 5000);
-      const got = await fetchHtml(`${WAYBACK}/web/${ts}id_/${item.link}`, "browser", 60000)
-        .catch((e) => ({ status: e.name === "TimeoutError" ? "timeout" : "error" }));
-      if (!got.html) {
-        note(`${ts.slice(0, 8)}:${got.status || "none"}`);
-        if (got.status === 429 || got.status >= 500 || typeof got.status === "string") continue;
-        break;
-      }
-      const art = extractFromHtml(got.html, item.link);
-      note(`${ts.slice(0, 8)}:${art ? art.words + "w" : "unreadable"}`);
-      if (art && (!best || art.words > best.words)) {
-        best = { ...art, archived: `${ts.slice(0, 4)}-${ts.slice(4, 6)}-${ts.slice(6, 8)}` };
-      }
-      break;
+  let best = null, i = 0;
+  for (let tries = 0; tries < 6 && i < stamps.length && Date.now() < deadline; tries++) {
+    const ts = stamps[i];
+    const left = deadline - Date.now();
+    const got = await fetchHtml(`${WAYBACK}/web/${ts}id_/${item.link}`, "browser", Math.min(40000, left))
+      .catch((e) => ({ status: e.name === "TimeoutError" ? "timeout" : "error" }));
+    if (!got.html) {
+      note(`${ts.slice(0, 8)}:${got.status || "none"}`);
+      // Refused for now: wait and ask again. Gone or timing out: next capture.
+      if (got.status === 429 || got.status >= 500) await sleep(Math.min(20000, Math.max(0, deadline - Date.now())));
+      else i++;
+      continue;
+    }
+    const art = extractFromHtml(got.html, item.link);
+    note(`${ts.slice(0, 8)}:${art ? art.words + "w" : "unreadable"}`);
+    if (art && (!best || art.words > best.words)) {
+      best = { ...art, archived: `${ts.slice(0, 4)}-${ts.slice(4, 6)}-${ts.slice(6, 8)}` };
     }
     if (best && !best.partial && best.words >= (item.minWords || 250)) break;
+    i++;
   }
   return best;
 }
