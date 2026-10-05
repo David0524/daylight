@@ -124,8 +124,14 @@ npm run e2e              # drive it in Chromium and report what rendered
   With `JINA_API_KEY` set, the blocks do not apply and every build reads them.
   A key pasted under ⋯ in the app does the same for NYT stories opened live,
   and stories the build missed are then fetched live automatically.
-- **Bloomberg and the FT** refuse every route and are rarely syndicated in a
-  form that can be found and verified; most of their stories are summary only.
+- **Bloomberg and the FT** refuse every route, and so does Yahoo's search, so
+  their stories are readable only where a partner republishes them openly --
+  Yahoo Finance and Transport Topics for Bloomberg's wire, measured -- and
+  credits the original. Partners often run Bloomberg's wire under a different
+  headline, so copies are also searched for by the story's names and figures,
+  and must carry most of them as well as Bloomberg's credit. Newsletters,
+  opinion and most exclusives are never republished: on a measured day, 1 or 2
+  of 13 Bloomberg stories had a copy anywhere, and the rest show their summary.
 - **WSJ** is readable only where Dow Jones has licensed a copy (Morningstar,
   Kanebridge, Livemint): its markets, business and economy news usually, its
   features and opinion sometimes. Morningstar's listing holds only a few hours
