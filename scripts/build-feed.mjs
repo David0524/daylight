@@ -248,7 +248,7 @@ const DATA_BASE = process.env.PUBLISHED_DATA_BASE ||
 const MISS_RETRY_MS = 3 * 60 * 60 * 1000;
 const PARTIAL_RETRY_MS = 2 * 60 * 60 * 1000;
 const SOFT_RETRY_MS = 20 * 60 * 1000;
-const MISS_VERSION = 4;   // bump whenever the way articles are read changes
+const MISS_VERSION = 5;   // bump whenever the way articles are read changes
 
 async function published(name) {
   try {
