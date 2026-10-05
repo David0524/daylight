@@ -269,12 +269,14 @@ async function published(name) {
  * from an older way of reading (Jina markdown, or a miss recorded before the
  * current routes existed) is dropped so the story is read again.
  */
-async function carryForwardArticles(liveUrls, keepTrying = new Set()) {
+async function carryForwardArticles(liveUrls, keepTrying = new Set(), stale = {}) {
   const prev = await published("articles.json");
   const out = {};
   for (const [k, v] of Object.entries(prev || {})) {
     if (!liveUrls.has(k) || v?.relation) continue;
-    if (keepTrying.has(k) && v?.dv !== DEEP_VERSION) continue;
+    // Read again under the current rules, but held on to in case the read
+    // fails -- the archive throttles, and text it gave once is better than none.
+    if (keepTrying.has(k) && v?.dv !== DEEP_VERSION) { if (v?.paragraphs) stale[k] = v; continue; }
     if (v?.type === "article" && v.paragraphs?.length && v.av === ARTICLE_VERSION) {
       // A paywalled preview is kept until something better turns up, but
       // retried rather than trusted as the final answer -- on every build for
@@ -479,7 +481,8 @@ async function main() {
   const deepItems = (SOURCES.deep || []).flatMap(s => s.items)
     .map(d => ({ title: d.title, link: d.url, desc: d.desc, pubDate: "", archive: d.archive, minWords: 1000 }));
   const liveUrls = new Set([...everything, ...deepItems].map(i => canonicalUrl(i.link)));
-  const articles = await carryForwardArticles(liveUrls, new Set(deepItems.map(i => canonicalUrl(i.link))));
+  const staleDeep = {};
+  const articles = await carryForwardArticles(liveUrls, new Set(deepItems.map(i => canonicalUrl(i.link))), staleDeep);
   const carried = Object.keys(articles).length;
 
   log("  Licensed index");
@@ -521,7 +524,13 @@ async function main() {
     }
   }));
   if (next < todo.length) log(`    time budget reached; ${todo.length - next} stories left for the next build`);
-  for (const d of deepItems) { const e = articles[canonicalUrl(d.link)]; if (e) e.dv = DEEP_VERSION; }
+  for (const d of deepItems) {
+    const k = canonicalUrl(d.link), e = articles[k], old = staleDeep[k];
+    // A re-read that came back worse keeps the old text, still marked stale so
+    // the next build tries again.
+    if (old && (!e?.paragraphs || (e.partial && !old.partial))) articles[k] = old;
+    else if (e) e.dv = DEEP_VERSION;
+  }
 
   // Per-outlet tallies, so a site that stops answering shows up in the log as
   // a falling number rather than as a reader quietly showing summaries.
