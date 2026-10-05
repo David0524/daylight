@@ -174,7 +174,7 @@ export async function syndicatedCopy(item, { log } = {}) {
 
   for (const c of cands.slice(0, 3)) {
     const url = await resolveNewsLink(c.link).catch(() => null);
-    if (!url || DENY.test(hostOf(url))) continue;
+    if (!url || DENY.test(hostOf(url))) { log?.(`    ${c.host}: ${url ? "walled" : "unresolved"}`); continue; }
     // Dow Jones' own licensees are read the way the index reads them, which
     // copes with Morningstar's bot control and its split stories.
     if (/(^|\.)(morningstar\.com|kanebridgenews\.com|kanebridgenewsme\.com)$/.test(hostOf(url))) {
@@ -185,9 +185,9 @@ export async function syndicatedCopy(item, { log } = {}) {
     }
     for (const ua of ["browser", "googlebot"]) {
       const got = await fetchHtml(url, ua, 20000).catch(() => ({}));
-      if (!got.html) continue;
+      if (!got.html) { log?.(`    ${c.host}: ${ua} ${got.status || "failed"}`); continue; }
       const art = extractFromHtml(got.html, got.url || url);
-      if (!art || art.partial || art.words < 150) continue;
+      if (!art || art.partial || art.words < 150) { log?.(`    ${c.host}: ${art ? art.words + "w" + (art.partial ? " partial" : "") : "unreadable"}`); continue; }
       if (c.byKeys ? !sameStory(item, art) : headlineOverlap(title, art.headline || c.title) < 0.6) {
         log?.(`    ${c.host}: another story`); break;
       }
