@@ -576,17 +576,22 @@
   .worker-status.ok   { color:#2e7d32; }
   .worker-status.bad  { color:#c62828; }
   .worker-status.busy { color:var(--sub); }
-  .feed-notice {
+  .feed-notice, .home-tip {
     margin:0 0 14px; padding:11px 13px; border-radius:10px;
-    background:var(--card); border:1px solid var(--line);
+    background:var(--card); border:1px solid var(--border);
     font-size:12px; line-height:1.5; color:var(--sub);
     display:flex; gap:10px; align-items:flex-start;
   }
-  .feed-notice b { color:var(--fg); font-weight:600; }
-  .feed-notice button {
+  .feed-notice b, .home-tip b { color:var(--text); font-weight:600; }
+  .feed-notice button, .home-tip button {
     margin-left:auto; flex-shrink:0; cursor:pointer; padding:5px 10px;
     font-size:11px; font-weight:600; color:#fff;
-    background:var(--accent); border:none; border-radius:6px;
+    background:var(--gold); border:none; border-radius:6px;
+  }
+  /* Shown to someone who opened a shared story outside the installed app. */
+  .home-tip {
+    position:fixed; left:12px; right:12px; bottom:calc(84px + env(safe-area-inset-bottom, 0px));
+    max-width:460px; margin:0 auto; z-index:50; box-shadow:0 6px 24px rgba(0,0,0,0.18);
   }
   .panel-heading { font-family:'DM Mono',monospace; font-size:10px; letter-spacing:0.08em;
     text-transform:uppercase; color:var(--sub); margin-bottom:10px; display:flex; justify-content:space-between; align-items:center; }
@@ -3385,9 +3390,30 @@ async function loadFeed() {
 // it's clicked instead of starting a fresh, slow fetch only at click time.
 // Papers waits for the main feed rather than running in parallel so it
 // doesn't compete with it for fetch bandwidth during the initial load.
-loadFeed().then(() => {
+const feedLoaded = loadFeed();
+feedLoaded.then(() => {
   if (!state.papersLoaded) initPapers();
 });
+
+// A shared story (?read=<article URL>, see shareMessage) opens in the reader
+// once the published feed is in -- it says which stories the build has read --
+// or after a few seconds if it is slow. The address is put back to the app's
+// own, so a reload or a Home Screen icon made from this page opens Daylight
+// rather than this story.
+(function openSharedStory() {
+  let shared = null;
+  try {
+    const u = new URL(new URLSearchParams(location.search).get("read") || "");
+    if (/^https?:$/.test(u.protocol)) shared = u.href;
+  } catch {}
+  if (!shared) return;
+  try { history.replaceState(null, "", location.pathname); } catch {}
+  Promise.race([feedLoaded, new Promise(r => setTimeout(r, 4000))]).finally(() => {
+    urlInput.value = shared;
+    startRead(shared);
+    setTimeout(showHomeScreenTip, 1500);
+  });
+})();
 
 // ── Render reader ─────────────────────────────────────────────────────────────
 
@@ -5574,34 +5600,76 @@ async function startRead(rawUrl, addToHistory = true, opts = {}) {
 
 // ── Input / button handlers ───────────────────────────────────────────────────
 
+// ── Sharing ───────────────────────────────────────────────────────────────────
+// A shared story is a link to Daylight itself (…/daylight/?read=<article URL>)
+// that opens the story in the reader, so whoever receives it reads it here.
+
+const APP_URL = location.origin + location.pathname.replace(/index\.html$/, "");
+const appLinkFor = (url) => `${APP_URL}?read=${encodeURIComponent(url)}`;
+const isStandalone = () =>
+  window.matchMedia?.("(display-mode: standalone)").matches || navigator.standalone === true;
+const HOME_SCREEN_HOWTO = "On iPhone, open it in Safari, tap Share, then Add to Home Screen. " +
+  "On Android, open it in Chrome, tap ⋮, then Add to Home screen.";
+
+function shareMessage(url, headline) {
+  const source = (() => { try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return ""; } })();
+  const title = headline || "An article";
+  const lead = `${title}${source ? ` (${source})` : ""}`;
+  const howto = `Daylight works like an app once it's on your Home Screen. ${HOME_SCREEN_HOWTO}`;
+  return {
+    title,
+    // The share sheet carries the link separately, so the text leaves it out;
+    // copied to the clipboard, the message has to include it.
+    text: `${lead}\n\nRead it in Daylight.\n\n${howto}`,
+    copy: `${lead}\n\nRead it in Daylight: ${appLinkFor(url)}\n\n${howto}`,
+    url: appLinkFor(url),
+  };
+}
+
 shareBtn.addEventListener("click", async () => {
-  const url = state.article?.url || urlInput.value;
-  if (!url) return;
-  const title = state.article?.headline || document.title || "Article";
+  const original = state.article?.url || urlInput.value;
+  if (!original) return;
+  const msg = shareMessage(original, state.article?.headline);
   const flash = (txt) => {
     const orig = shareBtn.textContent;
     shareBtn.textContent = txt;
     setTimeout(() => { shareBtn.textContent = orig; }, 1800);
   };
-  // Try Web Share API first (shows iOS share sheet)
+  // The system share sheet where there is one (iOS, Android).
   if (navigator.share) {
     try {
-      await navigator.share({ title, url });
+      await navigator.share({ title: msg.title, text: msg.text, url: msg.url });
       return;
     } catch (e) {
       if (e.name === "AbortError") return; // user cancelled — not an error
       // fall through to clipboard
     }
   }
-  // Fallback: copy to clipboard
   try {
-    await navigator.clipboard.writeText(url);
+    await navigator.clipboard.writeText(msg.copy);
     flash("✓ Copied");
   } catch {
-    // Last resort: prompt
-    window.prompt("Copy this link:", url);
+    window.prompt("Copy this message:", msg.copy);
   }
 });
+
+// Shown once to someone who opened a shared story in a browser rather than
+// from the Home Screen, with the steps for their phone.
+function showHomeScreenTip() {
+  if (isStandalone() || DB.get("hideHomeScreenTip", false) || document.getElementById("homeTip")) return;
+  const ua = navigator.userAgent;
+  const ios = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const android = /Android/.test(ua);
+  const how = ios ? "In Safari, tap <b>Share</b>, then <b>Add to Home Screen</b>."
+    : android ? "In Chrome, tap <b>⋮</b>, then <b>Add to Home screen</b>."
+    : "On iPhone: Safari → Share → <b>Add to Home Screen</b>. On Android: Chrome → ⋮ → <b>Add to Home screen</b>.";
+  const el = document.createElement("div");
+  el.className = "home-tip";
+  el.id = "homeTip";
+  el.innerHTML = `<div><b>Keep Daylight on your Home Screen.</b> It opens like an app. ${how}</div><button>Got it</button>`;
+  el.querySelector("button").addEventListener("click", () => { DB.set("hideHomeScreenTip", true); el.remove(); });
+  document.body.appendChild(el);
+}
 
 // Logo click returns to home
 document.querySelector(".logo").style.cursor = "pointer";
