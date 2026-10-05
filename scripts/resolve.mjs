@@ -114,9 +114,11 @@ export async function archivedCopy(item, note = () => {}) {
       .catch((e) => ({ status: e.name === "TimeoutError" ? "timeout" : "error" }));
     if (!got.html) {
       note(`${ts.slice(0, 8)}:${got.status || "none"}`);
-      // Refused for now: wait and ask again. Gone or timing out: next capture.
-      if (got.status === 429 || got.status >= 500) await sleep(Math.min(20000, Math.max(0, deadline - Date.now())));
-      else i++;
+      // Refused or cut off for now (the archive throttles by dropping
+      // connections as well as with 429): wait and ask again. Gone: next.
+      if (got.status === 429 || got.status >= 500 || got.status === "error") {
+        await sleep(Math.min(20000, Math.max(0, deadline - Date.now())));
+      } else i++;
       continue;
     }
     const art = extractFromHtml(got.html, item.link);

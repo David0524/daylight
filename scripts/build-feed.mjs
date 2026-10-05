@@ -274,11 +274,12 @@ async function carryForwardArticles(liveUrls, keepTrying = new Set()) {
     if (v?.type === "article" && v.paragraphs?.length && v.av === ARTICLE_VERSION) {
       // A paywalled preview is kept until something better turns up, but
       // retried rather than trusted as the final answer -- on every build for
-      // a Deep piece, which has an archived copy to be had and only a few of
-      // them ever need it.
+      // a Deep piece (as is a Deep piece not read at all), which has an
+      // archived copy to be had and only a few of them ever need it.
       if (v.partial && (keepTrying.has(k) || Date.now() - (v.at || 0) > PARTIAL_RETRY_MS)) continue;
       out[k] = v;
-    } else if (v?.miss && v.v === MISS_VERSION && Date.now() - v.at < (v.soft ? SOFT_RETRY_MS : MISS_RETRY_MS)) {
+    } else if (v?.miss && v.v === MISS_VERSION && !keepTrying.has(k)
+               && Date.now() - v.at < (v.soft ? SOFT_RETRY_MS : MISS_RETRY_MS)) {
       out[k] = v;
     }
   }
