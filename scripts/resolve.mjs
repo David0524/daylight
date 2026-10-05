@@ -76,24 +76,52 @@ export async function resolveArticle(item, { jina, index = [], log = () => {} } 
   }
 }
 
-// The Wayback Machine's raw capture (`id_`) of the page nearest the given
-// date: the publisher's own HTML, without the archive's toolbar. Only asked
-// for pieces chosen by hand, whose publishers have since put them behind a
-// wall -- a capture from before then holds the whole article.
-async function archivedCopy(item, note = () => {}) {
+// The Wayback Machine's raw capture (`id_`) of the page: the publisher's own
+// HTML, without the archive's toolbar. Only asked for pieces chosen by hand
+// whose publishers have since walled them, so the earliest captures -- from
+// before the wall -- are tried first. Exact timestamps come from the archive's
+// index, which answers readily; captures themselves are rate-limited hard
+// (measured from a runner: one request in four answered when asked a few
+// seconds apart), so each is asked for patiently.
+const WAYBACK = "https://web.archive.org";
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+async function captures(item) {
+  const q = `${WAYBACK}/cdx/search/cdx?url=${encodeURIComponent(item.link)}&output=json&filter=statuscode:200`
+          + `&from=${item.archive}&limit=6&fl=timestamp`;
   for (let attempt = 0; attempt < 3; attempt++) {
-    const got = await fetchHtml(`https://web.archive.org/web/${item.archive}id_/${item.link}`, "browser", 60000)
-      .catch((e) => ({ status: e.name === "TimeoutError" ? "timeout" : "error" }));
-    note(`wayback:${got.html ? (got.url || "").match(/\/web\/(\d{8})/)?.[1] || "ok" : got.status || "none"}`);
-    if (got.html) {
-      const art = extractFromHtml(got.html, item.link);
-      const at = (got.url || "").match(/\/web\/(\d{4})(\d{2})(\d{2})/);
-      return art && { ...art, archived: at ? `${at[1]}-${at[2]}-${at[3]}` : item.archive };
-    }
-    if (got.status && got.status !== 429 && got.status < 500) return null;
-    await new Promise(r => setTimeout(r, 10000 * (attempt + 1)));
+    try {
+      const r = await fetch(q, { signal: AbortSignal.timeout(60000) });
+      if (r.ok) return (await r.json()).slice(1).map(row => row[0]);
+    } catch {}
+    await sleep(15000 * (attempt + 1));
   }
-  return null;
+  return [];
+}
+
+async function archivedCopy(item, note = () => {}) {
+  const stamps = await captures(item);
+  note(`wayback:${stamps.length} captures`);
+  let best = null;
+  for (const ts of stamps.slice(0, 3)) {
+    for (let attempt = 0; attempt < 4; attempt++) {
+      await sleep(attempt ? 30000 * attempt : 5000);
+      const got = await fetchHtml(`${WAYBACK}/web/${ts}id_/${item.link}`, "browser", 60000)
+        .catch((e) => ({ status: e.name === "TimeoutError" ? "timeout" : "error" }));
+      if (!got.html) {
+        note(`${ts.slice(0, 8)}:${got.status || "none"}`);
+        if (got.status === 429 || got.status >= 500 || typeof got.status === "string") continue;
+        break;
+      }
+      const art = extractFromHtml(got.html, item.link);
+      note(`${ts.slice(0, 8)}:${art ? art.words + "w" : "unreadable"}`);
+      if (art && (!best || art.words > best.words)) {
+        best = { ...art, archived: `${ts.slice(0, 4)}-${ts.slice(4, 6)}-${ts.slice(6, 8)}` };
+      }
+      break;
+    }
+    if (best && !best.partial && best.words >= (item.minWords || 250)) break;
+  }
+  return best;
 }
 
 // Whatever a route could not say about the story, the feed item can: a page
