@@ -115,7 +115,7 @@
   "papers": {
     "npr": {
       "name": "NPR",
-      "emoji": "\ud83d\udcfb",
+      "emoji": "📻",
       "feeds": [
         "https://feeds.npr.org/1001/rss.xml"
       ],
@@ -123,7 +123,7 @@
     },
     "bbc": {
       "name": "BBC",
-      "emoji": "\ud83c\uddec\ud83c\udde7",
+      "emoji": "🇬🇧",
       "feeds": [
         "https://feeds.bbci.co.uk/news/world/rss.xml"
       ],
@@ -131,7 +131,7 @@
     },
     "wapo": {
       "name": "WaPo",
-      "emoji": "\ud83c\udfdb",
+      "emoji": "🏛",
       "feeds": [
         "https://feeds.washingtonpost.com/rss/national"
       ],
@@ -139,7 +139,7 @@
     },
     "bloomberg": {
       "name": "Bloomberg",
-      "emoji": "\ud83d\udcb9",
+      "emoji": "💹",
       "feeds": [
         "https://www.bloomberg.com/feeds/markets/news.rss"
       ],
@@ -147,7 +147,7 @@
     },
     "cnbc": {
       "name": "CNBC",
-      "emoji": "\ud83d\udcca",
+      "emoji": "📊",
       "feeds": [
         "https://www.cnbc.com/id/100003114/device/rss/rss.html"
       ],
@@ -155,7 +155,7 @@
     },
     "techcrunch": {
       "name": "TechCrunch",
-      "emoji": "\u25ed",
+      "emoji": "◭",
       "feeds": [
         "https://techcrunch.com/feed/"
       ],
@@ -163,7 +163,7 @@
     },
     "latimes": {
       "name": "LA Times",
-      "emoji": "\ud83c\udf34",
+      "emoji": "🌴",
       "feeds": [
         "https://www.latimes.com/rss2.0.xml"
       ],
@@ -171,7 +171,7 @@
     },
     "guardian": {
       "name": "Guardian",
-      "emoji": "\ud83d\udee1",
+      "emoji": "🛡",
       "feeds": [
         "https://www.theguardian.com/world/rss"
       ],
@@ -179,7 +179,7 @@
     },
     "politico": {
       "name": "Politico",
-      "emoji": "\ud83c\udfdb",
+      "emoji": "🏛",
       "feeds": [
         "https://rss.politico.com/politics-news.xml"
       ],
@@ -187,19 +187,19 @@
     },
     "ap": {
       "name": "AP",
-      "emoji": "\ud83d\udce1",
+      "emoji": "📡",
       "feeds": [],
       "domain": "apnews.com"
     },
     "reuters": {
       "name": "Reuters",
-      "emoji": "\ud83c\udf10",
+      "emoji": "🌐",
       "feeds": [],
       "domain": "reuters.com"
     },
     "nyt": {
       "name": "NYT",
-      "emoji": "\ud83d\udcf0",
+      "emoji": "📰",
       "feeds": [
         "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml"
       ],
@@ -207,7 +207,7 @@
     },
     "wsj": {
       "name": "WSJ",
-      "emoji": "\ud83d\udcc8",
+      "emoji": "📈",
       "feeds": [
         "https://feeds.content.dowjones.io/public/rss/RSSWorldNews",
         "https://feeds.content.dowjones.io/public/rss/WSJcomUSBusiness",
@@ -245,6 +245,138 @@
       "label": "NASDAQ",
       "symbol": "COMP",
       "assetclass": "index"
+    }
+  ],
+  "deep": [
+    {
+      "section": "Essays",
+      "items": [
+        {
+          "pub": "The Atlantic",
+          "mins": 30,
+          "title": "The Coddling of the American Mind",
+          "desc": "How good intentions and bad ideas are setting up a generation for failure.",
+          "url": "https://www.theatlantic.com/magazine/archive/2015/09/the-coddling-of-the-american-mind/399356/",
+          "archive": "20150815"
+        },
+        {
+          "pub": "The New Yorker",
+          "mins": 22,
+          "title": "The Catastrophist",
+          "desc": "Elizabeth Kolbert on James Hansen, the NASA scientist who spent decades warning that the climate was nearing a point of no return.",
+          "url": "https://www.newyorker.com/magazine/2009/06/29/the-catastrophist"
+        },
+        {
+          "pub": "Noema",
+          "mins": 20,
+          "title": "The Tyranny of Time",
+          "desc": "Clock time is a recent invention. It has reshaped how we think, feel and live.",
+          "url": "https://www.noemamag.com/the-tyranny-of-time/"
+        },
+        {
+          "pub": "Quanta Magazine",
+          "mins": 12,
+          "title": "The Evolutionary Argument Against Reality",
+          "desc": "A cognitive scientist argues that evolution hid reality from us — for our benefit.",
+          "url": "https://www.quantamagazine.org/the-evolutionary-argument-against-reality-20160421/"
+        },
+        {
+          "pub": "The New Yorker",
+          "mins": 28,
+          "title": "The Friendship That Made Google Huge",
+          "desc": "Jeff Dean and Sanjay Ghemawat changed the company — and computing — from a single office.",
+          "url": "https://www.newyorker.com/magazine/2018/12/10/the-friendship-that-made-google-huge"
+        },
+        {
+          "pub": "n+1",
+          "mins": 15,
+          "title": "Too Much Sociology",
+          "desc": "How the sociology of taste went mainstream, and taught everyone to see art as a game of status.",
+          "url": "https://www.nplusonemag.com/issue-16/the-intellectual-situation/too-much-sociology/"
+        }
+      ]
+    },
+    {
+      "section": "Science & Technology",
+      "items": [
+        {
+          "pub": "MIT Tech Review",
+          "mins": 11,
+          "title": "The Inside Story of How ChatGPT Was Built",
+          "desc": "An oral history from the people at OpenAI who made it — and were caught off guard by its success.",
+          "url": "https://www.technologyreview.com/2023/03/03/1069311/inside-story-oral-history-how-chatgpt-built-openai/"
+        },
+        {
+          "pub": "The New Yorker",
+          "mins": 36,
+          "title": "The Man Who Broke the Music Business",
+          "desc": "How a worker at a North Carolina CD plant leaked thousands of albums and helped bring the record industry to its knees.",
+          "url": "https://www.newyorker.com/magazine/2015/04/27/the-man-who-broke-the-music-business"
+        },
+        {
+          "pub": "MIT Tech Review",
+          "mins": 9,
+          "title": "We're Not Prepared for the End of Moore's Law",
+          "desc": "What happens when the engine of progress runs out of road.",
+          "url": "https://www.technologyreview.com/2020/02/24/905789/were-not-prepared-for-the-end-of-moores-law/"
+        },
+        {
+          "pub": "Wired",
+          "mins": 27,
+          "title": "The Untold Story of NotPetya",
+          "desc": "How a Russian cyberweapon escaped Ukraine and crippled companies around the world.",
+          "url": "https://www.wired.com/story/notpetya-cyberattack-ukraine-russia-code-crashed-the-world/"
+        },
+        {
+          "pub": "The Atlantic",
+          "mins": 21,
+          "title": "Have Smartphones Destroyed a Generation?",
+          "desc": "More comfortable online than out partying, post-Millennials are safer, but on the brink of a mental-health crisis.",
+          "url": "https://www.theatlantic.com/magazine/archive/2017/09/has-the-smartphone-destroyed-a-generation/534198/",
+          "archive": "20170815"
+        }
+      ]
+    },
+    {
+      "section": "Reported Stories",
+      "items": [
+        {
+          "pub": "ProPublica",
+          "mins": 23,
+          "title": "The Secret IRS Files",
+          "desc": "Inside the tax records of the wealthiest Americans — and how they avoid taxes.",
+          "url": "https://www.propublica.org/article/the-secret-irs-files-trove-of-never-before-seen-records-reveal-how-the-wealthiest-avoid-income-tax"
+        },
+        {
+          "pub": "The Guardian",
+          "mins": 8,
+          "title": "The Cambridge Analytica Files",
+          "desc": "How a data company harvested millions of Facebook profiles for political targeting.",
+          "url": "https://www.theguardian.com/news/2018/mar/17/cambridge-analytica-facebook-influence-us-election"
+        },
+        {
+          "pub": "New York Mag",
+          "mins": 32,
+          "title": "The Uninhabitable Earth",
+          "desc": "Famine, economic collapse, a sun that cooks us — what climate change could wreak in a lifetime.",
+          "url": "https://nymag.com/intelligencer/2017/07/climate-change-earth-too-hot-for-humans.html"
+        },
+        {
+          "pub": "Bloomberg",
+          "mins": 22,
+          "title": "The Big Hack",
+          "desc": "How China used a tiny chip to infiltrate America’s top companies.",
+          "url": "https://www.bloomberg.com/news/features/2018-10-04/the-big-hack-how-china-used-a-tiny-chip-to-infiltrate-america-s-top-companies",
+          "archive": "20181004"
+        },
+        {
+          "pub": "The New Yorker",
+          "mins": 26,
+          "title": "The Really Big One",
+          "desc": "An earthquake will destroy a sizable portion of the coastal Northwest. The question is when.",
+          "url": "https://www.newyorker.com/magazine/2015/07/20/the-really-big-one"
+        }
+      ]
     }
   ]
 }

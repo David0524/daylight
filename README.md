@@ -56,6 +56,11 @@ way that actually works from a GitHub runner, measured with
 | A partner's syndicated copy, found through Google News and credit-checked | Bloomberg, FT |
 | Jina Reader | last resort for anything else |
 
+The Deep tab's long reads (listed in `sources.json` under `deep`) are read the
+same way, once, and kept for good. A few are walled now but were free when
+published; for those the build reads the Internet Archive's capture from before
+the wall went up, and the reader labels it as an archived copy.
+
 Text is carried forward between builds while its story is live, so anything
 read once stays readable. A story nothing could read is recorded as a miss and
 retried a few hours later; the page shows its summary at once, with a live
@@ -150,7 +155,7 @@ endpoints answer 200 with a full payload whose newest item is from January 2025.
 | Path | |
 |---|---|
 | `index.html` | the entire app |
-| `sources.json` | every feed URL, shared by the builder and the page |
+| `sources.json` | every feed URL and the Deep reading list, shared by the builder and the page |
 | `scripts/build-feed.mjs` | the build that runs in Actions |
 | `scripts/resolve.mjs` | reads one story: feed, licensed copy, then the site's routes |
 | `scripts/extract.mjs` | per-site routes and cleanup; HTML to paragraphs |

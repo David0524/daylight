@@ -1236,8 +1236,9 @@ function showView(name) {
   const readerActions = document.getElementById("readerActions");
   shareBtn.style.display = "";  // always flex within readerActions
   if (readerActions) readerActions.style.display = (name === "reader") ? "flex" : "none";
-  const notIdle = !["idle","papers","search","panel","deep"].includes(name);
-  homeBtn.style.display  = notIdle ? "flex" : "none";
+  // The tab bar's ◈ already goes home; this button stands in for it only in
+  // the reader, where the tabs are hidden to make room.
+  homeBtn.style.display  = (name === "reader") ? "flex" : "none";
   fontDn.style.display   = (name === "reader") ? "flex" : "none";
   fontUp.style.display   = (name === "reader") ? "flex" : "none";
   const fontPickerBtn = document.getElementById("fontPickerBtn");
@@ -1262,49 +1263,37 @@ function showView(name) {
 
 
 // ── DEEP — curated long-form reading list ────────────────────────────────────
-const DEEP_LIST = [
-  {
-    section: "Essays",
-    items: [
-      { pub:"The Atlantic",    mins:18, title:"The Coddling of the American Mind",              desc:"How good intentions and bad ideas are setting up a generation for failure.",                       url:"https://www.theatlantic.com/magazine/archive/2015/09/the-coddling-of-the-american-mind/399356/" },
-      { pub:"The New Yorker",  mins:22, title:"The Catastrophist",                              desc:"How one scientist became convinced that civilisation is on the brink of collapse.",               url:"https://www.newyorker.com/magazine/2009/06/01/the-catastrophist" },
-      { pub:"Aeon",            mins:14, title:"The Tyranny of Time",                            desc:"Clock time is a recent invention. It has reshaped how we think, feel and live.",                 url:"https://aeon.co/essays/the-tyranny-of-clock-time-is-a-recent-and-troubling-invention" },
-      { pub:"Aeon",            mins:16, title:"The Case Against Reality",                       desc:"A cognitive scientist argues that evolution hid reality from us — for our benefit.",             url:"https://aeon.co/articles/the-case-against-reality" },
-      { pub:"Longreads",       mins:20, title:"The Friendship That Made Google Huge",           desc:"Jeff Dean and Sanjay Ghemawat changed the company — and computing — from a single office.",     url:"https://www.newyorker.com/magazine/2018/12/10/the-friendship-that-made-google-huge" },
-      { pub:"n+1",             mins:25, title:"Too Much Sociology",                             desc:"The rise and fall of the theory that could explain everything.",                                  url:"https://www.nplusonemag.com/issue-13/essays/too-much-sociology/" },
-    ]
-  },
-  {
-    section: "Science & Technology",
-    items: [
-      { pub:"Ars Technica",    mins:15, title:"The Inside Story of ChatGPT's Astonishing Potential", desc:"How OpenAI's chatbot went from research curiosity to cultural moment.",                  url:"https://arstechnica.com/information-technology/2023/02/the-inside-story-of-chatgpts-astonishing-potential/" },
-      { pub:"Wired",           mins:19, title:"The Man Who Broke the Music Business",           desc:"How one man's obsession dismantled the recording industry.",                                     url:"https://www.wired.com/2012/03/the-man-who-broke-the-music-business/" },
-      { pub:"MIT Tech Review", mins:12, title:"We're Not Prepared for the End of Moore's Law",  desc:"What happens when the engine of progress runs out of road.",                                    url:"https://www.technologyreview.com/2020/02/24/905789/were-not-prepared-for-the-end-of-moores-law/" },
-      { pub:"Nautilus",        mins:17, title:"How Life Became an App",                         desc:"The gamification of everyday existence and what we lost in the process.",                       url:"https://nautil.us/how-life-became-an-app-235702/" },
-      { pub:"The Atlantic",    mins:21, title:"Have Smartphones Destroyed a Generation?",       desc:"More comfortable online than out partying, post-Millennials are safer, on the brink of a mental-health crisis.",  url:"https://www.theatlantic.com/magazine/archive/2017/09/has-the-smartphone-destroyed-a-generation/534198/" },
-    ]
-  },
-  {
-    section: "Reported Stories",
-    items: [
-      { pub:"ProPublica",      mins:28, title:"The Secret IRS Files",                           desc:"Inside the tax records of the wealthiest Americans — and how they avoid taxes.",               url:"https://www.propublica.org/article/the-secret-irs-files-trove-of-never-before-seen-records-reveal-how-the-wealthiest-avoid-income-tax" },
-      { pub:"The Guardian",    mins:24, title:"The Cambridge Analytica Files",                  desc:"How a data company harvested millions of Facebook profiles for political targeting.",            url:"https://www.theguardian.com/news/2018/mar/17/cambridge-analytica-facebook-influence-us-election" },
-      { pub:"New York Mag",    mins:30, title:"The Uninhabitable Earth",                        desc:"Famine, economic collapse, a sun that cooks us — what climate change could wreak in a lifetime.", url:"https://nymag.com/intelligencer/2017/07/climate-change-earth-too-hot-for-humans.html" },
-      { pub:"Bloomberg",       mins:22, title:"The Big Hack",                                   desc:"How China used a tiny chip to infiltrate America's top companies.",                             url:"https://www.bloomberg.com/news/features/2018-10-04/the-big-hack-how-china-used-a-tiny-chip-to-infiltrate-america-s-top-companies" },
-      { pub:"The Atlantic",    mins:26, title:"Secret Consumers",                               desc:"Inside the sprawling underground economy of stolen credit cards and the people who police it.", url:"https://www.theatlantic.com/magazine/archive/2024/01/stolen-credit-card-fraud-underground-economy/676125/" },
-    ]
-  }
-];
+// The list lives in sources.json, so the build can read every piece ahead of
+// time; the published feed carries it back with each piece's file id and its
+// reading time measured from the text. Without a published feed the list is
+// read from sources.json itself and the pieces are fetched live.
+let PREBUILT_DEEP = null;
+async function deepList() {
+  if (PREBUILT_DEEP) return PREBUILT_DEEP;
+  try {
+    const r = await withTimeout(fetch("sources.json"), 8000, "sources timeout");
+    return r.ok ? ((await r.json()).deep || []) : [];
+  } catch { return []; }
+}
 
 let deepRendered = false;
-function renderDeep() {
+async function renderDeep() {
   if (deepRendered) return;
   deepRendered = true;
   const wrap = document.getElementById("deepContent");
-
-  // Flatten all items to pick a featured article (longest read)
+  if (!wrap.innerHTML.trim()) wrap.innerHTML = `<div class="deep-wrap"><div class="deep-hero-sub" style="padding:24px 0">Loading…</div></div>`;
+  const DEEP_LIST = await deepList();
   const allItems = DEEP_LIST.flatMap(s => s.items);
-  const featured = allItems.reduce((best, item) => item.mins > best.mins ? item : best, allItems[0]);
+  if (!allItems.length) {
+    deepRendered = false;
+    wrap.innerHTML = `<div class="deep-wrap"><div class="deep-hero-sub" style="padding:24px 0">Couldn't load the reading list. Check your connection and try again.</div></div>`;
+    return;
+  }
+
+  // The longest read is featured -- one the build has in full, where it knows.
+  const readable = allItems.filter(i => i.a && !i.ap);
+  const pool = readable.length ? readable : allItems;
+  const featured = pool.reduce((best, item) => item.mins > best.mins ? item : best, pool[0]);
 
   const SECTION_ICONS = { "Essays": "✦", "Science & Technology": "◎", "Reported Stories": "◈" };
 
@@ -3331,7 +3320,7 @@ function articleFromEntry(entry, url) {
     headline: entry.headline || feedEntryFor(url)?.title || "",
     author: entry.author || "", date: entry.date || "", heroImage: entry.image || "",
     paragraphs, wordCount, readTime: Math.max(1, Math.round(wordCount / 230)),
-    url, via: entry.via || "", partial: !!entry.partial,
+    url, via: entry.via || "", partial: !!entry.partial, archived: entry.archived || "",
   };
 }
 
@@ -3342,6 +3331,7 @@ async function loadFeed() {
   if (prebuilt) {
     PREBUILT_PAPERS = prebuilt.papers || {};
     PREBUILT_MARKETS = prebuilt.markets || null;
+    if (prebuilt.deep?.length) PREBUILT_DEEP = prebuilt.deep;
     renderFeed(prebuilt.categories);
     document.getElementById("feedNotice")?.remove();
     // No enrichment pass: the build resolved og:image for every item it could,
@@ -3430,6 +3420,8 @@ function renderReader(article) {
     ? `<div class="reader-meta-pill" style="background:var(--input-bg);color:var(--sub)">Related coverage from ${escHtml(article.via)} · WSJ's piece isn't free</div>`
     : article.via
     ? `<div class="reader-meta-pill"><span style="color:var(--green)">✓</span> Licensed copy via ${escHtml(article.via)}</div>`
+    : article.archived && !article.partial
+    ? `<div class="reader-meta-pill"><span style="color:var(--green)">✓</span> Archived copy · Internet Archive, ${escHtml(new Date(article.archived + "T12:00:00Z").toLocaleDateString(undefined, { month: "short", year: "numeric" }))}</div>`
     : article.partial
     ? `<div class="reader-meta-pill" style="background:var(--input-bg);color:var(--sub)">🔒 Preview — the rest is for subscribers</div>`
     : article.openVersionNote
@@ -5458,6 +5450,7 @@ function feedEntryFor(url) {
     ARTICLE_REGISTRY,
     ...Object.values(CAT_ITEMS || {}),
     ...Object.values(PREBUILT_PAPERS || {}).map(p => p.items || []),
+    (PREBUILT_DEEP || []).flatMap(s => s.items).map(d => ({ ...d, link: d.url })),
   ];
   for (const pool of pools) {
     const hit = (pool || []).find(i => i && i.link && canonicalUrl(i.link) === want);

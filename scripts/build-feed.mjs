@@ -466,7 +466,12 @@ async function main() {
   // if its site refuses a later build.
   const allItems = Object.values(categories).flat();
   const everything = [...allItems, ...Object.values(papers).flatMap(p => p.items || [])];
-  const liveUrls = new Set(everything.map(i => canonicalUrl(i.link)));
+  // The Deep tab's long reads never leave the feed, so their text is read
+  // once and then kept for good. A minimum length keeps a publisher's preview
+  // from passing for the whole piece.
+  const deepItems = (SOURCES.deep || []).flatMap(s => s.items)
+    .map(d => ({ title: d.title, link: d.url, desc: d.desc, pubDate: "", archive: d.archive, minWords: 1000 }));
+  const liveUrls = new Set([...everything, ...deepItems].map(i => canonicalUrl(i.link)));
   const articles = await carryForwardArticles(liveUrls);
   const carried = Object.keys(articles).length;
 
@@ -476,11 +481,11 @@ async function main() {
 
   const jina = createJina(JINA_KEY, log);
   const seen = new Set();
-  const todo = everything
+  const todo = [...deepItems, ...everything
+    .filter(i => !/\/(videos?|podcasts?|audio)\//.test(i?.link || ""))
+    .sort((a, b) => rankScore(b) - rankScore(a))]
     .filter(i => i?.link && !seen.has(canonicalUrl(i.link)) && seen.add(canonicalUrl(i.link)))
     .filter(i => !articles[canonicalUrl(i.link)])
-    .filter(i => !/\/(videos?|podcasts?|audio)\//.test(i.link))
-    .sort((a, b) => rankScore(b) - rankScore(a))
     .slice(0, PREFETCH_LIMIT);
   // Requests to one host go one at a time, so a run of top stories from the
   // same paper would leave the other workers queued behind it. Dealing the
@@ -558,10 +563,22 @@ async function main() {
     writeFileSync(join(OUT_DIR, "a", `${articleId(key)}.json`), JSON.stringify(pub));
   }
 
+  // The Deep list as the page shows it, with each piece's reading time taken
+  // from the text itself and, like a feed item, the id of its published file.
+  const deep = (SOURCES.deep || []).map(s => ({
+    section: s.section,
+    items: s.items.map(({ archive, ...d }) => {
+      const e = articles[canonicalUrl(d.url)];
+      if (!e?.paragraphs) return e?.miss ? { ...d, am: 1 } : d;
+      return { ...d, a: articleId(canonicalUrl(d.url)), ...(e.partial ? { ap: 1 } : { mins: Math.max(1, Math.round(e.words / 230)) }) };
+    }),
+  }));
+  log(`    deep: ${deep.flatMap(s => s.items).filter(d => d.a && !d.ap).length}/${deepItems.length} read in full`);
+
   const feed = {
     generatedAt: new Date().toISOString(),
     categoryOrder: SOURCES.categoryOrder,
-    categories, papers, markets,
+    categories, papers, markets, deep,
     counts: {
       categories: Object.keys(categories).length,
       items: Object.values(categories).reduce((n, a) => n + a.length, 0),
