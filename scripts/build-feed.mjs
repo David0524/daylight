@@ -252,6 +252,9 @@ const MISS_VERSION = 6;   // bump whenever the way articles are read changes
 // Likewise for text: entries read under older rules (an NYT excerpt accepted
 // as a syndicated copy, say) are read again rather than carried forward.
 const ARTICLE_VERSION = 2;
+// The Deep pieces are kept for good, so a change to how one site's pages are
+// cleaned would otherwise never reach them; this re-reads just those.
+const DEEP_VERSION = 1;
 
 async function published(name) {
   try {
@@ -271,6 +274,7 @@ async function carryForwardArticles(liveUrls, keepTrying = new Set()) {
   const out = {};
   for (const [k, v] of Object.entries(prev || {})) {
     if (!liveUrls.has(k) || v?.relation) continue;
+    if (keepTrying.has(k) && v?.dv !== DEEP_VERSION) continue;
     if (v?.type === "article" && v.paragraphs?.length && v.av === ARTICLE_VERSION) {
       // A paywalled preview is kept until something better turns up, but
       // retried rather than trusted as the final answer -- on every build for
@@ -517,6 +521,7 @@ async function main() {
     }
   }));
   if (next < todo.length) log(`    time budget reached; ${todo.length - next} stories left for the next build`);
+  for (const d of deepItems) { const e = articles[canonicalUrl(d.link)]; if (e) e.dv = DEEP_VERSION; }
 
   // Per-outlet tallies, so a site that stops answering shows up in the log as
   // a falling number rather than as a reader quietly showing summaries.
@@ -562,7 +567,7 @@ async function main() {
   }
   for (const [key, e] of Object.entries(articles)) {
     if (!e?.paragraphs) continue;
-    const { how, at, av, ...pub } = e;
+    const { how, at, av, dv, ...pub } = e;
     writeFileSync(join(OUT_DIR, "a", `${articleId(key)}.json`), JSON.stringify(pub));
   }
 

@@ -117,7 +117,11 @@ export const SITES = {
   "theatlantic.com": {
     routes: ["direct", "jina"],
     ua: ["browser", "googlebot"],
-    drop: ["figure", "aside", '[data-event-module="inline-newsletter"]'],
+    // The last three are from the 2015-18 site, read from the Internet
+    // Archive for the Deep tab: an ad-blocker notice, a related story, and
+    // the share bar.
+    drop: ["figure", "aside", '[data-event-module="inline-newsletter"]',
+           ".blocker-message", ".module-related", ".article-tools"],
   },
   "thehill.com": {
     routes: ["direct", "translate"],
