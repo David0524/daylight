@@ -5608,20 +5608,19 @@ const APP_URL = location.origin + location.pathname.replace(/index\.html$/, "");
 const appLinkFor = (url) => `${APP_URL}?read=${encodeURIComponent(url)}`;
 const isStandalone = () =>
   window.matchMedia?.("(display-mode: standalone)").matches || navigator.standalone === true;
-const HOME_SCREEN_HOWTO = "On iPhone, open it in Safari, tap Share, then Add to Home Screen. " +
-  "On Android, open it in Chrome, tap ⋮, then Add to Home screen.";
 
 function shareMessage(url, headline) {
   const source = (() => { try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return ""; } })();
   const title = headline || "An article";
   const lead = `${title}${source ? ` (${source})` : ""}`;
-  const howto = `Daylight works like an app once it's on your Home Screen. ${HOME_SCREEN_HOWTO}`;
+  // How to add Daylight to the Home Screen is left to the app, which shows the
+  // steps to whoever opens the link (showHomeScreenTip).
   return {
     title,
     // The share sheet carries the link separately, so the text leaves it out;
     // copied to the clipboard, the message has to include it.
-    text: `${lead}\n\nRead it in Daylight.\n\n${howto}`,
-    copy: `${lead}\n\nRead it in Daylight: ${appLinkFor(url)}\n\n${howto}`,
+    text: `${lead}\n\nRead it in Daylight.`,
+    copy: `${lead}\n\nRead it in Daylight: ${appLinkFor(url)}`,
     url: appLinkFor(url),
   };
 }

@@ -77,10 +77,9 @@ dropped for the rest of the run rather than failing every request.
 ### Sharing
 
 The share button (↗ in the reader) sends a link to Daylight itself --
-`…/daylight/?read=<article URL>` -- with the headline, the source and how to
-add Daylight to the Home Screen. Opening that link reads the story in Daylight;
-someone who opened it in a browser rather than from the Home Screen is shown
-the steps for their phone once.
+`…/daylight/?read=<article URL>` -- with the headline and the source. Opening
+that link reads the story in Daylight; someone who opened it in a browser
+rather than from the Home Screen is shown, once, how to add Daylight to theirs.
 
 ## Fallbacks
 
