@@ -5615,14 +5615,9 @@ function shareMessage(url, headline) {
   const lead = `${title}${source ? ` (${source})` : ""}`;
   // How to add Daylight to the Home Screen is left to the app, which shows the
   // steps to whoever opens the link (showHomeScreenTip).
-  return {
-    title,
-    // The share sheet carries the link separately, so the text leaves it out;
-    // copied to the clipboard, the message has to include it.
-    text: `${lead}\n\nRead it in Daylight.`,
-    copy: `${lead}\n\nRead it in Daylight: ${appLinkFor(url)}`,
-    url: appLinkFor(url),
-  };
+  // One message with the link inside it. Passed as a separate url, the link
+  // was all that several share targets kept, and the headline was lost.
+  return { title, text: `${lead}\n\nRead it in Daylight: ${appLinkFor(url)}` };
 }
 
 shareBtn.addEventListener("click", async () => {
@@ -5637,7 +5632,7 @@ shareBtn.addEventListener("click", async () => {
   // The system share sheet where there is one (iOS, Android).
   if (navigator.share) {
     try {
-      await navigator.share({ title: msg.title, text: msg.text, url: msg.url });
+      await navigator.share({ title: msg.title, text: msg.text });
       return;
     } catch (e) {
       if (e.name === "AbortError") return; // user cancelled — not an error
@@ -5645,10 +5640,10 @@ shareBtn.addEventListener("click", async () => {
     }
   }
   try {
-    await navigator.clipboard.writeText(msg.copy);
+    await navigator.clipboard.writeText(msg.text);
     flash("✓ Copied");
   } catch {
-    window.prompt("Copy this message:", msg.copy);
+    window.prompt("Copy this message:", msg.text);
   }
 });
 
