@@ -795,6 +795,12 @@
   body.dark .deep-card-featured-banner { background: linear-gradient(135deg, #2A2410 0%, #3A3218 100%); }
   body.dark .deep-card-featured-pub { color: #E2B96F; }
   body.dark .deep-card-featured-label { color: rgba(200,190,175,0.5); }
+#offlineBadge {
+  position: fixed; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom));
+  transform: translateX(-50%); z-index: 1000;
+  background: #1C1917; color: #F5F1E8; font: 500 12px/1 'DM Mono', ui-monospace, monospace;
+  padding: 8px 12px; border-radius: 999px; pointer-events: none; opacity: .92;
+}
 </style>
 </head>
 <body>
@@ -3270,7 +3276,8 @@ async function loadPrebuiltFeed() {
     if (!data?.categories || !Object.keys(data.categories).length) return null;
 
     const age = Date.now() - new Date(data.generatedAt).getTime();
-    if (!(age < PREBUILT_MAX_AGE_MS)) {
+    // Offline, the last feed fetched is better than nothing at all, however old.
+    if (!(age < PREBUILT_MAX_AGE_MS) && navigator.onLine !== false) {
       console.warn("[feed] prebuilt data is stale:", data.generatedAt);
       return null;
     }
@@ -3342,6 +3349,25 @@ function articleFromEntry(entry, url) {
   };
 }
 
+// Fetch the text of the top stories in the background, so the service worker
+// has them cached and they open without a connection. Small files (~5 KB);
+// skipped when the device asks to save data.
+function warmArticles(feed) {
+  if (!("serviceWorker" in navigator) || navigator.connection?.saveData) return;
+  const ids = [];
+  const take = (items, n) => (items || []).slice(0, n).forEach(i => { if (i?.a && !ids.includes(i.a)) ids.push(i.a); });
+  Object.values(feed.categories || {}).forEach(items => take(items, 8));
+  Object.values(feed.papers || {}).forEach(p => take(p.items, 5));
+  const queue = ids.slice(0, 80);
+  const worker = async () => {
+    while (queue.length) {
+      const id = queue.shift();
+      await fetch(`${FEED_DATA_BASE}/a/${id}.json`).catch(() => {});
+    }
+  };
+  setTimeout(() => { for (let i = 0; i < 3; i++) worker(); }, 4000);
+}
+
 async function loadFeed() {
   // Prefer the prebuilt feed; fall back to fetching live if it is missing or
   // stale (the Action has not run yet, or has been failing).
@@ -3352,6 +3378,7 @@ async function loadFeed() {
     if (prebuilt.deep?.length) PREBUILT_DEEP = prebuilt.deep;
     renderFeed(prebuilt.categories);
     document.getElementById("feedNotice")?.remove();
+    warmArticles(prebuilt);
     // No enrichment pass: the build resolved og:image for every item it could,
     // server-side, and the browser has no working route to do better.
     return;
@@ -6090,63 +6117,26 @@ async function copyHeadlineLink() {
   } catch { window.prompt("Copy:", text); }
 }
 
-// WSJ DIAGNOSTIC — remove after testing
-async function wsjDiag() {
-  const results = [];
-  const tests = [
-    { label: "corsproxy + wsj.com/news/world HTML", 
-      fn: async () => {
-        const r = await fetch(rawProxy("https://www.wsj.com/news/world"), {signal: AbortSignal.timeout(10000)});
-        const t = await r.text();
-        return `HTTP ${r.status}, length ${t.length}, has articles: ${t.includes("wsj.com/articles")}`;
-      }
-    },
-    { label: "corsproxy + wsj.com sitemap",
-      fn: async () => {
-        const r = await fetch(rawProxy("https://www.wsj.com/news-sitemap.xml"), {signal: AbortSignal.timeout(10000)});
-        const t = await r.text();
-        return `HTTP ${r.status}, length ${t.length}, has loc: ${t.includes("<loc>")}`;
-      }
-    },
-    { label: "corsproxy + wsj.com/sitemap.xml",
-      fn: async () => {
-        const r = await fetch(rawProxy("https://www.wsj.com/sitemap.xml"), {signal: AbortSignal.timeout(10000)});
-        const t = await r.text();
-        return `HTTP ${r.status}, length ${t.length}, snippet: ${t.slice(0,200)}`;
-      }
-    },
-    { label: "corsproxy + wsj RSS v2 (paid)",
-      fn: async () => {
-        const r = await fetch(rawProxy("https://feeds.content.dowjones.io/public/rss/WSJcomUSBusiness"), {signal: AbortSignal.timeout(10000)});
-        const t = await r.text();
-        const date = t.match(/<lastBuildDate>([^<]+)<\/lastBuildDate>/)?.[1] || "no date";
-        return `HTTP ${r.status}, lastBuildDate: ${date}`;
-      }
-    },
-    { label: "corsproxy + wsj.com/news page (mobile UA)",
-      fn: async () => {
-        const r = await fetch(rawProxy("https://www.wsj.com/news"), {signal: AbortSignal.timeout(10000)});
-        const t = await r.text();
-        return `HTTP ${r.status}, length ${t.length}, has wsj/articles: ${(t.match(/wsj\.com\/articles/g)||[]).length}`;
-      }
-    },
-    { label: "allorigins + wsj.com/news/world",
-      fn: async () => {
-        const r = await fetch("https://api.allorigins.win/get?url=" + encodeURIComponent("https://www.wsj.com/news/world"), {signal: AbortSignal.timeout(10000)});
-        const j = await r.json();
-        const t = j.contents || "";
-        return `HTTP ${r.status}, length ${t.length}, has articles: ${t.includes("wsj.com/articles")}`;
-      }
-    },
-  ];
-  for (const t of tests) {
-    try { results.push(t.label + ": " + await t.fn()); }
-    catch(e) { results.push(t.label + ": ERROR " + e.message); }
-  }
-  alert(results.join("\n\n"));
-}
-window._wsjDiag = wsjDiag;
 
+// ── Offline ───────────────────────────────────────────────────────────────────
+
+if ("serviceWorker" in navigator && window.isSecureContext) {
+  window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+}
+
+function updateOfflineBadge() {
+  let b = document.getElementById("offlineBadge");
+  if (navigator.onLine) { b?.remove(); return; }
+  if (b) return;
+  b = document.createElement("div");
+  b.id = "offlineBadge";
+  b.setAttribute("role", "status");
+  b.textContent = "Offline — showing saved stories";
+  document.body.appendChild(b);
+}
+window.addEventListener("online", updateOfflineBadge);
+window.addEventListener("offline", updateOfflineBadge);
+updateOfflineBadge();
 </script>
 </body>
 </html>
