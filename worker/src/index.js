@@ -520,4 +520,22 @@ export default {
     ctx.waitUntil(cache.put(cacheKey, response.clone()));
     return response;
   },
+
+  // Starts the feed build on time. GitHub runs the workflow's own 30-minute
+  // schedule hours late under load (builds have landed 4-7 hours apart), but
+  // runs a dispatched workflow at once. Does nothing until GH_DISPATCH_TOKEN
+  // is set: a fine-grained token for this repository with Actions read/write.
+  async scheduled(event, env, ctx) {
+    if (!env.GH_DISPATCH_TOKEN) return;
+    const repo = env.GH_REPO || "David0524/daylight";
+    ctx.waitUntil(fetch(`https://api.github.com/repos/${repo}/actions/workflows/build-feed.yml/dispatches`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${env.GH_DISPATCH_TOKEN}`,
+        Accept: "application/vnd.github+json",
+        "User-Agent": "daylight-worker",
+      },
+      body: JSON.stringify({ ref: "main" }),
+    }).then(r => { if (r.status !== 204) console.warn("dispatch failed", r.status); }));
+  },
 };

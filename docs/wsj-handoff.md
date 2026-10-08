@@ -10,6 +10,12 @@ was 75%.
 For comparison, from the same build: Bloomberg 25/25 (its tab is built from
 the Bloomberg stories Yahoo Finance runs), NYT 20/21, and 285/330 overall.
 
+Snapshot 2026-10-08 13:32 UTC: WSJ tab 7/30, WSJ across the app 2/36 of
+wsj.com links; Bloomberg 30/30, NYT 20/20; 346/390 overall. Every other miss
+was a hard paywall (Economist, FT, paid Substack posts). Of the Mint copies
+turned down as "uncredited", the ones sampled were Mint's own stories, which
+its WSJ page also links: the check is doing its job.
+
 ## Why WSJ is different
 
 - **wsj.com refuses every automated fetch.** Its edge answers HTTP 401 in a few
@@ -83,6 +89,6 @@ Safeguards that must stay:
 
 - The branch `claude/runner-survey` holds temporary probe workflows and can be
   deleted. This session's proxy refuses branch deletion.
-- `npm test` must pass (133 checks) before pushing. Builds publish to the
+- `npm test` must pass (134 checks) before pushing. Builds publish to the
   `data` branch about every 30 minutes, and on every push to `main` that
   touches `scripts/` or `sources.json`.

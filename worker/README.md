@@ -31,6 +31,19 @@ Then lock the worker to your site so it is not a public open proxy:
 npx wrangler deploy --var ALLOWED_ORIGINS:"https://david0524.github.io"
 ```
 
+## Keeping the feed on time
+
+GitHub runs the build's own 30-minute schedule late under load; builds have
+landed 4-7 hours apart. The worker can start the build itself every 30
+minutes, which GitHub runs at once:
+
+1. On GitHub: Settings → Developer settings → Fine-grained tokens → new token,
+   repository access *only* `daylight`, permission **Actions: Read and write**.
+2. `npx wrangler secret put GH_DISPATCH_TOKEN` and paste it.
+3. `npx wrangler deploy`.
+
+Without the secret the cron trigger does nothing.
+
 ## Routes
 
 | Route | Purpose |

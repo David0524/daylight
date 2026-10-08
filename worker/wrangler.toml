@@ -9,5 +9,10 @@ compatibility_date = "2024-11-01"
 # Leave empty to allow any origin (fine for first deploy; lock it down after).
 ALLOWED_ORIGINS = ""
 
+# Starts the feed build every 30 minutes (see `scheduled` in src/index.js).
+# Inert until the GH_DISPATCH_TOKEN secret is set.
+[triggers]
+crons = ["2,32 * * * *"]
+
 [observability]
 enabled = true

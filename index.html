@@ -801,6 +801,11 @@
   background: #1C1917; color: #F5F1E8; font: 500 12px/1 'DM Mono', ui-monospace, monospace;
   padding: 8px 12px; border-radius: 999px; pointer-events: none; opacity: .92;
 }
+.feed-age { margin-left: 6px; margin-right: auto; opacity: .55; font-size: .85em; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important; scroll-behavior: auto !important; }
+}
 </style>
 </head>
 <body>
@@ -812,9 +817,9 @@
   <div class="status-bar">
     <span class="logo" id="logoBtn">Daylight</span>
     <div id="readerActions" style="display:none;align-items:center;gap:4px">
-      <button class="icon-btn reader-action-btn" id="copyBtn" title="Copy headline + link">⎘</button>
-      <button class="icon-btn reader-action-btn" id="shareBtn" title="Share article">↗</button>
-      <button class="icon-btn reader-action-btn" id="bookmarkBtn" title="Save article">✧</button>
+      <button class="icon-btn reader-action-btn" id="copyBtn" title="Copy headline + link" aria-label="Copy headline and link">⎘</button>
+      <button class="icon-btn reader-action-btn" id="shareBtn" title="Share article" aria-label="Share article">↗</button>
+      <button class="icon-btn reader-action-btn" id="bookmarkBtn" title="Save article" aria-label="Save article">✧</button>
     </div>
   </div>
 
@@ -953,32 +958,32 @@
 
   <!-- Bottom nav (combined: controls + tab bar) -->
   <div class="bottom-nav" id="bottomNav">
-    <button class="icon-btn" id="homeBtn" style="display:none" title="Home">⌂</button>
-    <button class="bottom-nav-font" id="fontDn" style="display:none">A−</button>
-    <button class="bottom-nav-font" id="fontUp" style="display:none">A+</button>
-    <button class="bottom-nav-font" id="fontPickerBtn" style="display:none;font-family:'DM Mono',monospace;font-size:11px" title="Change font">Aa</button>
+    <button class="icon-btn" id="homeBtn" style="display:none" title="Home" aria-label="Home">⌂</button>
+    <button class="bottom-nav-font" id="fontDn" style="display:none" aria-label="Smaller text">A−</button>
+    <button class="bottom-nav-font" id="fontUp" style="display:none" aria-label="Larger text">A+</button>
+    <button class="bottom-nav-font" id="fontPickerBtn" style="display:none;font-family:'DM Mono',monospace;font-size:11px" title="Change font" aria-label="Change font">Aa</button>
     <div class="bottom-nav-sep" id="tabSep"></div>
     <button class="tab-btn" id="tabDeep" onclick="switchTab('deep')">
-      <span class="tab-icon">◉</span>
+      <span class="tab-icon" aria-hidden="true">◉</span>
       <span>DEEP</span>
     </button>
     <button class="tab-btn" id="tabPapers" onclick="switchTab('papers')">
-      <span class="tab-icon">❋</span>
+      <span class="tab-icon" aria-hidden="true">❋</span>
       <span>PAPERS</span>
     </button>
-    <button class="tab-btn active" id="tabFeed" onclick="switchTab('feed')">
-      <span class="tab-icon" style="font-size:22px">◈</span>
+    <button class="tab-btn active" id="tabFeed" onclick="switchTab('feed')" aria-label="Home feed">
+      <span class="tab-icon" style="font-size:22px" aria-hidden="true">◈</span>
     </button>
     <button class="tab-btn" id="tabSearch" onclick="switchTab('search')">
-      <span class="tab-icon">⌕</span>
+      <span class="tab-icon" aria-hidden="true">⌕</span>
       <span>SEARCH</span>
     </button>
     <button class="tab-btn" id="tabPanel" onclick="switchTab('panel')">
-      <span class="tab-icon">◷</span>
+      <span class="tab-icon" aria-hidden="true">◷</span>
       <span>SAVED</span>
     </button>
     <div class="bottom-nav-sep"></div>
-    <button class="icon-btn" id="darkToggle" title="Toggle theme">☀️</button>
+    <button class="icon-btn" id="darkToggle" title="Toggle theme" aria-label="Toggle dark mode">☀️</button>
   </div>
 
 </div>
@@ -3349,6 +3354,28 @@ function articleFromEntry(entry, url) {
   };
 }
 
+// When the stories were gathered, beside the date: the build runs about every
+// half hour but GitHub sometimes runs it hours late, and offline the feed can
+// be older still.
+function showFeedAge(at) {
+  const head = document.querySelector(".feed-date-header > span");
+  if (!head || !at) return;
+  let el = document.getElementById("feedAge");
+  if (!el) {
+    el = document.createElement("span");
+    el.id = "feedAge";
+    el.className = "feed-age";
+    head.after(el);
+  }
+  const mins = Math.max(0, Math.round((Date.now() - Date.parse(at)) / 60000));
+  el.textContent = mins < 2 ? "· just updated" : mins < 60 ? `· updated ${mins} min ago`
+    : `· updated ${Math.round(mins / 60)} h ago`;
+  el.title = new Date(at).toLocaleString();
+  FEED_AT = at;
+}
+let FEED_AT = null;
+setInterval(() => { if (FEED_AT) showFeedAge(FEED_AT); }, 60000);
+
 // Fetch the text of the top stories in the background, so the service worker
 // has them cached and they open without a connection. Small files (~5 KB);
 // skipped when the device asks to save data.
@@ -3378,6 +3405,7 @@ async function loadFeed() {
     if (prebuilt.deep?.length) PREBUILT_DEEP = prebuilt.deep;
     renderFeed(prebuilt.categories);
     document.getElementById("feedNotice")?.remove();
+    showFeedAge(prebuilt.generatedAt);
     warmArticles(prebuilt);
     // No enrichment pass: the build resolved og:image for every item it could,
     // server-side, and the browser has no working route to do better.
