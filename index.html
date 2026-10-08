@@ -22,6 +22,17 @@
 <link rel="preload" as="style" onload="this.onload=null;this.rel='stylesheet'" href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=Source+Serif+4:ital,opsz,wght@0,8..60,300;0,8..60,400;0,8..60,500;1,8..60,400&family=DM+Mono:wght@400;500&display=swap">
 <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=Source+Serif+4:ital,opsz,wght@0,8..60,300;0,8..60,400;0,8..60,500;1,8..60,400&family=DM+Mono:wght@400;500&display=swap"></noscript>
 <style>
+  /* Paper Mono — bundled and self-hosted (SIL OFL 1.1, see fonts/PaperMono-OFL.txt).
+     One variable file covers weights 100–800; a reader font option, so it loads
+     only when chosen rather than being preloaded. */
+  @font-face {
+    font-family: 'Paper Mono';
+    src: url('fonts/paper-mono.woff2') format('woff2');
+    font-weight: 100 800;
+    font-style: normal;
+    font-display: swap;
+  }
+
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   :root {
@@ -1157,7 +1168,7 @@ let state = {
   fontSize: DB.get("fontSize", 18),
   // Source Serif by default. Stored under a new key so a font picked before it
   // became the default does not keep overriding it; a pick made now sticks.
-  readerFont: DB.get("readerFont2", "source"), // source | serif | mono
+  readerFont: DB.get("readerFont2", "source"), // source | serif | paper | mono
   history: [],
   histIdx: -1,
   article: null,
@@ -5729,6 +5740,7 @@ document.getElementById("copyBtn").addEventListener("click", copyHeadlineLink);
   const FONTS = [
     { key: "source", label: "Source Serif" },
     { key: "serif",  label: "Playfair" },
+    { key: "paper",  label: "Paper Mono" },
     { key: "mono",   label: "Mono" },
   ];
   function closePopup() {
@@ -6046,6 +6058,7 @@ async function runSearch(query) {
 const READER_FONTS = {
   source: "'Source Serif 4', Georgia, serif",
   serif:  "'Playfair Display', Georgia, serif",
+  paper:  "'Paper Mono', 'DM Mono', ui-monospace, monospace",
   mono:   "'DM Mono', monospace",
 };
 
