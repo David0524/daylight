@@ -1,6 +1,6 @@
 # Deployed by Cloudflare from this folder (Workers & Pages -> Import a
 # repository, root directory "cron"). See index.js.
-name = "daylight-cron"
+name = "daylight-build-timer"
 main = "index.js"
 compatibility_date = "2025-01-01"
 
