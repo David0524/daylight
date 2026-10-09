@@ -1,0 +1,11 @@
+# Deployed by Cloudflare from this folder (Workers & Pages -> Import a
+# repository, root directory "cron"). See index.js.
+name = "daylight-cron"
+main = "index.js"
+compatibility_date = "2025-01-01"
+
+[triggers]
+crons = ["2,32 * * * *"]
+
+[observability]
+enabled = true
