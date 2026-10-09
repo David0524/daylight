@@ -17,6 +17,8 @@ const ARTICLE_LIMIT = 300;
 
 const SHELL_FILES = [
   "./", "./index.html", "./manifest.webmanifest", "./fonts/paper-mono.woff2",
+  "./fonts/michelangelus-regular.woff2", "./fonts/michelangelus-bold.woff2",
+  "./fonts/michelangelus-italic.woff2", "./fonts/michelangelus-bolditalic.woff2",
   "./icons/icon-180.png", "./icons/icon-192.png", "./icons/favicon-32.png",
 ];
 
